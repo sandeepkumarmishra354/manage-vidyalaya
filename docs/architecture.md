@@ -103,6 +103,18 @@ startup, in order:
   avoid rounding errors on money.
 - `0004_exams.sql`: `subjects`, `exams`, `exam_marks` (one row per
   student/subject/exam; a report card is a query, not a stored document)
+- `0005_module_settings.sql`: `module_settings`, one row per (branch,
+  module) that's been explicitly toggled. A module with no row defaults to
+  enabled -- see "Module toggles" below.
+- `0006_houses.sql`: `houses`, `student_houses` (a student's current house,
+  one at a time), `house_point_events` (an append-only points ledger --
+  never updated in place, so a leaderboard is just `SUM(points) GROUP BY
+  house_id` and every award/deduction keeps an audit trail)
+- `0007_library.sql`: `library_books` (with a denormalized
+  `available_copies`, kept in sync by issue/return the same way
+  `fee_invoices.amount_paid` is), `library_issues`
+- `0008_transport.sql`: `transport_routes`, `transport_stops`,
+  `student_transport` (a student's current route/stop, one at a time)
 
 Plus local-only (desktop-only, never synced) tables under
 `apps/desktop/src-tauri/migrations/`: `app_settings` (cached session/token),
@@ -122,3 +134,45 @@ tests without a running Tauri app (see
 written via `state::enqueue_outbox_from_row`, which re-reads the row that
 was just written rather than requiring every command to hand-build a JSON
 payload that has to be kept in sync with the table's columns by hand.
+
+## Admissions & eligibility
+
+`create_admission` leaves a student at `status = 'applied'` -- an applicant,
+not yet a student the rest of the system should treat as real. A separate
+`confirm_admission` command (`apps/desktop/src-tauri/src/commands/
+students.rs`) is what a front-desk admin clicks to actually enroll them: it
+assigns a branch+year-scoped sequential admission number
+(`MAIN-2026-0001`, with a bounded retry loop against the `UNIQUE
+(tenant_id, admission_number)` constraint to absorb same-device races) and
+flips the student to `enrolled`. Attendance rosters, fee invoice
+generation, and exam marks rosters all filter on `status = 'enrolled'`, so
+an unconfirmed applicant simply doesn't show up in any of them -- there's
+no separate "eligibility" flag to keep in sync, `status` already carries
+that meaning. A true cross-device numbering race (two offline devices
+confirming admissions for the same branch before either has synced) isn't
+fully solved -- see the last-write-wins note above; the retry loop only
+covers same-device races.
+
+## Module toggles
+
+Every module beyond the core (students/admissions, academic setup,
+dashboard) can be turned off per branch via `module_settings`
+(`get_module_settings` / `set_module_enabled` in `apps/desktop/src-tauri/
+src/commands/module_settings.rs`, `TOGGLEABLE_MODULES` in `models.rs`).
+The frontend (`stores/app-store.ts`) loads a branch's disabled-module set
+on login/branch-switch and uses it two ways: to filter which nav sections
+render (`components/app-shell.tsx`), and as a `RequireModule` route guard
+(`App.tsx`) that redirects to the dashboard if a disabled module's route is
+reached directly by URL -- so hiding a nav item isn't the only thing
+standing between a user and a module a school turned off. Disabling a
+module never touches its data; toggling it back on picks up right where it
+left off.
+
+## Print output
+
+Attendance registers, exam report cards, and ID cards are printed
+client-side via `window.print()` against a small print stylesheet
+(`index.css`): everything on the page is hidden except an element marked
+`data-print-area` (and its descendants), so each printable view renders its
+own clean, chrome-free layout in the same DOM rather than opening a
+separate window or generating a PDF server-side.

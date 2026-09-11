@@ -111,6 +111,155 @@ export interface Admission {
   applied_at: string;
 }
 
+export interface ConfirmAdmissionResult {
+  admission_id: string;
+  student_id: string;
+  admission_number: string;
+  stage: string;
+}
+
+// ============================================================================
+// Module settings
+// ============================================================================
+
+export type ModuleKey = "attendance" | "fees" | "exams" | "library" | "transport" | "houses" | "id_cards";
+
+export interface ModuleSetting {
+  module_key: ModuleKey;
+  is_enabled: boolean;
+}
+
+// ============================================================================
+// Houses
+// ============================================================================
+
+export interface House {
+  id: string;
+  branch_id: string;
+  name: string;
+  color?: string | null;
+}
+
+export interface NewHouseInput {
+  branch_id: string;
+  name: string;
+  color?: string | null;
+}
+
+export interface NewHousePointEventInput {
+  branch_id: string;
+  house_id: string;
+  student_id?: string | null;
+  academic_session_id?: string | null;
+  points: number;
+  reason: string;
+  event_date: string;
+}
+
+export interface HousePointEventListItem {
+  id: string;
+  house_name: string;
+  student_name?: string | null;
+  points: number;
+  reason: string;
+  event_date: string;
+}
+
+export interface HouseLeaderboardRow {
+  house_id: string;
+  house_name: string;
+  color?: string | null;
+  total_points: number;
+  student_count: number;
+}
+
+// ============================================================================
+// Library
+// ============================================================================
+
+export interface LibraryBook {
+  id: string;
+  branch_id: string;
+  title: string;
+  author?: string | null;
+  isbn?: string | null;
+  category?: string | null;
+  total_copies: number;
+  available_copies: number;
+}
+
+export interface NewLibraryBookInput {
+  branch_id: string;
+  title: string;
+  author?: string | null;
+  isbn?: string | null;
+  category?: string | null;
+  total_copies: number;
+}
+
+export interface LibraryIssueListItem {
+  id: string;
+  book_id: string;
+  book_title: string;
+  student_id: string;
+  student_name: string;
+  issued_date: string;
+  due_date: string;
+  returned_date?: string | null;
+  status: "issued" | "returned" | "lost";
+}
+
+// ============================================================================
+// Transport
+// ============================================================================
+
+export interface TransportRoute {
+  id: string;
+  branch_id: string;
+  name: string;
+  vehicle_number?: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  capacity?: number | null;
+}
+
+export interface NewTransportRouteInput {
+  branch_id: string;
+  name: string;
+  vehicle_number?: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  capacity?: number | null;
+}
+
+export interface TransportStop {
+  id: string;
+  route_id: string;
+  name: string;
+  sequence: number;
+  pickup_time?: string | null;
+}
+
+export interface NewTransportStopInput {
+  route_id: string;
+  name: string;
+  sequence: number;
+  pickup_time?: string | null;
+}
+
+export interface StudentTransportInfo {
+  route_name: string;
+  stop_name: string;
+  pickup_time?: string | null;
+}
+
+export interface TransportRosterEntry {
+  student_id: string;
+  first_name: string;
+  last_name?: string | null;
+  stop_name: string;
+}
+
 export interface Session {
   user_id: string;
   full_name: string;
@@ -290,6 +439,43 @@ export interface ReportCard {
   percentage: number;
 }
 
+// ============================================================================
+// Dashboard
+// ============================================================================
+
+export interface ClassCount {
+  class_name: string;
+  count: number;
+}
+
+export interface AttendanceTrendPoint {
+  attendance_date: string;
+  present_count: number;
+  total_count: number;
+}
+
+export interface FeeStatusCount {
+  status: InvoiceStatus;
+  count: number;
+  /** minor units (paise) */
+  amount: number;
+}
+
+export interface DashboardStats {
+  total_students: number;
+  enrolled_count: number;
+  applied_count: number;
+  alumni_count: number;
+  todays_attendance_present: number;
+  todays_attendance_total: number;
+  fee_collected_paise: number;
+  fee_pending_paise: number;
+  overdue_books_count: number;
+  enrollment_by_class: ClassCount[];
+  attendance_trend: AttendanceTrendPoint[];
+  fee_status_breakdown: FeeStatusCount[];
+}
+
 export const api = {
   login: (email: string, password: string) =>
     invoke<Session>("login", { email, password }),
@@ -313,6 +499,47 @@ export const api = {
   getStudent: (id: string) => invoke<StudentDetail>("get_student", { id }),
   createAdmission: (input: NewAdmissionInput) =>
     invoke<Admission>("create_admission", { input }),
+  getAdmissionForStudent: (studentId: string) =>
+    invoke<Admission | null>("get_admission_for_student", { studentId }),
+  confirmAdmission: (admissionId: string) =>
+    invoke<ConfirmAdmissionResult>("confirm_admission", { admissionId }),
+
+  getModuleSettings: (branchId: string) => invoke<ModuleSetting[]>("get_module_settings", { branchId }),
+  setModuleEnabled: (branchId: string, moduleKey: ModuleKey, isEnabled: boolean) =>
+    invoke<ModuleSetting>("set_module_enabled", {
+      input: { branch_id: branchId, module_key: moduleKey, is_enabled: isEnabled },
+    }),
+
+  createHouse: (input: NewHouseInput) => invoke<House>("create_house", { input }),
+  listHouses: (branchId: string) => invoke<House[]>("list_houses", { branchId }),
+  assignStudentHouse: (studentId: string, houseId: string) =>
+    invoke<void>("assign_student_house", { input: { student_id: studentId, house_id: houseId } }),
+  getStudentHouse: (studentId: string) => invoke<House | null>("get_student_house", { studentId }),
+  awardHousePoints: (input: NewHousePointEventInput) => invoke<void>("award_house_points", { input }),
+  listHousePointEvents: (branchId: string) =>
+    invoke<HousePointEventListItem[]>("list_house_point_events", { branchId }),
+  getHouseLeaderboard: (branchId: string, academicSessionId?: string | null) =>
+    invoke<HouseLeaderboardRow[]>("get_house_leaderboard", { branchId, academicSessionId }),
+
+  createBook: (input: NewLibraryBookInput) => invoke<LibraryBook>("create_book", { input }),
+  listBooks: (branchId: string, search?: string) => invoke<LibraryBook[]>("list_books", { branchId, search }),
+  issueBook: (bookId: string, studentId: string, dueDate: string) =>
+    invoke<void>("issue_book", { input: { book_id: bookId, student_id: studentId, due_date: dueDate } }),
+  returnBook: (issueId: string) => invoke<void>("return_book", { issueId }),
+  listIssues: (branchId: string, status?: string | null) =>
+    invoke<LibraryIssueListItem[]>("list_issues", { branchId, status }),
+
+  createRoute: (input: NewTransportRouteInput) => invoke<TransportRoute>("create_route", { input }),
+  listRoutes: (branchId: string) => invoke<TransportRoute[]>("list_routes", { branchId }),
+  createStop: (input: NewTransportStopInput) => invoke<TransportStop>("create_stop", { input }),
+  listStops: (routeId: string) => invoke<TransportStop[]>("list_stops", { routeId }),
+  assignStudentTransport: (studentId: string, routeId: string, stopId: string) =>
+    invoke<void>("assign_student_transport", {
+      input: { student_id: studentId, route_id: routeId, stop_id: stopId },
+    }),
+  getStudentTransport: (studentId: string) =>
+    invoke<StudentTransportInfo | null>("get_student_transport", { studentId }),
+  listRouteRoster: (routeId: string) => invoke<TransportRosterEntry[]>("list_route_roster", { routeId }),
 
   getAttendanceRoster: (
     branchId: string,
@@ -351,6 +578,8 @@ export const api = {
   saveMarks: (input: SaveMarksInput) => invoke<void>("save_marks", { input }),
   getReportCard: (studentId: string, examId: string) =>
     invoke<ReportCard>("get_report_card", { studentId, examId }),
+
+  getDashboardStats: (branchId: string) => invoke<DashboardStats>("get_dashboard_stats", { branchId }),
 
   syncNow: () => invoke<SyncStatus>("sync_now"),
   getSyncStatus: () => invoke<SyncStatus>("get_sync_status"),

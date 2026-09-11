@@ -9,7 +9,7 @@ use desktop_lib::commands::exams::{
 };
 use desktop_lib::commands::fees::{create_fee_structure_impl, generate_invoices_impl, record_payment_impl};
 use desktop_lib::commands::attendance::mark_attendance_impl;
-use desktop_lib::commands::students::create_admission_impl;
+use desktop_lib::commands::students::{confirm_admission_impl, create_admission_impl};
 use desktop_lib::db;
 use desktop_lib::models::{
     MarkAttendanceEntry, MarkAttendanceInput, NewAdmissionInput, NewExamInput, NewFeeStructureInput,
@@ -50,7 +50,122 @@ fn enroll_student(conn: &mut rusqlite::Connection, first_name: &str) -> String {
     )
     .expect("create_admission_impl should succeed");
 
+    // Fees/attendance/exams are gated to enrolled students -- confirm the
+    // admission (same as an admin clicking "Confirm admission" in the UI)
+    // so these tests exercise the real eligibility path.
+    confirm_admission_impl(conn, admission.id).expect("confirm_admission_impl should succeed");
+
     admission.student_id
+}
+
+#[test]
+fn confirming_an_admission_assigns_a_number_and_makes_the_student_fee_eligible() {
+    let mut conn = fresh_db();
+    let academic_session_id: String = conn
+        .query_row("SELECT id FROM academic_sessions LIMIT 1", [], |r| r.get(0))
+        .unwrap();
+    let class_id: String = conn.query_row("SELECT id FROM classes LIMIT 1", [], |r| r.get(0)).unwrap();
+
+    let unconfirmed = create_admission_impl(
+        &mut conn,
+        NewAdmissionInput {
+            branch_id: DEMO_BRANCH_ID.to_string(),
+            academic_session_id: academic_session_id.clone(),
+            applied_class_id: Some(class_id.clone()),
+            first_name: "Kabir".to_string(),
+            last_name: None,
+            date_of_birth: None,
+            gender: None,
+            address: None,
+            guardian_name: "Parent Kabir".to_string(),
+            guardian_relation: "father".to_string(),
+            guardian_phone: None,
+            guardian_email: None,
+        },
+    )
+    .unwrap();
+
+    // Not yet confirmed: no admission number, status still "applied".
+    let (status, admission_number): (String, Option<String>) = conn
+        .query_row(
+            "SELECT status, admission_number FROM students WHERE id = ?1",
+            [&unconfirmed.student_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "applied");
+    assert_eq!(admission_number, None);
+
+    let confirmed_student_id = enroll_student(&mut conn, "Meera");
+
+    let result = confirm_admission_impl(&mut conn, unconfirmed.id.clone()).unwrap();
+    assert_eq!(result.stage, "enrolled");
+    assert!(result.admission_number.starts_with("MAIN-"));
+
+    let (status, admission_number): (String, Option<String>) = conn
+        .query_row(
+            "SELECT status, admission_number FROM students WHERE id = ?1",
+            [&unconfirmed.student_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "enrolled");
+    assert_eq!(admission_number, Some(result.admission_number));
+
+    // Eligibility gating: generate_invoices only picks up enrolled students.
+    // At this point both Meera (enrolled via the test helper) and Kabir
+    // (just confirmed above) are enrolled in the same class, so both get
+    // invoiced -- but a third, still-unconfirmed applicant must not.
+    let still_unconfirmed = create_admission_impl(
+        &mut conn,
+        NewAdmissionInput {
+            branch_id: DEMO_BRANCH_ID.to_string(),
+            academic_session_id: academic_session_id.clone(),
+            applied_class_id: Some(class_id),
+            first_name: "Not Yet Enrolled".to_string(),
+            last_name: None,
+            date_of_birth: None,
+            gender: None,
+            address: None,
+            guardian_name: "Parent".to_string(),
+            guardian_relation: "father".to_string(),
+            guardian_phone: None,
+            guardian_email: None,
+        },
+    )
+    .unwrap();
+
+    let structure = create_fee_structure_impl(
+        &mut conn,
+        NewFeeStructureInput {
+            branch_id: DEMO_BRANCH_ID.to_string(),
+            academic_session_id,
+            class_id: None,
+            name: "Tuition Fee".to_string(),
+            amount: 100_000,
+            frequency: "annual".to_string(),
+        },
+    )
+    .unwrap();
+
+    let created = generate_invoices_impl(&mut conn, structure.id.clone()).unwrap();
+    assert_eq!(created, 2, "only the two enrolled students (Meera, Kabir) should be invoiced");
+
+    let invoiced_for_unconfirmed: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM fee_invoices WHERE student_id = ?1",
+            [&still_unconfirmed.student_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(invoiced_for_unconfirmed, 0, "an unconfirmed applicant must not be invoiced");
+
+    let invoiced_for_confirmed: i64 = conn
+        .query_row("SELECT COUNT(*) FROM fee_invoices WHERE student_id = ?1", [&confirmed_student_id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(invoiced_for_confirmed, 1);
 }
 
 #[test]

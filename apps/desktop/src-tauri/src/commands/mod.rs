@@ -1,7 +1,12 @@
 pub mod attendance;
 pub mod auth;
 pub mod branches;
+pub mod dashboard;
 pub mod exams;
 pub mod fees;
+pub mod houses;
+pub mod library;
+pub mod module_settings;
 pub mod students;
 pub mod sync;
+pub mod transport;

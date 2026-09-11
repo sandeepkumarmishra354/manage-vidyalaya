@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -29,6 +30,8 @@ function todayIso() {
 
 export function AttendancePage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const branches = useAppStore((s) => s.branches);
+  const branch = branches.find((b) => b.id === selectedBranchId);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [classId, setClassId] = useState("");
@@ -90,14 +93,25 @@ export function AttendancePage() {
     }
   };
 
+  const className = classes.find((c) => c.id === classId)?.name;
+  const sectionName = sections.find((s) => s.id === sectionId)?.name;
+
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Attendance</h1>
-        <p className="text-muted-foreground">Mark daily attendance for a class -- works fully offline.</p>
+      <div className="flex items-center justify-between" data-no-print>
+        <div>
+          <h1 className="text-2xl font-semibold">Attendance</h1>
+          <p className="text-muted-foreground">Mark daily attendance for a class -- works fully offline.</p>
+        </div>
+        {roster.length > 0 && (
+          <Button variant="outline" onClick={() => window.print()}>
+            <PrinterIcon />
+            Print register
+          </Button>
+        )}
       </div>
 
-      <Card>
+      <Card data-no-print>
         <CardHeader>
           <CardTitle className="text-base">Select class &amp; date</CardTitle>
         </CardHeader>
@@ -157,7 +171,7 @@ export function AttendancePage() {
       </Card>
 
       {classId && (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border" data-no-print>
           <Table>
             <TableHeader>
               <TableRow>
@@ -203,11 +217,50 @@ export function AttendancePage() {
       )}
 
       {classId && roster.length > 0 && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" data-no-print>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save attendance"}
           </Button>
           {savedMessage && <p className="text-sm text-muted-foreground">{savedMessage}</p>}
+        </div>
+      )}
+
+      {roster.length > 0 && (
+        <div data-print-area className="hidden p-6 print:block">
+          <div className="mb-4 flex items-center justify-between border-b pb-3">
+            <div>
+              <p className="text-lg font-bold">{branch?.name ?? "Vidyalaya School"}</p>
+              <p className="text-sm text-slate-600">Attendance Register</p>
+            </div>
+            <div className="text-right text-sm text-slate-600">
+              <p>
+                Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
+              </p>
+              <p>Date: {date}</p>
+            </div>
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b-2">
+                <th className="py-1.5 text-left">#</th>
+                <th className="py-1.5 text-left">Student Name</th>
+                <th className="py-1.5 text-left">Status</th>
+                <th className="py-1.5 text-left">Signature</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roster.map((entry, i) => (
+                <tr key={entry.student_id} className="border-b">
+                  <td className="py-1.5">{i + 1}</td>
+                  <td className="py-1.5">
+                    {entry.first_name} {entry.last_name ?? ""}
+                  </td>
+                  <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
+                  <td className="py-1.5"></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

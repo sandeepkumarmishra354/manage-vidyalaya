@@ -22,6 +22,7 @@ pub fn get_attendance_roster(
          LEFT JOIN attendance_records a
            ON a.student_id = s.id AND a.attendance_date = ?1 AND a.deleted_at IS NULL
          WHERE s.branch_id = ?2 AND s.current_class_id = ?3 AND s.deleted_at IS NULL
+           AND s.status = 'enrolled'
            AND (?4 IS NULL OR s.current_section_id = ?4)
          ORDER BY s.first_name";
 

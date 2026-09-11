@@ -12,15 +12,32 @@ school.
 ## Modules implemented so far
 
 - **Student Info & Admissions** -- enquiry-to-enrollment workflow, guardian
-  records, class/section assignment
-- **Attendance** -- daily attendance per class/section, marked offline
+  records, class/section assignment, and admission confirmation (assigns a
+  real admission number and flips the student to `enrolled` -- only
+  enrolled students are eligible for attendance/fees/exams)
+- **Attendance** -- daily attendance per class/section, marked offline, with
+  a client-side printable register
 - **Fees & Billing** -- fee structures, invoice generation, payments/receipts
   (amounts in paise, not floats)
 - **Exams & Report Cards** -- subjects, exams, marks entry, per-student
-  report cards
+  report cards with client-side printing
+- **Houses** -- house teams, a points ledger (awards/deductions with a
+  reason and audit trail), and a leaderboard
+- **Library** -- book catalog and issue/return tracking
+- **Transport** -- bus routes, stops, and student assignments
+- **ID Cards** -- 4 selectable print-ready templates, single or whole-class
+- **Academic Setup** -- academic sessions, classes, and sections (create as
+  many as the school needs -- these sync like everything else)
+- **Module Settings** -- every optional module above can be turned off
+  per branch; disabled modules disappear from the nav and are also
+  route-guarded, but their data is never deleted
+- **Dashboard** -- real aggregate stats and charts (enrollment by class, fee
+  status breakdown, 14-day attendance trend, house leaderboard)
 
-All four are wired through the same offline-write -> outbox -> sync
-architecture and are reachable from the app's left nav once logged in.
+All of the above are wired through the same offline-write -> outbox -> sync
+architecture proven by the Student Info module, and are reachable from the
+app's left nav (grouped into Academics / Finance / Services / Admin) once
+logged in.
 
 ## Structure
 

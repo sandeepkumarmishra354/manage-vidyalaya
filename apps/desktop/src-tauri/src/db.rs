@@ -7,6 +7,12 @@ const ATTENDANCE_SCHEMA: &str =
     include_str!("../../../../packages/db-schema/migrations/0002_attendance.sql");
 const FEES_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0003_fees.sql");
 const EXAMS_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0004_exams.sql");
+const MODULE_SETTINGS_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0005_module_settings.sql");
+const HOUSES_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0006_houses.sql");
+const LIBRARY_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0007_library.sql");
+const TRANSPORT_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0008_transport.sql");
 const LOCAL_APP_SETTINGS_SCHEMA: &str = include_str!("../migrations/local_0001_app_settings.sql");
 
 /// Opens (creating if needed) the local SQLite database and applies migrations.
@@ -40,6 +46,10 @@ fn run_migrations(conn: &Connection) -> anyhow::Result<()> {
     apply_if_pending(conn, "0002_attendance", ATTENDANCE_SCHEMA)?;
     apply_if_pending(conn, "0003_fees", FEES_SCHEMA)?;
     apply_if_pending(conn, "0004_exams", EXAMS_SCHEMA)?;
+    apply_if_pending(conn, "0005_module_settings", MODULE_SETTINGS_SCHEMA)?;
+    apply_if_pending(conn, "0006_houses", HOUSES_SCHEMA)?;
+    apply_if_pending(conn, "0007_library", LIBRARY_SCHEMA)?;
+    apply_if_pending(conn, "0008_transport", TRANSPORT_SCHEMA)?;
 
     // Local-only (desktop-specific, never synced) schema.
     apply_if_pending(conn, "local_0001_app_settings", LOCAL_APP_SETTINGS_SCHEMA)?;
@@ -81,7 +91,19 @@ mod tests {
         drop(conn);
         let conn2 = open_db(&db_path).expect("second open should be a no-op migration-wise");
 
-        for table in ["students", "attendance_records", "fee_invoices", "exam_marks"] {
+        for table in [
+            "students",
+            "attendance_records",
+            "fee_invoices",
+            "exam_marks",
+            "module_settings",
+            "houses",
+            "house_point_events",
+            "library_books",
+            "library_issues",
+            "transport_routes",
+            "student_transport",
+        ] {
             let table_count: i64 = conn2
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",

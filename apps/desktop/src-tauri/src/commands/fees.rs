@@ -112,7 +112,7 @@ pub fn generate_invoices_impl(conn: &mut rusqlite::Connection, fee_structure_id:
         let mut stmt = tx
             .prepare(
                 "SELECT id FROM students
-                 WHERE branch_id = ?1 AND deleted_at IS NULL AND status != 'withdrawn'
+                 WHERE branch_id = ?1 AND deleted_at IS NULL AND status = 'enrolled'
                    AND (?2 IS NULL OR current_class_id = ?2)",
             )
             .map_err(|e| e.to_string())?;

@@ -329,3 +329,242 @@ pub struct ReportCard {
     pub total_max: i64,
     pub percentage: f64,
 }
+
+// ============================================================================
+// Module settings (per-branch feature toggles)
+// ============================================================================
+
+/// Modules a branch can turn off. Core areas (students/admissions, academic
+/// setup, dashboard) aren't in this list -- they're never toggleable.
+pub const TOGGLEABLE_MODULES: &[&str] =
+    &["attendance", "fees", "exams", "library", "transport", "houses", "id_cards"];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleSetting {
+    pub module_key: String,
+    pub is_enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetModuleEnabledInput {
+    pub branch_id: String,
+    pub module_key: String,
+    pub is_enabled: bool,
+}
+
+// ============================================================================
+// Admission confirmation
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfirmAdmissionResult {
+    pub admission_id: String,
+    pub student_id: String,
+    pub admission_number: String,
+    pub stage: String,
+}
+
+// ============================================================================
+// Houses
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct House {
+    pub id: String,
+    pub branch_id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewHouseInput {
+    pub branch_id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssignHouseInput {
+    pub student_id: String,
+    pub house_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewHousePointEventInput {
+    pub branch_id: String,
+    pub house_id: String,
+    pub student_id: Option<String>,
+    pub academic_session_id: Option<String>,
+    pub points: i64,
+    pub reason: String,
+    pub event_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HousePointEventListItem {
+    pub id: String,
+    pub house_name: String,
+    pub student_name: Option<String>,
+    pub points: i64,
+    pub reason: String,
+    pub event_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HouseLeaderboardRow {
+    pub house_id: String,
+    pub house_name: String,
+    pub color: Option<String>,
+    pub total_points: i64,
+    pub student_count: i64,
+}
+
+// ============================================================================
+// Library
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryBook {
+    pub id: String,
+    pub branch_id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub isbn: Option<String>,
+    pub category: Option<String>,
+    pub total_copies: i64,
+    pub available_copies: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewLibraryBookInput {
+    pub branch_id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub isbn: Option<String>,
+    pub category: Option<String>,
+    pub total_copies: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IssueBookInput {
+    pub book_id: String,
+    pub student_id: String,
+    pub due_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryIssueListItem {
+    pub id: String,
+    pub book_id: String,
+    pub book_title: String,
+    pub student_id: String,
+    pub student_name: String,
+    pub issued_date: String,
+    pub due_date: String,
+    pub returned_date: Option<String>,
+    pub status: String,
+}
+
+// ============================================================================
+// Transport
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportRoute {
+    pub id: String,
+    pub branch_id: String,
+    pub name: String,
+    pub vehicle_number: Option<String>,
+    pub driver_name: Option<String>,
+    pub driver_phone: Option<String>,
+    pub capacity: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewTransportRouteInput {
+    pub branch_id: String,
+    pub name: String,
+    pub vehicle_number: Option<String>,
+    pub driver_name: Option<String>,
+    pub driver_phone: Option<String>,
+    pub capacity: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportStop {
+    pub id: String,
+    pub route_id: String,
+    pub name: String,
+    pub sequence: i64,
+    pub pickup_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewTransportStopInput {
+    pub route_id: String,
+    pub name: String,
+    pub sequence: i64,
+    pub pickup_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssignTransportInput {
+    pub student_id: String,
+    pub route_id: String,
+    pub stop_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudentTransportInfo {
+    pub route_name: String,
+    pub stop_name: String,
+    pub pickup_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportRosterEntry {
+    pub student_id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub stop_name: String,
+}
+
+// ============================================================================
+// Dashboard
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ClassCount {
+    pub class_name: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttendanceTrendPoint {
+    pub attendance_date: String,
+    pub present_count: i64,
+    pub total_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FeeStatusCount {
+    pub status: String,
+    pub count: i64,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DashboardStats {
+    pub total_students: i64,
+    pub enrolled_count: i64,
+    pub applied_count: i64,
+    pub alumni_count: i64,
+    pub todays_attendance_present: i64,
+    pub todays_attendance_total: i64,
+    pub fee_collected_paise: i64,
+    pub fee_pending_paise: i64,
+    pub overdue_books_count: i64,
+    pub enrollment_by_class: Vec<ClassCount>,
+    pub attendance_trend: Vec<AttendanceTrendPoint>,
+    pub fee_status_breakdown: Vec<FeeStatusCount>,
+}

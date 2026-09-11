@@ -139,7 +139,7 @@ pub fn get_marks_roster(
              FROM students s
              LEFT JOIN exam_marks m
                ON m.student_id = s.id AND m.exam_id = ?1 AND m.subject_id = ?2 AND m.deleted_at IS NULL
-             WHERE s.current_class_id = ?3 AND s.deleted_at IS NULL
+             WHERE s.current_class_id = ?3 AND s.deleted_at IS NULL AND s.status = 'enrolled'
              ORDER BY s.first_name",
         )
         .map_err(|e| e.to_string())?;

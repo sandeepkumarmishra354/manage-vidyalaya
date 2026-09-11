@@ -27,6 +27,15 @@ const SYNCABLE_TABLES: &[&str] = &[
     "subjects",
     "exams",
     "exam_marks",
+    "module_settings",
+    "houses",
+    "student_houses",
+    "house_point_events",
+    "library_books",
+    "library_issues",
+    "transport_routes",
+    "transport_stops",
+    "student_transport",
 ];
 
 #[derive(Debug, Serialize)]

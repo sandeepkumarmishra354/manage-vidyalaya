@@ -2,8 +2,11 @@ use rusqlite::params;
 use serde_json::json;
 use tauri::State;
 
-use crate::models::{Admission, Guardian, NewAdmissionInput, Student, StudentDetail, StudentListItem};
-use crate::state::{current_tenant_id, enqueue_outbox, AppState};
+use crate::models::{
+    Admission, ConfirmAdmissionResult, Guardian, NewAdmissionInput, Student, StudentDetail,
+    StudentListItem,
+};
+use crate::state::{current_tenant_id, enqueue_outbox, enqueue_outbox_from_row, AppState};
 
 #[tauri::command]
 pub fn list_students(
@@ -66,7 +69,7 @@ pub fn list_students_in_class(
              FROM students s
              LEFT JOIN classes c ON c.id = s.current_class_id
              LEFT JOIN sections sec ON sec.id = s.current_section_id
-             WHERE s.current_class_id = ?1 AND s.deleted_at IS NULL
+             WHERE s.current_class_id = ?1 AND s.deleted_at IS NULL AND s.status = 'enrolled'
              ORDER BY s.first_name",
         )
         .map_err(|e| e.to_string())?;
@@ -285,5 +288,128 @@ pub fn create_admission_impl(
         branch_id: input.branch_id,
         stage: "applied".to_string(),
         applied_at: now,
+    })
+}
+
+/// The (non-deleted) admission record for a student, if any -- a student
+/// created via `create_admission` has exactly one. Used by the UI to find
+/// what to pass to `confirm_admission`.
+#[tauri::command]
+pub fn get_admission_for_student(
+    state: State<AppState>,
+    student_id: String,
+) -> Result<Option<Admission>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        "SELECT id, student_id, branch_id, stage, applied_at FROM admissions
+         WHERE student_id = ?1 AND deleted_at IS NULL LIMIT 1",
+        [&student_id],
+        |row| {
+            Ok(Admission {
+                id: row.get(0)?,
+                student_id: row.get(1)?,
+                branch_id: row.get(2)?,
+                stage: row.get(3)?,
+                applied_at: row.get(4)?,
+            })
+        },
+    )
+    .map(Some)
+    .or_else(|e| {
+        if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+            Ok(None)
+        } else {
+            Err(e.to_string())
+        }
+    })
+}
+
+/// Confirms an admission: assigns a real admission number and flips the
+/// student to `enrolled` (the status every other module -- fees,
+/// attendance, exams -- requires before a student is eligible). The
+/// admission number is branch + year scoped and sequential
+/// (`MAIN-2026-0001`), with a bounded retry loop against the `UNIQUE
+/// (tenant_id, admission_number)` constraint to absorb same-device races
+/// (e.g. a rapid double-click). A true cross-device race -- two offline
+/// devices confirming admissions for the same branch before either has
+/// synced -- can still collide; see docs/architecture.md.
+#[tauri::command]
+pub fn confirm_admission(state: State<AppState>, admission_id: String) -> Result<ConfirmAdmissionResult, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    confirm_admission_impl(&mut conn, admission_id)
+}
+
+pub fn confirm_admission_impl(
+    conn: &mut rusqlite::Connection,
+    admission_id: String,
+) -> Result<ConfirmAdmissionResult, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (student_id, branch_id): (String, String) = conn
+        .query_row(
+            "SELECT student_id, branch_id FROM admissions WHERE id = ?1 AND deleted_at IS NULL",
+            [&admission_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("admission not found: {e}"))?;
+
+    let branch_code: String = conn
+        .query_row("SELECT code FROM branches WHERE id = ?1", [&branch_id], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let year = chrono::Utc::now().format("%Y").to_string();
+    let prefix = format!("{branch_code}-{year}-");
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM students WHERE admission_number LIKE ?1",
+            [format!("{prefix}%")],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let mut next_seq: i64 = count + 1;
+
+    const MAX_ATTEMPTS: i64 = 20;
+    let mut attempts = 0;
+    let admission_number = loop {
+        attempts += 1;
+        let candidate = format!("{prefix}{next_seq:04}");
+
+        let result = tx.execute(
+            "UPDATE students SET admission_number = ?1, status = 'enrolled', updated_at = ?2, version = version + 1
+             WHERE id = ?3",
+            params![candidate, now, student_id],
+        );
+
+        match result {
+            Ok(_) => break candidate,
+            Err(e) if e.to_string().contains("UNIQUE constraint failed") && attempts < MAX_ATTEMPTS => {
+                next_seq += 1;
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+
+    enqueue_outbox_from_row(&tx, "students", &student_id, "update").map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE admissions SET stage = 'enrolled', decided_at = ?1, updated_at = ?1, version = version + 1
+         WHERE id = ?2",
+        params![now, admission_id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "admissions", &admission_id, "update").map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(ConfirmAdmissionResult {
+        admission_id,
+        student_id,
+        admission_number,
+        stage: "enrolled".to_string(),
     })
 }
