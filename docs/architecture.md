@@ -44,10 +44,11 @@ path if that becomes common: per-field merge or CRDTs.
 
 **Known gap**: academic structure (academic sessions, classes, sections) is
 currently seeded locally per device with fixed demo ids rather than synced
-through the outbox like students/guardians/admissions are. Real per-school
-academic structure provisioning (created once, pushed through the outbox
-like everything else) is part of the Fees/Attendance/Exams build-out, not
-this milestone. See comments in `apps/desktop/src-tauri/src/seed.rs`.
+through the outbox like students/guardians/admissions/attendance/fees/exams
+are. Real per-school academic structure provisioning (created once, pushed
+through the outbox like everything else) is part of the school
+signup/provisioning work, not yet built. See comments in
+`apps/desktop/src-tauri/src/seed.rs`.
 
 ## Auth & licensing
 
@@ -65,14 +66,39 @@ via `prisma/seed.ts` with fixed demo ids for local development).
 
 ## Data model
 
-Defined once in `packages/db-schema/migrations/0001_core.sql`: tenants,
-branches, users/roles/user_roles, academic_sessions, classes, sections,
-students, guardians, student_guardians, admissions, plus local-only sync
-bookkeeping tables (`sync_outbox`, `sync_state`). Applied to SQLite by the
-Rust migration runner (`apps/desktop/src-tauri/src/db.rs`) at app startup.
-The Postgres schema (`apps/cloud-api/prisma/schema.prisma`) mirrors the
-tenant/branch/role/user subset by hand -- see the design note at the top of
-that file for why it isn't code-generated from the same source.
+`packages/db-schema/migrations/` is the source of truth, applied to SQLite
+by the Rust migration runner (`apps/desktop/src-tauri/src/db.rs`) at app
+startup, in order:
 
-Fees, Attendance, and Exams get their own migrations (`0002_*` etc.) when
-those modules are built.
+- `0001_core.sql`: tenants, branches, users/roles/user_roles,
+  academic_sessions, classes, sections, students, guardians,
+  student_guardians, admissions
+- `0002_attendance.sql`: `attendance_records` (one row per student per day,
+  enforced by a unique index -- re-marking a date updates it rather than
+  duplicating)
+- `0003_fees.sql`: `fee_structures` (what's charged), `fee_invoices` (what a
+  student owes for a structure in a session), `fee_payments` (money
+  actually received, possibly in installments). Amounts are stored in
+  **minor units (paise)** as integers throughout -- never floats -- to
+  avoid rounding errors on money.
+- `0004_exams.sql`: `subjects`, `exams`, `exam_marks` (one row per
+  student/subject/exam; a report card is a query, not a stored document)
+
+Plus local-only (desktop-only, never synced) tables under
+`apps/desktop/src-tauri/migrations/`: `app_settings` (cached session/token),
+`sync_outbox`, `sync_state`.
+
+The Postgres schema (`apps/cloud-api/prisma/schema.prisma`) mirrors only the
+tenant/branch/role/user subset by hand -- see the design note at the top of
+that file for why it isn't code-generated from the same source, and why the
+rest (students, attendance, fees, exams, ...) lives server-side only inside
+the `sync_log` change feed rather than as relational Postgres tables.
+
+Every mutating command follows the same shape: a thin `#[tauri::command]`
+wrapper that locks the connection, plus a `..._impl(conn, input)` function
+with the actual logic, so it can be exercised directly from integration
+tests without a running Tauri app (see
+`apps/desktop/src-tauri/tests/modules_integration.rs`). Outbox rows are
+written via `state::enqueue_outbox_from_row`, which re-reads the row that
+was just written rather than requiring every command to hand-build a JSON
+payload that has to be kept in sync with the table's columns by hand.

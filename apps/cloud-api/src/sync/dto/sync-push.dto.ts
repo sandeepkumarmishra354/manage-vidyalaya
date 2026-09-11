@@ -13,6 +13,13 @@ export const SYNCABLE_TABLES = [
   "guardians",
   "student_guardians",
   "admissions",
+  "attendance_records",
+  "fee_structures",
+  "fee_invoices",
+  "fee_payments",
+  "subjects",
+  "exams",
+  "exam_marks",
 ] as const;
 
 export class SyncChangeDto {

@@ -113,3 +113,188 @@ pub struct SyncStatus {
     pub pending_count: i64,
     pub is_online: bool,
 }
+
+// ============================================================================
+// Attendance
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceRosterEntry {
+    pub student_id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    /// present | absent | late | half_day | leave, or null if not yet marked
+    pub status: Option<String>,
+    pub remarks: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarkAttendanceEntry {
+    pub student_id: String,
+    pub status: String,
+    pub remarks: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarkAttendanceInput {
+    pub branch_id: String,
+    pub class_id: String,
+    pub section_id: Option<String>,
+    pub attendance_date: String,
+    pub entries: Vec<MarkAttendanceEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttendanceHistoryEntry {
+    pub attendance_date: String,
+    pub status: String,
+    pub remarks: Option<String>,
+}
+
+// ============================================================================
+// Fees & Billing
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeStructure {
+    pub id: String,
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub class_id: Option<String>,
+    pub name: String,
+    /// Minor units (paise) -- avoids float rounding on money.
+    pub amount: i64,
+    pub frequency: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewFeeStructureInput {
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub class_id: Option<String>,
+    pub name: String,
+    pub amount: i64,
+    pub frequency: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeInvoiceListItem {
+    pub id: String,
+    pub student_id: String,
+    pub student_name: String,
+    pub fee_structure_name: String,
+    pub amount_due: i64,
+    pub amount_paid: i64,
+    pub due_date: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeePayment {
+    pub id: String,
+    pub invoice_id: String,
+    pub amount: i64,
+    pub payment_method: String,
+    pub payment_date: String,
+    pub receipt_number: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RecordPaymentInput {
+    pub invoice_id: String,
+    pub amount: i64,
+    pub payment_method: String,
+    pub payment_date: String,
+    pub receipt_number: Option<String>,
+    pub remarks: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudentFeeSummary {
+    pub invoices: Vec<FeeInvoiceListItem>,
+    pub payments: Vec<FeePayment>,
+    pub total_due: i64,
+    pub total_paid: i64,
+}
+
+// ============================================================================
+// Exams & Report Cards
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subject {
+    pub id: String,
+    pub branch_id: String,
+    pub name: String,
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewSubjectInput {
+    pub branch_id: String,
+    pub name: String,
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Exam {
+    pub id: String,
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub class_id: String,
+    pub name: String,
+    pub exam_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewExamInput {
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub class_id: String,
+    pub name: String,
+    pub exam_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarksRosterEntry {
+    pub student_id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub max_marks: i64,
+    pub marks_obtained: Option<f64>,
+    pub is_absent: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveMarksEntry {
+    pub student_id: String,
+    pub max_marks: i64,
+    pub marks_obtained: Option<f64>,
+    pub is_absent: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveMarksInput {
+    pub exam_id: String,
+    pub subject_id: String,
+    pub entries: Vec<SaveMarksEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportCardSubjectRow {
+    pub subject_name: String,
+    pub max_marks: i64,
+    pub marks_obtained: Option<f64>,
+    pub is_absent: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportCard {
+    pub student_id: String,
+    pub student_name: String,
+    pub exam_name: String,
+    pub rows: Vec<ReportCardSubjectRow>,
+    pub total_obtained: f64,
+    pub total_max: i64,
+    pub percentage: f64,
+}

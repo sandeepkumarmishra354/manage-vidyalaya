@@ -1,5 +1,13 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { GraduationCapIcon, LayoutDashboardIcon, LogOutIcon, UsersIcon } from "lucide-react";
+import {
+  CalendarCheckIcon,
+  GraduationCapIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  ReceiptIndianRupeeIcon,
+  ScrollTextIcon,
+  UsersIcon,
+} from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
@@ -19,6 +27,9 @@ import { SyncStatusBadge } from "@/components/sync-status-badge";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboardIcon, end: true },
   { to: "/students", label: "Students & Admissions", icon: UsersIcon, end: false },
+  { to: "/attendance", label: "Attendance", icon: CalendarCheckIcon, end: false },
+  { to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, end: false },
+  { to: "/exams", label: "Exams & Report Cards", icon: ScrollTextIcon, end: false },
 ];
 
 export function AppShell() {

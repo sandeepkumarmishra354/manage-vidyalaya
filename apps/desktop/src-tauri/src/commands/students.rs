@@ -3,12 +3,7 @@ use serde_json::json;
 use tauri::State;
 
 use crate::models::{Admission, Guardian, NewAdmissionInput, Student, StudentDetail, StudentListItem};
-use crate::state::{enqueue_outbox, AppState};
-
-fn current_tenant_id(conn: &rusqlite::Connection) -> Result<String, String> {
-    conn.query_row("SELECT id FROM tenants LIMIT 1", [], |row| row.get(0))
-        .map_err(|e| format!("no tenant provisioned: {e}"))
-}
+use crate::state::{current_tenant_id, enqueue_outbox, AppState};
 
 #[tauri::command]
 pub fn list_students(
@@ -39,6 +34,45 @@ pub fn list_students(
 
     let rows = stmt
         .query_map(params![branch_id, search_pattern], |row| {
+            Ok(StudentListItem {
+                id: row.get(0)?,
+                admission_number: row.get(1)?,
+                first_name: row.get(2)?,
+                last_name: row.get(3)?,
+                status: row.get(4)?,
+                class_name: row.get(5)?,
+                section_name: row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Students currently in a given class, regardless of branch filtering --
+/// used to populate student pickers for class-scoped flows (exam marks,
+/// report cards) without needing the caller to already know the branch.
+#[tauri::command]
+pub fn list_students_in_class(
+    state: State<AppState>,
+    class_id: String,
+) -> Result<Vec<StudentListItem>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id, s.admission_number, s.first_name, s.last_name, s.status,
+                    c.name as class_name, sec.name as section_name
+             FROM students s
+             LEFT JOIN classes c ON c.id = s.current_class_id
+             LEFT JOIN sections sec ON sec.id = s.current_section_id
+             WHERE s.current_class_id = ?1 AND s.deleted_at IS NULL
+             ORDER BY s.first_name",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([class_id], |row| {
             Ok(StudentListItem {
                 id: row.get(0)?,
                 admission_number: row.get(1)?,

@@ -5,7 +5,22 @@ colleges. Desktop app built on Tauri v2, syncing to a cloud backend when
 connectivity is available.
 
 See `docs/architecture.md` for the design (sync engine, data model, auth) and
-build-order rationale.
+build-order rationale, and `docs/production-readiness.md` for the plan to
+take this from working software to something you can hand to a paying
+school.
+
+## Modules implemented so far
+
+- **Student Info & Admissions** -- enquiry-to-enrollment workflow, guardian
+  records, class/section assignment
+- **Attendance** -- daily attendance per class/section, marked offline
+- **Fees & Billing** -- fee structures, invoice generation, payments/receipts
+  (amounts in paise, not floats)
+- **Exams & Report Cards** -- subjects, exams, marks entry, per-student
+  report cards
+
+All four are wired through the same offline-write -> outbox -> sync
+architecture and are reachable from the app's left nav once logged in.
 
 ## Structure
 
@@ -73,6 +88,12 @@ cargo test --test sync_integration -- --ignored --nocapture
 
 It's `#[ignore]`d by default since it depends on that external process --
 regular `cargo test` stays green without cloud-api running.
+
+`apps/desktop/src-tauri/tests/modules_integration.rs` covers Attendance,
+Fees & Billing, and Exams & Report Cards against a real local SQLite
+database (no network needed) -- marking/re-marking attendance, generating
+and paying off a fee invoice, and rolling up exam marks into a report card.
+Runs as part of plain `cargo test`.
 
 ## Common commands
 

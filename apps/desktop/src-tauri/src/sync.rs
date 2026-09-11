@@ -20,6 +20,13 @@ const SYNCABLE_TABLES: &[&str] = &[
     "guardians",
     "student_guardians",
     "admissions",
+    "attendance_records",
+    "fee_structures",
+    "fee_invoices",
+    "fee_payments",
+    "subjects",
+    "exams",
+    "exam_marks",
 ];
 
 #[derive(Debug, Serialize)]

@@ -45,3 +45,47 @@ pub fn enqueue_outbox(
     )?;
     Ok(())
 }
+
+/// Convenience wrapper around `enqueue_outbox` that re-reads the row that was
+/// just written (by id) and uses it as the payload snapshot, instead of the
+/// caller hand-building a JSON object that has to be kept in sync with the
+/// table's columns by hand. `table` must be a hardcoded string literal from
+/// our own code (never user input) since it's interpolated into SQL.
+pub fn enqueue_outbox_from_row(
+    tx: &rusqlite::Transaction,
+    table: &str,
+    id: &str,
+    op: &str,
+) -> rusqlite::Result<()> {
+    let sql = format!("SELECT * FROM {table} WHERE id = ?1");
+    let mut stmt = tx.prepare(&sql)?;
+    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+
+    let payload = stmt.query_row([id], |row| {
+        let mut map = serde_json::Map::new();
+        for (i, name) in column_names.iter().enumerate() {
+            let value: rusqlite::types::Value = row.get(i)?;
+            map.insert(name.clone(), sql_value_to_json(value));
+        }
+        Ok(serde_json::Value::Object(map))
+    })?;
+
+    enqueue_outbox(tx, table, id, op, &payload.to_string())
+}
+
+fn sql_value_to_json(v: rusqlite::types::Value) -> serde_json::Value {
+    match v {
+        rusqlite::types::Value::Null => serde_json::Value::Null,
+        rusqlite::types::Value::Integer(i) => serde_json::json!(i),
+        rusqlite::types::Value::Real(f) => serde_json::json!(f),
+        rusqlite::types::Value::Text(s) => serde_json::Value::String(s),
+        rusqlite::types::Value::Blob(_) => serde_json::Value::Null,
+    }
+}
+
+/// Looks up the (single, local-install) tenant id. Shared by every command
+/// module -- this desktop build is always scoped to exactly one tenant.
+pub fn current_tenant_id(conn: &rusqlite::Connection) -> Result<String, String> {
+    conn.query_row("SELECT id FROM tenants LIMIT 1", [], |row| row.get(0))
+        .map_err(|e| format!("no tenant provisioned: {e}"))
+}

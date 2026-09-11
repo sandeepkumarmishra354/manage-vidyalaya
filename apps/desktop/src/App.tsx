@@ -7,6 +7,9 @@ import { LoginPage } from "@/routes/login";
 import { DashboardPage } from "@/routes/dashboard";
 import { StudentListPage } from "@/routes/students/student-list";
 import { StudentDetailPage } from "@/routes/students/student-detail";
+import { AttendancePage } from "@/routes/attendance/attendance-page";
+import { FeesPage } from "@/routes/fees/fees-page";
+import { ExamsPage } from "@/routes/exams/exams-page";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -44,6 +47,9 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="students" element={<StudentListPage />} />
         <Route path="students/:id" element={<StudentDetailPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
+        <Route path="fees" element={<FeesPage />} />
+        <Route path="exams" element={<ExamsPage />} />
       </Route>
     </Routes>
   );
