@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   CalendarCheckIcon,
   GraduationCapIcon,
+  LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   ReceiptIndianRupeeIcon,
@@ -30,6 +31,7 @@ const navItems = [
   { to: "/attendance", label: "Attendance", icon: CalendarCheckIcon, end: false },
   { to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, end: false },
   { to: "/exams", label: "Exams & Report Cards", icon: ScrollTextIcon, end: false },
+  { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon, end: false },
 ];
 
 export function AppShell() {

@@ -17,10 +17,37 @@ export interface SchoolClass {
   sort_order: number;
 }
 
+export interface NewClassInput {
+  branch_id: string;
+  academic_session_id: string;
+  name: string;
+  sort_order: number;
+}
+
 export interface Section {
   id: string;
   class_id: string;
   name: string;
+}
+
+export interface NewSectionInput {
+  class_id: string;
+  name: string;
+}
+
+export interface AcademicSession {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_current: boolean;
+}
+
+export interface NewAcademicSessionInput {
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_current: boolean;
 }
 
 export type StudentStatus = "enquiry" | "applied" | "enrolled" | "alumni" | "withdrawn";
@@ -271,7 +298,12 @@ export const api = {
 
   listBranches: () => invoke<Branch[]>("list_branches"),
   listClasses: (branchId: string) => invoke<SchoolClass[]>("list_classes", { branchId }),
+  createClass: (input: NewClassInput) => invoke<SchoolClass>("create_class", { input }),
   listSections: (classId: string) => invoke<Section[]>("list_sections", { classId }),
+  createSection: (input: NewSectionInput) => invoke<Section>("create_section", { input }),
+  listAcademicSessions: () => invoke<AcademicSession[]>("list_academic_sessions"),
+  createAcademicSession: (input: NewAcademicSessionInput) =>
+    invoke<AcademicSession>("create_academic_session", { input }),
   currentAcademicSessionId: () => invoke<string | null>("current_academic_session_id"),
 
   listStudents: (branchId: string, search?: string) =>

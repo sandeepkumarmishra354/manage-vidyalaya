@@ -19,11 +19,42 @@ pub struct SchoolClass {
     pub sort_order: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewClassInput {
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub name: String,
+    pub sort_order: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Section {
     pub id: String,
     pub class_id: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewSectionInput {
+    pub class_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcademicSession {
+    pub id: String,
+    pub name: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewAcademicSessionInput {
+    pub name: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub is_current: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

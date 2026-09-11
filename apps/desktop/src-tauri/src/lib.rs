@@ -17,8 +17,8 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let db_path = app_data_dir.join("vidyalaya.sqlite3");
 
-            let conn = db::open_db(&db_path)?;
-            seed::seed_demo_data_if_empty(&conn)?;
+            let mut conn = db::open_db(&db_path)?;
+            seed::seed_demo_data_if_empty(&mut conn)?;
 
             app.manage(AppState::new(conn));
 
@@ -46,7 +46,11 @@ pub fn run() {
             commands::auth::logout,
             commands::branches::list_branches,
             commands::branches::list_classes,
+            commands::branches::create_class,
             commands::branches::list_sections,
+            commands::branches::create_section,
+            commands::branches::list_academic_sessions,
+            commands::branches::create_academic_session,
             commands::branches::current_academic_session_id,
             commands::students::list_students,
             commands::students::list_students_in_class,

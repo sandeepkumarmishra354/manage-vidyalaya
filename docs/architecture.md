@@ -42,13 +42,33 @@ a future web/reporting portal is intentionally deferred.
 *same* record from two offline devices aren't merged field-by-field. Upgrade
 path if that becomes common: per-field merge or CRDTs.
 
-**Known gap**: academic structure (academic sessions, classes, sections) is
-currently seeded locally per device with fixed demo ids rather than synced
-through the outbox like students/guardians/admissions/attendance/fees/exams
-are. Real per-school academic structure provisioning (created once, pushed
-through the outbox like everything else) is part of the school
-signup/provisioning work, not yet built. See comments in
-`apps/desktop/src-tauri/src/seed.rs`.
+**Fixed**: academic structure (academic sessions, classes, sections) used to
+be seeded locally per device with no outbox entry at all, so it silently
+never reached the cloud or a second device -- and there was no command to
+create more of it beyond the one seeded demo class. Both are fixed:
+`create_academic_session` / `create_class` / `create_section`
+(`apps/desktop/src-tauri/src/commands/branches.rs`) now exist and go
+through the same transaction-plus-outbox-entry path as every other mutation
+(exercised in `tests/sync_integration.rs`'s
+`class_created_on_one_device_reaches_another_via_sync`), and
+`seed_demo_data_if_empty` uses that same path for its bootstrap rows instead
+of a separate no-sync code path.
+
+One simplification remains, deliberately: the seeded demo branch/session/
+class/section still use fixed well-known ids (rather than random ones)
+specifically because `seed_demo_data_if_empty` runs independently on every
+device's first launch, before it has ever logged in -- if each device
+generated random ids for "Main Campus" and its default class, two devices
+for the same real school would each push their own copy and the tenant
+would end up with duplicate branches. Fixed ids mean every device's
+bootstrap produces byte-identical rows, so no duplication happens even
+without a real provisioning flow yet. Once that flow exists (see
+`docs/production-readiness.md`), a device's first run should pull its
+tenant's real branch/academic structure from the server on login instead of
+self-seeding at all, and `seed_demo_data_if_empty` becomes a pure
+offline-demo/dev convenience rather than something a real deployment relies
+on. See the comment on `DEMO_TENANT_ID` in
+`apps/desktop/src-tauri/src/seed.rs` for the full reasoning.
 
 ## Auth & licensing
 

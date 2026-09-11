@@ -10,6 +10,7 @@ import { StudentDetailPage } from "@/routes/students/student-detail";
 import { AttendancePage } from "@/routes/attendance/attendance-page";
 import { FeesPage } from "@/routes/fees/fees-page";
 import { ExamsPage } from "@/routes/exams/exams-page";
+import { AcademicSetupPage } from "@/routes/academic/academic-setup-page";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="fees" element={<FeesPage />} />
         <Route path="exams" element={<ExamsPage />} />
+        <Route path="academic-setup" element={<AcademicSetupPage />} />
       </Route>
     </Routes>
   );

@@ -20,8 +20,8 @@ use desktop_lib::seed::{seed_demo_data_if_empty, DEMO_BRANCH_ID};
 fn fresh_db() -> rusqlite::Connection {
     let dir = std::env::temp_dir().join(format!("vidyalaya-modules-it-{}", uuid::Uuid::new_v4()));
     let db_path = dir.join("device.sqlite3");
-    let conn = db::open_db(&db_path).expect("open db");
-    seed_demo_data_if_empty(&conn).expect("seed demo data");
+    let mut conn = db::open_db(&db_path).expect("open db");
+    seed_demo_data_if_empty(&mut conn).expect("seed demo data");
     conn
 }
 

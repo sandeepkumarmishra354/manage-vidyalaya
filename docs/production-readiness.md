@@ -79,13 +79,15 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 
 ### 4. Data safety & correctness
 
-- Fix the "Known gap" in `docs/architecture.md`: academic sessions/classes/
-  sections are currently seeded locally per device and never synced. For a
-  single-branch pilot this is livable (one device, one seed); the moment a
-  school has two devices or two branches, this **must** be fixed first --
-  otherwise a class created on one device silently doesn't exist on
-  another. This is the single highest-priority code fix before a multi-
-  device client.
+- ~~Fix academic sessions/classes/sections not syncing~~ **Done.** They now
+  go through the same outbox path as everything else, and
+  `create_academic_session`/`create_class`/`create_section` exist so a
+  school can add more than the one seeded class in the first place -- see
+  `docs/architecture.md`. One deliberate simplification remains: the
+  *seeded demo* branch/session/class/section still use fixed ids rather
+  than ones pulled from a real provisioning flow (documented in
+  `apps/desktop/src-tauri/src/seed.rs`) -- revisit once real school signup
+  exists.
 - Decide and document your backup/data-loss story for the *desktop* side
   too: if a laptop is lost/stolen before ever syncing, that data is gone.
   Make sure staff understand "sync often" is not optional, and consider a
@@ -190,7 +192,7 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 
 ## Suggested immediate next steps, in order
 
-1. Fix the academic-structure sync gap (code fix, contained).
+1. ~~Fix the academic-structure sync gap~~ Done.
 2. Stand up cloud-api on a real VM with HTTPS + automated Postgres backups.
 3. Wire up Tauri code signing + auto-update for at least one platform
    (whichever your pilot school uses -- almost certainly Windows).
