@@ -1,0 +1,126 @@
+// Prisma schema for the cloud-api Postgres database.
+//
+// Design note (v1 scope): Postgres does NOT keep a full relational mirror of
+// every synced entity (students, guardians, admissions, classes...). Instead
+// it keeps an append-only per-tenant change log (`sync_log`), and a new
+// device's first pull replays the entire log in order, which reconstructs
+// current state (later rows for the same entity id overwrite earlier ones
+// via the desktop's INSERT OR REPLACE). This proves the sync architecture
+// without maintaining two parallel relational schemas by hand. A queryable
+// relational mirror on the server (for a future web/reporting portal) is
+// intentionally deferred -- see plan doc's "future work" notes.
+//
+// tenants / branches / roles / users ARE modeled relationally here because
+// cloud-api needs to query them directly for auth and billing, independent
+// of any desktop client being online.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id                    String    @id
+  name                  String
+  subdomain             String?   @unique
+  subscriptionStatus    String    @default("trial") @map("subscription_status")
+  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  branches Branch[]
+  users    User[]
+  roles    Role[]
+
+  @@map("tenants")
+}
+
+model Branch {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  name      String
+  code      String
+  address   String?
+  city      String?
+  state     String?
+  pincode   String?
+  isActive  Boolean   @default(true) @map("is_active")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@map("branches")
+}
+
+model Role {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  name      String
+  updatedAt DateTime @map("updated_at")
+  version   Int      @default(1)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  userRoles UserRole[]
+
+  @@unique([tenantId, name])
+  @@map("roles")
+}
+
+model User {
+  id           String    @id
+  tenantId     String    @map("tenant_id")
+  branchId     String?   @map("branch_id")
+  fullName     String    @map("full_name")
+  email        String
+  phone        String?
+  passwordHash String?   @map("password_hash")
+  isActive     Boolean   @default(true) @map("is_active")
+  updatedAt    DateTime  @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  deletedAt    DateTime? @map("deleted_at")
+  version      Int       @default(1)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  userRoles UserRole[]
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model UserRole {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  updatedAt DateTime @map("updated_at")
+  version   Int      @default(1)
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+/// Append-only change feed. Each accepted push writes one row here; pulls
+/// read forward from a client's cursor (`server_seq`). See design note above.
+model SyncLog {
+  serverSeq   BigInt   @id @default(autoincrement()) @map("server_seq")
+  tenantId    String   @map("tenant_id")
+  entityTable String   @map("entity_table")
+  entityId    String   @map("entity_id")
+  op          String
+  payload     Json
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, serverSeq])
+  @@map("sync_log")
+}

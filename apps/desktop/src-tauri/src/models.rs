@@ -1,0 +1,115 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub code: String,
+    pub city: Option<String>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchoolClass {
+    pub id: String,
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Section {
+    pub id: String,
+    pub class_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Student {
+    pub id: String,
+    pub tenant_id: String,
+    pub branch_id: String,
+    pub admission_number: Option<String>,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub current_class_id: Option<String>,
+    pub current_section_id: Option<String>,
+    pub status: String,
+    pub address: Option<String>,
+    pub updated_at: String,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudentListItem {
+    pub id: String,
+    pub admission_number: Option<String>,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub status: String,
+    pub class_name: Option<String>,
+    pub section_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Guardian {
+    pub id: String,
+    pub full_name: String,
+    pub relation: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudentDetail {
+    #[serde(flatten)]
+    pub student: Student,
+    pub guardians: Vec<Guardian>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewAdmissionInput {
+    pub branch_id: String,
+    pub academic_session_id: String,
+    pub applied_class_id: Option<String>,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub address: Option<String>,
+    pub guardian_name: String,
+    pub guardian_relation: String,
+    pub guardian_phone: Option<String>,
+    pub guardian_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Admission {
+    pub id: String,
+    pub student_id: String,
+    pub branch_id: String,
+    pub stage: String,
+    pub applied_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Session {
+    pub user_id: String,
+    pub full_name: String,
+    pub email: String,
+    pub tenant_id: String,
+    pub roles: Vec<String>,
+    pub branch_ids: Vec<String>,
+    pub entitlement_expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SyncStatus {
+    pub last_synced_at: Option<String>,
+    pub pending_count: i64,
+    pub is_online: bool,
+}
