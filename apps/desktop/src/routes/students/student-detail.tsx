@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { CheckCircle2Icon } from "lucide-react";
+import { CheckCircle2Icon, PencilIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
   type AttendanceHistoryEntry,
+  type Guardian,
   type House,
   type StudentDetail,
   type StudentTransportInfo,
@@ -15,8 +16,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { EditStudentDialog } from "./edit-student-dialog";
 
 const attendanceBadgeVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   present: "default",
@@ -29,6 +41,7 @@ const attendanceBadgeVariant: Record<string, "default" | "secondary" | "outline"
 export function StudentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const [student, setStudent] = useState<StudentDetail | null>(null);
   const [attendance, setAttendance] = useState<AttendanceHistoryEntry[]>([]);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -67,11 +80,16 @@ export function StudentDetailPage() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">
-          {student.first_name} {student.last_name ?? ""}
-        </h1>
-        <Badge variant={student.status === "enrolled" ? "default" : "secondary"}>{student.status}</Badge>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">
+            {student.first_name} {student.last_name ?? ""}
+          </h1>
+          <Badge variant={student.status === "enrolled" ? "default" : "secondary"}>{student.status}</Badge>
+        </div>
+        {hasPermission("students.edit") && (
+          <EditStudentDialog student={student} branchId={student.branch_id} onUpdated={refresh} />
+        )}
       </div>
 
       {student.status === "applied" && (
@@ -118,7 +136,10 @@ export function StudentDetailPage() {
               {i > 0 && <Separator className="my-3" />}
               <div className="flex items-center justify-between">
                 <p className="font-medium">{g.full_name}</p>
-                <Badge variant="outline">{g.relation}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{g.relation}</Badge>
+                  {hasPermission("students.edit") && <EditGuardianDialog guardian={g} onUpdated={refresh} />}
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">
                 {g.phone ?? "—"} {g.email ? `· ${g.email}` : ""}
@@ -253,6 +274,73 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function EditGuardianDialog({ guardian, onUpdated }: { guardian: Guardian; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(guardian);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(guardian);
+  }, [open, guardian]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateGuardian({
+        id: guardian.id,
+        full_name: form.full_name,
+        relation: form.relation,
+        phone: form.phone,
+        email: form.email,
+      });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit guardian</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Full name</Label>
+            <Input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Relation</Label>
+            <Select value={form.relation ?? undefined} onValueChange={(v) => setForm((f) => ({ ...f, relation: v }))}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="father">Father</SelectItem>
+                <SelectItem value="mother">Mother</SelectItem>
+                <SelectItem value="guardian">Guardian</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Phone</Label>
+            <Input value={form.phone ?? ""} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Email</Label>
+            <Input value={form.email ?? ""} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

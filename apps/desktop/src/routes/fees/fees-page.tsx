@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -14,6 +14,14 @@ import { formatPaise } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,12 +29,69 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 
+function EditFeeStructureDialog({ structure, onUpdated }: { structure: FeeStructure; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(structure.name);
+  const [amount, setAmount] = useState(String(structure.amount / 100));
+  const [frequency, setFrequency] = useState<FeeFrequency>(structure.frequency);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateFeeStructure({ id: structure.id, name, amount: Math.round(Number(amount) * 100), frequency });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit fee structure</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Amount (Rs.)</Label>
+            <Input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Frequency</Label>
+            <Select value={frequency} onValueChange={(v) => setFrequency(v as FeeFrequency)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="one_time">One-time</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="quarterly">Quarterly</SelectItem>
+                <SelectItem value="annual">Annual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const statusVariant: Record<InvoiceStatus, "default" | "secondary" | "outline" | "destructive"> = {
   pending: "outline",
   partial: "secondary",
   paid: "default",
   overdue: "destructive",
   waived: "outline",
+  voided: "destructive",
 };
 
 function StructuresTab() {
@@ -169,7 +234,8 @@ function StructuresTab() {
                 <TableCell>
                   {classes.find((c) => c.id === s.class_id)?.name ?? "All classes"}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="flex justify-end gap-2 text-right">
+                  <EditFeeStructureDialog structure={s} onUpdated={refresh} />
                   <Button
                     variant="outline"
                     size="sm"

@@ -1,15 +1,83 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type TransportRoute, type TransportRosterEntry, type TransportStop } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-function RouteDetail({ route }: { route: TransportRoute }) {
+function EditRouteDialog({ route, onUpdated }: { route: TransportRoute; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(route.name);
+  const [vehicleNumber, setVehicleNumber] = useState(route.vehicle_number ?? "");
+  const [driverName, setDriverName] = useState(route.driver_name ?? "");
+  const [driverPhone, setDriverPhone] = useState(route.driver_phone ?? "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateRoute({
+        id: route.id,
+        name,
+        vehicle_number: vehicleNumber || null,
+        driver_name: driverName || null,
+        driver_phone: driverPhone || null,
+        capacity: route.capacity,
+      });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent onClick={(e) => e.stopPropagation()}>
+        <DialogHeader><DialogTitle>Edit route</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Vehicle #</Label>
+            <Input value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Driver</Label>
+            <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Driver phone</Label>
+            <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RouteDetail({ route, onRouteUpdated }: { route: TransportRoute; onRouteUpdated: () => void }) {
   const [stops, setStops] = useState<TransportStop[]>([]);
   const [roster, setRoster] = useState<TransportRosterEntry[]>([]);
   const [stopName, setStopName] = useState("");
@@ -43,13 +111,23 @@ function RouteDetail({ route }: { route: TransportRoute }) {
     }
   };
 
+  const handleRenameStop = async (stop: TransportStop) => {
+    const name = window.prompt("Rename stop", stop.name);
+    if (!name || name === stop.name) return;
+    await api.updateStop({ id: stop.id, name, sequence: stop.sequence, pickup_time: stop.pickup_time });
+    refresh();
+  };
+
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-4">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
-        {route.vehicle_number && <span>Vehicle: {route.vehicle_number}</span>}
-        {route.driver_name && <span>Driver: {route.driver_name}</span>}
-        {route.driver_phone && <span>{route.driver_phone}</span>}
-        {route.capacity && <span>Capacity: {route.capacity}</span>}
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
+          {route.vehicle_number && <span>Vehicle: {route.vehicle_number}</span>}
+          {route.driver_name && <span>Driver: {route.driver_name}</span>}
+          {route.driver_phone && <span>{route.driver_phone}</span>}
+          {route.capacity && <span>Capacity: {route.capacity}</span>}
+        </div>
+        <EditRouteDialog route={route} onUpdated={onRouteUpdated} />
       </div>
 
       <form className="flex flex-wrap items-end gap-3" onSubmit={handleAddStop}>
@@ -78,9 +156,12 @@ function RouteDetail({ route }: { route: TransportRoute }) {
           <p className="mb-2 text-sm font-medium">Stops</p>
           <ul className="flex flex-col gap-1 text-sm">
             {stops.map((s) => (
-              <li key={s.id} className="flex justify-between rounded border px-2 py-1">
+              <li key={s.id} className="flex items-center justify-between rounded border px-2 py-1">
                 <span>{s.name}</span>
-                <span className="text-muted-foreground">{s.pickup_time ?? "—"}</span>
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  {s.pickup_time ?? "—"}
+                  <button onClick={() => handleRenameStop(s)} className="hover:text-foreground"><PencilIcon className="size-3" /></button>
+                </span>
               </li>
             ))}
             {stops.length === 0 && <li className="text-muted-foreground">No stops yet.</li>}
@@ -215,7 +296,9 @@ export function TransportPage() {
         </Table>
       </div>
 
-      {expandedRouteId && <RouteDetail route={routes.find((r) => r.id === expandedRouteId)!} />}
+      {expandedRouteId && (
+        <RouteDetail route={routes.find((r) => r.id === expandedRouteId)!} onRouteUpdated={refresh} />
+      )}
     </div>
   );
 }

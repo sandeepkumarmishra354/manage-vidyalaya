@@ -1,16 +1,84 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, SearchIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, SearchIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type LibraryBook, type LibraryIssueListItem, type StudentListItem } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+function EditBookDialog({ book, onUpdated }: { book: LibraryBook; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(book.title);
+  const [author, setAuthor] = useState(book.author ?? "");
+  const [totalCopies, setTotalCopies] = useState(String(book.total_copies));
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api.updateBook({
+        id: book.id,
+        title,
+        author: author || null,
+        isbn: book.isbn,
+        category: book.category,
+        total_copies: Number(totalCopies),
+      });
+      setOpen(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit book</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Author</Label>
+            <Input value={author} onChange={(e) => setAuthor(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Total copies</Label>
+            <Input type="number" min="0" value={totalCopies} onChange={(e) => setTotalCopies(e.target.value)} required />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function inDays(days: number) {
   const d = new Date();
@@ -105,6 +173,7 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
               <TableHead>Title</TableHead>
               <TableHead>Author</TableHead>
               <TableHead>Available</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -117,11 +186,14 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
                     {b.available_copies} / {b.total_copies}
                   </Badge>
                 </TableCell>
+                <TableCell className="text-right">
+                  <EditBookDialog book={b} onUpdated={refresh} />
+                </TableCell>
               </TableRow>
             ))}
             {books.length === 0 && (
               <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                   No books yet.
                 </TableCell>
               </TableRow>

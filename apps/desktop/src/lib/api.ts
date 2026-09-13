@@ -395,7 +395,7 @@ export interface AttendanceHistoryEntry {
 // ============================================================================
 
 export type FeeFrequency = "one_time" | "monthly" | "quarterly" | "annual";
-export type InvoiceStatus = "pending" | "partial" | "paid" | "overdue" | "waived";
+export type InvoiceStatus = "pending" | "partial" | "paid" | "overdue" | "waived" | "voided";
 export type PaymentMethod = "cash" | "cheque" | "upi" | "card" | "online" | "bank_transfer";
 
 export interface FeeStructure {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { useAppStore } from "@/stores/app-store";
 import { api, type FeeInvoiceListItem, type PaymentMethod } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,12 +29,27 @@ export function RecordPaymentDialog({
   onOpenChange: (open: boolean) => void;
   onRecorded: () => void;
 }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const balance = invoice ? invoice.amount_due - invoice.amount_paid : 0;
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [receiptNumber, setReceiptNumber] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleVoid = async () => {
+    if (!invoice) return;
+    const reason = window.prompt("Reason for voiding this invoice:");
+    if (!reason) return;
+    setIsSubmitting(true);
+    try {
+      await api.voidInvoice({ invoice_id: invoice.id, reason });
+      onOpenChange(false);
+      onRecorded();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const reset = () => {
     setAmount("");
@@ -120,7 +136,12 @@ export function RecordPaymentDialog({
             <Input id="receipt" value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between">
+            {hasPermission("fees.manage") && invoice?.status !== "voided" && (
+              <Button type="button" variant="outline" onClick={handleVoid} disabled={isSubmitting}>
+                Void invoice
+              </Button>
+            )}
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Saving..." : "Record payment"}
             </Button>

@@ -1,16 +1,67 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, TrophyIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, TrophyIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type House, type HouseLeaderboardRow, type HousePointEventListItem } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+function EditHouseDialog({ house, onUpdated }: { house: House; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(house.name);
+  const [color, setColor] = useState(house.color ?? "#dc2626");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateHouse({ id: house.id, name, color });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className="opacity-70 hover:opacity-100"><PencilIcon className="size-3" /></button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit house</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Color</Label>
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-16 rounded-md border" />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -131,8 +182,9 @@ function HousesTab({ onChanged }: { onChanged: () => void }) {
 
       <div className="flex flex-wrap gap-2">
         {houses.map((h) => (
-          <Badge key={h.id} style={{ backgroundColor: h.color ?? undefined, color: "white" }}>
+          <Badge key={h.id} style={{ backgroundColor: h.color ?? undefined, color: "white" }} className="gap-1.5">
             {h.name}
+            <EditHouseDialog house={h} onUpdated={refresh} />
           </Badge>
         ))}
       </div>
