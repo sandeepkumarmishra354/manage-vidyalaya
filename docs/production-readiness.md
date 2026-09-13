@@ -10,10 +10,13 @@ later phases are what you build out as you scale past a handful of clients.
 ## Where things stand today
 
 Working: the offline-first architecture (SQLite + outbox sync, proven with
-a real two-device test), JWT auth with offline session caching, and four
-modules (Student Info & Admissions, Attendance, Fees & Billing, Exams &
-Report Cards) with a consistent UI. Running locally, with a local Postgres
-and a demo tenant.
+a real two-device test), JWT auth with offline session caching, and a full
+module set (Student Info & Admissions, Attendance, Fees & Billing, Exams &
+Report Cards, Houses, Library, Transport, ID Cards, Academic Setup with
+session promotion, Staff/HR, Payroll, Roles & Permissions, Audit Log) with
+a consistent UI, granular RBAC enforcement, and edit/delete on every
+entity, not just create. Running locally, with a local Postgres and a demo
+tenant.
 
 Not yet done, and covered below: real hosting, HTTPS, secrets management,
 backups, error monitoring, a signed/installable desktop build, a real
@@ -102,9 +105,10 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   `@nestjs/throttler` is a one-file addition.
 - Enforce a minimum password policy server-side (length at least; a
   password strength meter client-side is a nice-to-have).
-- Add basic audit logging for sensitive actions (fee payments recorded,
-  admin users created/deleted, role changes) -- schools *will* ask "who
-  did this" eventually, especially around money.
+- ~~Add basic audit logging~~ **Done.** A generic, append-only `audit_log`
+  now covers every create/update/delete across every module (see
+  `docs/architecture.md`'s "Audit log" section), with an admin-facing
+  filterable viewer.
 - Run `docs/../` -- actually just run the `security-review` workflow (or
   equivalent manual review) against the current diff before your first
   deploy, specifically checking: SQL injection surface (the dynamic
@@ -158,6 +162,12 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 - **Multi-device conflict handling**: revisit the documented last-write-
   wins limitation once you have schools with several front-desk devices
   editing the same records concurrently.
+- **Statutory payroll compliance**: Payroll currently treats PF/ESI/
+  Professional-Tax/TDS as manually configured deduction components, not
+  computed against government slabs (a deliberate v1 scope boundary --
+  see `docs/architecture.md`). Revisit if/when a client needs automated
+  compliance filing; this needs dedicated tooling kept current with
+  yearly rule changes, not a bolt-on to the salary-structure model.
 - **Formal SLA & uptime monitoring** (UptimeRobot/Better Stack, cheap and
   simple) once cloud-api being down means multiple schools can't sync.
 
@@ -198,7 +208,7 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
    (whichever your pilot school uses -- almost certainly Windows).
 4. Build the minimal manual tenant-provisioning path (random UUIDs, no more
    hardcoded demo tenant) and an admin-triggered password reset.
-5. Add login rate-limiting and an audit log for fee/role changes.
+5. Add login rate-limiting. (Audit logging itself is done -- see above.)
 6. Get a privacy policy/ToS drafted (DPDP-aware) and a one-page service
    agreement.
 7. Pilot with one real school, watching closely, before taking on a second.

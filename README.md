@@ -27,17 +27,36 @@ school.
 - **Transport** -- bus routes, stops, and student assignments
 - **ID Cards** -- 4 selectable print-ready templates, single or whole-class
 - **Academic Setup** -- academic sessions, classes, and sections (create as
-  many as the school needs -- these sync like everything else)
+  many as the school needs -- these sync like everything else), plus a
+  **session promotion** wizard (suggested class mapping, per-student
+  promote/retain/withdraw review, batch execution with full enrollment
+  history)
+- **Staff / HR** -- employee records (employment, contact, statutory/bank
+  details), class-teacher and subject-teacher assignments, staff
+  attendance, and admin-triggered login creation/password reset
+- **Payroll** -- component-based salary structures (fixed or % of basic),
+  monthly payroll runs with loss-of-pay computed automatically from staff
+  attendance, and printable payslips
+- **Roles & Permissions** -- custom roles with a granular, per-action
+  permission grid (not just the five seeded defaults), enforced on both
+  the desktop commands and the cloud-api endpoints that require server-side
+  connectivity
+- **Audit Log** -- a generic, append-only trail of every create/update/
+  delete across every module, filterable by entity and date
 - **Module Settings** -- every optional module above can be turned off
   per branch; disabled modules disappear from the nav and are also
   route-guarded, but their data is never deleted
 - **Dashboard** -- real aggregate stats and charts (enrollment by class, fee
   status breakdown, 14-day attendance trend, house leaderboard)
+- **Edit everywhere** -- every entity above (students, staff, classes,
+  sessions, fee structures, invoices, payments, subjects, exams, houses,
+  library books, transport routes/stops, roles) has update/soft-delete
+  commands, not just create
 
 All of the above are wired through the same offline-write -> outbox -> sync
 architecture proven by the Student Info module, and are reachable from the
-app's left nav (grouped into Academics / Finance / Services / Admin) once
-logged in.
+app's left nav (grouped into Academics / Staff / Finance / Services / Admin)
+once logged in.
 
 ## Structure
 
@@ -110,7 +129,10 @@ regular `cargo test` stays green without cloud-api running.
 Fees & Billing, and Exams & Report Cards against a real local SQLite
 database (no network needed) -- marking/re-marking attendance, generating
 and paying off a fee invoice, and rolling up exam marks into a report card.
-Runs as part of plain `cargo test`.
+`rbac_integration.rs`, `payroll_integration.rs`, and
+`promotion_integration.rs` cover permission enforcement, attendance-driven
+payroll math, and session promotion the same way. All run as part of plain
+`cargo test`.
 
 ## Common commands
 
