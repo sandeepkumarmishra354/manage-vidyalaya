@@ -17,6 +17,13 @@ import { LibraryPage } from "@/routes/library/library-page";
 import { TransportPage } from "@/routes/transport/transport-page";
 import { ModuleSettingsPage } from "@/routes/settings/module-settings-page";
 import { IdCardsPage } from "@/routes/id-cards/id-cards-page";
+import { StaffListPage } from "@/routes/staff/staff-list";
+import { StaffDetailPage } from "@/routes/staff/staff-detail";
+import { PayrollPage } from "@/routes/payroll/payroll-page";
+import { PayrollRunDetailPage } from "@/routes/payroll/payroll-run-detail";
+import { RolesPage } from "@/routes/admin/roles-page";
+import { UsersPage } from "@/routes/admin/users-page";
+import { AuditLogPage } from "@/routes/admin/audit-log-page";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -30,6 +37,15 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function RequireModule({ module, children }: { module: ModuleKey; children: React.ReactNode }) {
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
   if (!isModuleEnabled(module)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/** Redirects to the dashboard if the current user lacks the permission --
+ * defense in depth beyond just hiding the nav item/button, same as
+ * RequireModule above. */
+function RequirePermission({ permission, children }: { permission: string; children: React.ReactNode }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  if (!hasPermission(permission)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -120,6 +136,66 @@ export default function App() {
           }
         />
         <Route path="academic-setup" element={<AcademicSetupPage />} />
+        <Route
+          path="staff"
+          element={
+            <RequirePermission permission="staff.view">
+              <StaffListPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="staff/:id"
+          element={
+            <RequirePermission permission="staff.view">
+              <StaffDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="payroll"
+          element={
+            <RequireModule module="payroll">
+              <RequirePermission permission="payroll.view">
+                <PayrollPage />
+              </RequirePermission>
+            </RequireModule>
+          }
+        />
+        <Route
+          path="payroll/:runId"
+          element={
+            <RequireModule module="payroll">
+              <RequirePermission permission="payroll.view">
+                <PayrollRunDetailPage />
+              </RequirePermission>
+            </RequireModule>
+          }
+        />
+        <Route
+          path="admin/roles"
+          element={
+            <RequirePermission permission="roles.manage">
+              <RolesPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="admin/users"
+          element={
+            <RequirePermission permission="users.manage">
+              <UsersPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="admin/audit-log"
+          element={
+            <RequirePermission permission="audit.view">
+              <AuditLogPage />
+            </RequirePermission>
+          }
+        />
         <Route path="settings/modules" element={<ModuleSettingsPage />} />
       </Route>
     </Routes>

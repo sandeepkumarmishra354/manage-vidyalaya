@@ -66,6 +66,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                   <TableHead>Subject</TableHead>
                   <TableHead>Max marks</TableHead>
                   <TableHead>Obtained</TableHead>
+                  <TableHead>Back paper</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -74,11 +75,12 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                     <TableCell>{row.subject_name}</TableCell>
                     <TableCell>{row.max_marks}</TableCell>
                     <TableCell>{row.is_absent ? "Absent" : (row.marks_obtained ?? "—")}</TableCell>
+                    <TableCell>{row.backpaper_marks_obtained ?? "—"}</TableCell>
                   </TableRow>
                 ))}
                 {reportCard.rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
                       No marks entered yet for this exam.
                     </TableCell>
                   </TableRow>
@@ -117,6 +119,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                 <th className="py-2 text-left">Subject</th>
                 <th className="py-2 text-right">Max Marks</th>
                 <th className="py-2 text-right">Obtained</th>
+                <th className="py-2 text-right">Back Paper</th>
               </tr>
             </thead>
             <tbody>
@@ -125,6 +128,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                   <td className="py-2">{row.subject_name}</td>
                   <td className="py-2 text-right">{row.max_marks}</td>
                   <td className="py-2 text-right">{row.is_absent ? "Absent" : (row.marks_obtained ?? "—")}</td>
+                  <td className="py-2 text-right">{row.backpaper_marks_obtained ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

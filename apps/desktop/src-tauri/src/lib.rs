@@ -118,6 +118,7 @@ pub fn run() {
             commands::sync::sync_now,
             commands::sync::get_sync_status,
             commands::rbac::list_permission_catalog,
+            commands::rbac::list_my_permissions,
             commands::rbac::list_roles,
             commands::rbac::create_role,
             commands::rbac::update_role,

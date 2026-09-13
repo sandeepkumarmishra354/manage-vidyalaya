@@ -1,17 +1,118 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type SchoolClass, type Subject } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CreateBackpaperDialog } from "./create-backpaper-dialog";
 import { MarksEntry } from "./marks-entry";
 import { ReportCardViewer } from "./report-card-viewer";
+
+function EditSubjectDialog({ subject, onUpdated }: { subject: Subject; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(subject.name);
+  const [code, setCode] = useState(subject.code ?? "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateSubject({ id: subject.id, name, code: code || null });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit subject</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Code</Label>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditExamDialog({ exam, onUpdated }: { exam: Exam; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(exam.name);
+  const [examDate, setExamDate] = useState(exam.exam_date ?? "");
+  const [passingPercentage, setPassingPercentage] = useState(String(exam.passing_percentage));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateExam({ id: exam.id, name, exam_date: examDate || null, passing_percentage: Number(passingPercentage) });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit exam</DialogTitle></DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Date</Label>
+            <Input type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Passing percentage</Label>
+            <Input type="number" value={passingPercentage} onChange={(e) => setPassingPercentage(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function SubjectsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
@@ -72,6 +173,7 @@ function SubjectsTab() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Code</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -79,11 +181,14 @@ function SubjectsTab() {
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>{s.code ?? "—"}</TableCell>
+                <TableCell className="text-right">
+                  <EditSubjectDialog subject={s} onUpdated={refresh} />
+                </TableCell>
               </TableRow>
             ))}
             {subjects.length === 0 && (
               <TableRow>
-                <TableCell colSpan={2} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
                   No subjects yet.
                 </TableCell>
               </TableRow>
@@ -187,6 +292,7 @@ function ExamsTab() {
               <TableHead>Name</TableHead>
               <TableHead>Class</TableHead>
               <TableHead>Date</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -197,14 +303,25 @@ function ExamsTab() {
                 data-state={selectedExam?.id === exam.id ? "selected" : undefined}
                 onClick={() => setSelectedExam(exam)}
               >
-                <TableCell className="font-medium">{exam.name}</TableCell>
+                <TableCell className="font-medium">
+                  {exam.name}
+                  {exam.exam_type !== "regular" && (
+                    <Badge variant="outline" className="ml-2">{exam.exam_type.replace("_", " ")}</Badge>
+                  )}
+                </TableCell>
                 <TableCell>{classes.find((c) => c.id === exam.class_id)?.name ?? "—"}</TableCell>
                 <TableCell>{exam.exam_date ?? "—"}</TableCell>
+                <TableCell className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                  {exam.exam_type === "regular" && (
+                    <CreateBackpaperDialog exam={exam} subjects={subjects} onCreated={refresh} />
+                  )}
+                  <EditExamDialog exam={exam} onUpdated={refresh} />
+                </TableCell>
               </TableRow>
             ))}
             {exams.length === 0 && (
               <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                   No exams yet.
                 </TableCell>
               </TableRow>

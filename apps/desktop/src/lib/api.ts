@@ -28,11 +28,34 @@ export interface Section {
   id: string;
   class_id: string;
   name: string;
+  capacity?: number | null;
+  class_teacher_staff_id?: string | null;
 }
 
 export interface NewSectionInput {
   class_id: string;
   name: string;
+  capacity?: number | null;
+}
+
+export interface UpdateClassInput {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface UpdateSectionInput {
+  id: string;
+  name: string;
+  capacity?: number | null;
+}
+
+export interface UpdateAcademicSessionInput {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_current: boolean;
 }
 
 export interface AcademicSession {
@@ -118,11 +141,43 @@ export interface ConfirmAdmissionResult {
   stage: string;
 }
 
+export interface UpdateStudentInput {
+  id: string;
+  first_name: string;
+  last_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  blood_group?: string | null;
+  current_class_id?: string | null;
+  current_section_id?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateGuardianInput {
+  id: string;
+  full_name: string;
+  relation?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}
+
 // ============================================================================
 // Module settings
 // ============================================================================
 
-export type ModuleKey = "attendance" | "fees" | "exams" | "library" | "transport" | "houses" | "id_cards";
+export type ModuleKey =
+  | "attendance"
+  | "fees"
+  | "exams"
+  | "library"
+  | "transport"
+  | "houses"
+  | "id_cards"
+  | "payroll";
 
 export interface ModuleSetting {
   module_key: ModuleKey;
@@ -142,6 +197,12 @@ export interface House {
 
 export interface NewHouseInput {
   branch_id: string;
+  name: string;
+  color?: string | null;
+}
+
+export interface UpdateHouseInput {
+  id: string;
   name: string;
   color?: string | null;
 }
@@ -197,6 +258,15 @@ export interface NewLibraryBookInput {
   total_copies: number;
 }
 
+export interface UpdateLibraryBookInput {
+  id: string;
+  title: string;
+  author?: string | null;
+  isbn?: string | null;
+  category?: string | null;
+  total_copies: number;
+}
+
 export interface LibraryIssueListItem {
   id: string;
   book_id: string;
@@ -232,6 +302,15 @@ export interface NewTransportRouteInput {
   capacity?: number | null;
 }
 
+export interface UpdateTransportRouteInput {
+  id: string;
+  name: string;
+  vehicle_number?: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  capacity?: number | null;
+}
+
 export interface TransportStop {
   id: string;
   route_id: string;
@@ -242,6 +321,13 @@ export interface TransportStop {
 
 export interface NewTransportStopInput {
   route_id: string;
+  name: string;
+  sequence: number;
+  pickup_time?: string | null;
+}
+
+export interface UpdateTransportStopInput {
+  id: string;
   name: string;
   sequence: number;
   pickup_time?: string | null;
@@ -332,6 +418,23 @@ export interface NewFeeStructureInput {
   frequency: FeeFrequency;
 }
 
+export interface UpdateFeeStructureInput {
+  id: string;
+  name: string;
+  amount: number;
+  frequency: FeeFrequency;
+}
+
+export interface VoidInvoiceInput {
+  invoice_id: string;
+  reason: string;
+}
+
+export interface ReversePaymentInput {
+  payment_id: string;
+  reason: string;
+}
+
 export interface FeeInvoiceListItem {
   id: string;
   student_id: string;
@@ -385,6 +488,8 @@ export interface NewSubjectInput {
   code?: string | null;
 }
 
+export type ExamType = "regular" | "back_paper" | "supplementary" | "unit_test" | "term";
+
 export interface Exam {
   id: string;
   branch_id: string;
@@ -392,6 +497,9 @@ export interface Exam {
   class_id: string;
   name: string;
   exam_date?: string | null;
+  exam_type: ExamType;
+  parent_exam_id?: string | null;
+  passing_percentage: number;
 }
 
 export interface NewExamInput {
@@ -400,6 +508,30 @@ export interface NewExamInput {
   class_id: string;
   name: string;
   exam_date?: string | null;
+  exam_type?: ExamType | null;
+  parent_exam_id?: string | null;
+  passing_percentage?: number | null;
+}
+
+export interface UpdateExamInput {
+  id: string;
+  name: string;
+  exam_date?: string | null;
+  passing_percentage: number;
+}
+
+export interface UpdateSubjectInput {
+  id: string;
+  name: string;
+  code?: string | null;
+}
+
+export interface BackpaperCandidate {
+  student_id: string;
+  first_name: string;
+  last_name?: string | null;
+  marks_obtained?: number | null;
+  max_marks: number;
 }
 
 export interface MarksRosterEntry {
@@ -427,6 +559,7 @@ export interface ReportCardSubjectRow {
   max_marks: number;
   marks_obtained?: number | null;
   is_absent: boolean;
+  backpaper_marks_obtained?: number | null;
 }
 
 export interface ReportCard {
@@ -437,6 +570,344 @@ export interface ReportCard {
   total_obtained: number;
   total_max: number;
   percentage: number;
+}
+
+// ============================================================================
+// RBAC: permissions, roles, users
+// ============================================================================
+
+export interface Role {
+  id: string;
+  name: string;
+  is_system: boolean;
+}
+
+export interface NewRoleInput {
+  name: string;
+}
+
+export interface SetRolePermissionsInput {
+  role_id: string;
+  permission_keys: string[];
+}
+
+export interface UserSummary {
+  id: string;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+  role_ids: string[];
+}
+
+export interface CreateStaffLoginInput {
+  staff_id: string;
+  email: string;
+  full_name: string;
+  initial_password: string;
+  branch_id?: string | null;
+}
+
+export interface ResetStaffPasswordInput {
+  user_id: string;
+  new_password: string;
+}
+
+// ============================================================================
+// Staff / HR
+// ============================================================================
+
+export type StaffStatus = "active" | "inactive" | "on_leave" | "terminated";
+export type EmploymentType = "full_time" | "part_time" | "contract";
+
+export interface StaffListItem {
+  id: string;
+  employee_code: string;
+  first_name: string;
+  last_name?: string | null;
+  designation: string;
+  department?: string | null;
+  status: StaffStatus;
+  has_login: boolean;
+}
+
+export interface Staff {
+  id: string;
+  branch_id: string;
+  user_id?: string | null;
+  employee_code: string;
+  first_name: string;
+  last_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  phone?: string | null;
+  personal_email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  designation: string;
+  department?: string | null;
+  employment_type: EmploymentType;
+  date_of_joining: string;
+  date_of_leaving?: string | null;
+  status: StaffStatus;
+  qualification?: string | null;
+  blood_group?: string | null;
+  photo_path?: string | null;
+  pan_number?: string | null;
+  aadhaar_number?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  bank_name?: string | null;
+  pf_number?: string | null;
+  esi_number?: string | null;
+  uan_number?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  notes?: string | null;
+}
+
+export interface NewStaffInput {
+  branch_id: string;
+  employee_code: string;
+  first_name: string;
+  last_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  phone?: string | null;
+  personal_email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  designation: string;
+  department?: string | null;
+  employment_type: EmploymentType;
+  date_of_joining: string;
+  qualification?: string | null;
+  blood_group?: string | null;
+  pan_number?: string | null;
+  aadhaar_number?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  bank_name?: string | null;
+  pf_number?: string | null;
+  esi_number?: string | null;
+  uan_number?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateStaffInput extends NewStaffInput {
+  id: string;
+}
+
+export interface SetStaffStatusInput {
+  staff_id: string;
+  status: StaffStatus;
+  date_of_leaving?: string | null;
+}
+
+export interface TeacherAssignment {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  class_id: string;
+  class_name: string;
+  section_id?: string | null;
+  section_name?: string | null;
+  subject_id: string;
+  subject_name: string;
+  academic_session_id: string;
+}
+
+export interface NewTeacherAssignmentInput {
+  branch_id: string;
+  staff_id: string;
+  class_id: string;
+  section_id?: string | null;
+  subject_id: string;
+  academic_session_id: string;
+}
+
+export interface SetClassTeacherInput {
+  section_id: string;
+  staff_id?: string | null;
+}
+
+// ============================================================================
+// Staff attendance
+// ============================================================================
+
+export interface StaffAttendanceRosterEntry {
+  staff_id: string;
+  first_name: string;
+  last_name?: string | null;
+  designation: string;
+  status?: AttendanceStatus | null;
+  remarks?: string | null;
+}
+
+export interface MarkStaffAttendanceInput {
+  branch_id: string;
+  attendance_date: string;
+  entries: { staff_id: string; status: AttendanceStatus; remarks?: string | null }[];
+}
+
+export interface StaffAttendanceHistoryEntry {
+  attendance_date: string;
+  status: AttendanceStatus;
+  remarks?: string | null;
+}
+
+// ============================================================================
+// Payroll
+// ============================================================================
+
+export interface SalaryComponent {
+  id?: string | null;
+  component_name: string;
+  component_type: "earning" | "deduction";
+  calculation_type: "fixed" | "percent_of_basic";
+  amount?: number | null;
+  percent?: number | null;
+}
+
+export interface SalaryStructure {
+  id: string;
+  staff_id: string;
+  effective_from: string;
+  /** minor units (paise) */
+  basic_amount: number;
+  components: SalaryComponent[];
+}
+
+export interface SetSalaryStructureInput {
+  staff_id: string;
+  branch_id: string;
+  effective_from: string;
+  basic_amount: number;
+  components: SalaryComponent[];
+}
+
+export interface GeneratePayrollRunInput {
+  branch_id: string;
+  period_month: number;
+  period_year: number;
+}
+
+export type PayrollRunStatus = "draft" | "finalized" | "paid";
+
+export interface PayrollRun {
+  id: string;
+  branch_id: string;
+  period_month: number;
+  period_year: number;
+  status: PayrollRunStatus;
+  generated_at: string;
+}
+
+export interface PayslipLineItem {
+  id: string;
+  component_name: string;
+  component_type: "earning" | "deduction";
+  amount: number;
+}
+
+export interface Payslip {
+  id: string;
+  payroll_run_id: string;
+  staff_id: string;
+  staff_name: string;
+  days_in_month: number;
+  days_present: number;
+  days_lop: number;
+  gross_earnings: number;
+  total_deductions: number;
+  net_pay: number;
+  status: PayrollRunStatus;
+  paid_on?: string | null;
+  line_items: PayslipLineItem[];
+}
+
+export interface PayrollRunDetail extends PayrollRun {
+  payslips: Payslip[];
+}
+
+export interface AdjustPayslipLineItemInput {
+  payslip_id: string;
+  component_name: string;
+  component_type: "earning" | "deduction";
+  amount: number;
+}
+
+// ============================================================================
+// Session promotion / rollover
+// ============================================================================
+
+export interface ClassMappingSuggestion {
+  from_class_id: string;
+  from_class_name: string;
+  suggested_to_class_id?: string | null;
+}
+
+export interface CreatePromotionBatchInput {
+  branch_id: string;
+  from_session_id: string;
+  to_session_id: string;
+  class_mapping: Record<string, string>;
+}
+
+export type PromotionDecision = "promote" | "retain" | "withdraw";
+
+export interface PromotionBatchItem {
+  id: string;
+  student_id: string;
+  student_name: string;
+  from_class_name?: string | null;
+  to_class_id?: string | null;
+  to_class_name?: string | null;
+  to_section_id?: string | null;
+  decision: PromotionDecision;
+}
+
+export interface PromotionBatch {
+  id: string;
+  branch_id: string;
+  from_session_id: string;
+  to_session_id: string;
+  status: "draft" | "completed";
+  items: PromotionBatchItem[];
+}
+
+export interface SetPromotionDecisionInput {
+  batch_item_id: string;
+  decision: PromotionDecision;
+  to_class_id?: string | null;
+  to_section_id?: string | null;
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+export interface AuditLogEntry {
+  id: string;
+  actor_name?: string | null;
+  entity_table: string;
+  entity_id: string;
+  action: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface AuditLogFilter {
+  entity_table?: string | null;
+  actor_user_id?: string | null;
+  from_date?: string | null;
+  to_date?: string | null;
+  page?: number | null;
 }
 
 // ============================================================================
@@ -490,7 +961,13 @@ export const api = {
   listAcademicSessions: () => invoke<AcademicSession[]>("list_academic_sessions"),
   createAcademicSession: (input: NewAcademicSessionInput) =>
     invoke<AcademicSession>("create_academic_session", { input }),
+  updateAcademicSession: (input: UpdateAcademicSessionInput) =>
+    invoke<void>("update_academic_session", { input }),
   currentAcademicSessionId: () => invoke<string | null>("current_academic_session_id"),
+  updateClass: (input: UpdateClassInput) => invoke<void>("update_class", { input }),
+  deleteClass: (id: string) => invoke<void>("delete_class", { id }),
+  updateSection: (input: UpdateSectionInput) => invoke<void>("update_section", { input }),
+  deleteSection: (id: string) => invoke<void>("delete_section", { id }),
 
   listStudents: (branchId: string, search?: string) =>
     invoke<StudentListItem[]>("list_students", { branchId, search }),
@@ -503,6 +980,9 @@ export const api = {
     invoke<Admission | null>("get_admission_for_student", { studentId }),
   confirmAdmission: (admissionId: string) =>
     invoke<ConfirmAdmissionResult>("confirm_admission", { admissionId }),
+  updateStudent: (input: UpdateStudentInput) => invoke<void>("update_student", { input }),
+  deleteStudent: (id: string) => invoke<void>("delete_student", { id }),
+  updateGuardian: (input: UpdateGuardianInput) => invoke<void>("update_guardian", { input }),
 
   getModuleSettings: (branchId: string) => invoke<ModuleSetting[]>("get_module_settings", { branchId }),
   setModuleEnabled: (branchId: string, moduleKey: ModuleKey, isEnabled: boolean) =>
@@ -511,6 +991,7 @@ export const api = {
     }),
 
   createHouse: (input: NewHouseInput) => invoke<House>("create_house", { input }),
+  updateHouse: (input: UpdateHouseInput) => invoke<void>("update_house", { input }),
   listHouses: (branchId: string) => invoke<House[]>("list_houses", { branchId }),
   assignStudentHouse: (studentId: string, houseId: string) =>
     invoke<void>("assign_student_house", { input: { student_id: studentId, house_id: houseId } }),
@@ -522,6 +1003,7 @@ export const api = {
     invoke<HouseLeaderboardRow[]>("get_house_leaderboard", { branchId, academicSessionId }),
 
   createBook: (input: NewLibraryBookInput) => invoke<LibraryBook>("create_book", { input }),
+  updateBook: (input: UpdateLibraryBookInput) => invoke<void>("update_book", { input }),
   listBooks: (branchId: string, search?: string) => invoke<LibraryBook[]>("list_books", { branchId, search }),
   issueBook: (bookId: string, studentId: string, dueDate: string) =>
     invoke<void>("issue_book", { input: { book_id: bookId, student_id: studentId, due_date: dueDate } }),
@@ -530,8 +1012,10 @@ export const api = {
     invoke<LibraryIssueListItem[]>("list_issues", { branchId, status }),
 
   createRoute: (input: NewTransportRouteInput) => invoke<TransportRoute>("create_route", { input }),
+  updateRoute: (input: UpdateTransportRouteInput) => invoke<void>("update_route", { input }),
   listRoutes: (branchId: string) => invoke<TransportRoute[]>("list_routes", { branchId }),
   createStop: (input: NewTransportStopInput) => invoke<TransportStop>("create_stop", { input }),
+  updateStop: (input: UpdateTransportStopInput) => invoke<void>("update_stop", { input }),
   listStops: (routeId: string) => invoke<TransportStop[]>("list_stops", { routeId }),
   assignStudentTransport: (studentId: string, routeId: string, stopId: string) =>
     invoke<void>("assign_student_transport", {
@@ -559,20 +1043,27 @@ export const api = {
 
   createFeeStructure: (input: NewFeeStructureInput) =>
     invoke<FeeStructure>("create_fee_structure", { input }),
+  updateFeeStructure: (input: UpdateFeeStructureInput) => invoke<void>("update_fee_structure", { input }),
   listFeeStructures: (branchId: string) => invoke<FeeStructure[]>("list_fee_structures", { branchId }),
   generateInvoices: (feeStructureId: string) =>
     invoke<number>("generate_invoices", { feeStructureId }),
+  voidInvoice: (input: VoidInvoiceInput) => invoke<void>("void_invoice", { input }),
   listInvoices: (branchId: string, status?: InvoiceStatus | null) =>
     invoke<FeeInvoiceListItem[]>("list_invoices", { branchId, status }),
   getStudentFeeSummary: (studentId: string) =>
     invoke<StudentFeeSummary>("get_student_fee_summary", { studentId }),
   recordPayment: (input: RecordPaymentInput) => invoke<FeePayment>("record_payment", { input }),
+  reversePayment: (input: ReversePaymentInput) => invoke<void>("reverse_payment", { input }),
 
   createSubject: (input: NewSubjectInput) => invoke<Subject>("create_subject", { input }),
+  updateSubject: (input: UpdateSubjectInput) => invoke<void>("update_subject", { input }),
   listSubjects: (branchId: string) => invoke<Subject[]>("list_subjects", { branchId }),
   createExam: (input: NewExamInput) => invoke<Exam>("create_exam", { input }),
+  updateExam: (input: UpdateExamInput) => invoke<void>("update_exam", { input }),
   listExams: (branchId: string, classId?: string | null) =>
     invoke<Exam[]>("list_exams", { branchId, classId }),
+  listStudentsPendingBackpaper: (examId: string, subjectId: string) =>
+    invoke<BackpaperCandidate[]>("list_students_pending_backpaper", { examId, subjectId }),
   getMarksRoster: (examId: string, subjectId: string) =>
     invoke<MarksRosterEntry[]>("get_marks_roster", { examId, subjectId }),
   saveMarks: (input: SaveMarksInput) => invoke<void>("save_marks", { input }),
@@ -583,4 +1074,68 @@ export const api = {
 
   syncNow: () => invoke<SyncStatus>("sync_now"),
   getSyncStatus: () => invoke<SyncStatus>("get_sync_status"),
+
+  // RBAC: permissions, roles, users
+  listPermissionCatalog: () => invoke<string[]>("list_permission_catalog"),
+  listMyPermissions: () => invoke<string[]>("list_my_permissions"),
+  listRoles: () => invoke<Role[]>("list_roles"),
+  createRole: (input: NewRoleInput) => invoke<Role>("create_role", { input }),
+  updateRole: (id: string, name: string) => invoke<void>("update_role", { id, name }),
+  deleteRole: (id: string) => invoke<void>("delete_role", { id }),
+  listRolePermissions: (roleId: string) => invoke<string[]>("list_role_permissions", { roleId }),
+  setRolePermissions: (input: SetRolePermissionsInput) => invoke<void>("set_role_permissions", { input }),
+  listUsers: () => invoke<UserSummary[]>("list_users"),
+  assignUserRole: (userId: string, roleId: string) => invoke<void>("assign_user_role", { userId, roleId }),
+  removeUserRole: (userId: string, roleId: string) => invoke<void>("remove_user_role", { userId, roleId }),
+  setUserActive: (userId: string, isActive: boolean) =>
+    invoke<void>("set_user_active", { userId, isActive }),
+  createStaffLogin: (input: CreateStaffLoginInput) => invoke<string>("create_staff_login", { input }),
+  resetStaffPassword: (input: ResetStaffPasswordInput) => invoke<void>("reset_staff_password", { input }),
+
+  // Staff / HR
+  listStaff: (branchId: string, search?: string) =>
+    invoke<StaffListItem[]>("list_staff", { branchId, search }),
+  getStaff: (id: string) => invoke<Staff>("get_staff", { id }),
+  createStaff: (input: NewStaffInput) => invoke<Staff>("create_staff", { input }),
+  updateStaff: (input: UpdateStaffInput) => invoke<void>("update_staff", { input }),
+  setStaffStatus: (input: SetStaffStatusInput) => invoke<void>("set_staff_status", { input }),
+  listTeacherAssignments: (branchId: string, staffId?: string | null) =>
+    invoke<TeacherAssignment[]>("list_teacher_assignments", { branchId, staffId }),
+  createTeacherAssignment: (input: NewTeacherAssignmentInput) =>
+    invoke<void>("create_teacher_assignment", { input }),
+  deleteTeacherAssignment: (id: string) => invoke<void>("delete_teacher_assignment", { id }),
+  setClassTeacher: (input: SetClassTeacherInput) => invoke<void>("set_class_teacher", { input }),
+
+  // Staff attendance
+  getStaffAttendanceRoster: (branchId: string, attendanceDate: string) =>
+    invoke<StaffAttendanceRosterEntry[]>("get_staff_attendance_roster", { branchId, attendanceDate }),
+  markStaffAttendance: (input: MarkStaffAttendanceInput) => invoke<void>("mark_staff_attendance", { input }),
+  getStaffAttendanceHistory: (staffId: string) =>
+    invoke<StaffAttendanceHistoryEntry[]>("get_staff_attendance_history", { staffId }),
+
+  // Payroll
+  getSalaryStructure: (staffId: string) => invoke<SalaryStructure | null>("get_salary_structure", { staffId }),
+  setSalaryStructure: (input: SetSalaryStructureInput) => invoke<void>("set_salary_structure", { input }),
+  generatePayrollRun: (input: GeneratePayrollRunInput) =>
+    invoke<PayrollRunDetail>("generate_payroll_run", { input }),
+  listPayrollRuns: (branchId: string) => invoke<PayrollRun[]>("list_payroll_runs", { branchId }),
+  getPayrollRun: (runId: string) => invoke<PayrollRunDetail>("get_payroll_run", { runId }),
+  finalizePayrollRun: (runId: string) => invoke<void>("finalize_payroll_run", { runId }),
+  markPayslipPaid: (payslipId: string, paidOn: string) =>
+    invoke<void>("mark_payslip_paid", { payslipId, paidOn }),
+  adjustPayslipLineItem: (input: AdjustPayslipLineItemInput) =>
+    invoke<void>("adjust_payslip_line_item", { input }),
+
+  // Session promotion / rollover
+  suggestClassMapping: (branchId: string, fromSessionId: string, toSessionId: string) =>
+    invoke<ClassMappingSuggestion[]>("suggest_class_mapping", { branchId, fromSessionId, toSessionId }),
+  createPromotionBatch: (input: CreatePromotionBatchInput) =>
+    invoke<PromotionBatch>("create_promotion_batch", { input }),
+  getPromotionBatch: (batchId: string) => invoke<PromotionBatch>("get_promotion_batch", { batchId }),
+  setPromotionDecision: (input: SetPromotionDecisionInput) =>
+    invoke<void>("set_promotion_decision", { input }),
+  executePromotionBatch: (batchId: string) => invoke<void>("execute_promotion_batch", { batchId }),
+
+  // Audit log
+  listAuditLog: (filter: AuditLogFilter) => invoke<AuditLogEntry[]>("list_audit_log", { filter }),
 };

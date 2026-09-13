@@ -3,6 +3,7 @@ import {
   BookOpenIcon,
   BusIcon,
   CalendarCheckIcon,
+  ClipboardListIcon,
   GraduationCapIcon,
   IdCardIcon,
   LayersIcon,
@@ -11,8 +12,12 @@ import {
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
   Settings2Icon,
+  ShieldCheckIcon,
   TrophyIcon,
+  UserCogIcon,
+  UserSquareIcon,
   UsersIcon,
+  WalletIcon,
 } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
@@ -37,6 +42,7 @@ interface NavItem {
   icon: typeof LayoutDashboardIcon;
   end?: boolean;
   module?: ModuleKey;
+  permission?: string;
 }
 
 interface NavSection {
@@ -56,6 +62,13 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    label: "Staff",
+    items: [
+      { to: "/staff", label: "Staff", icon: UserSquareIcon, permission: "staff.view" },
+      { to: "/payroll", label: "Payroll", icon: WalletIcon, module: "payroll", permission: "payroll.view" },
+    ],
+  },
+  {
     label: "Finance",
     items: [{ to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, module: "fees" }],
   },
@@ -70,7 +83,12 @@ const navSections: NavSection[] = [
   },
   {
     label: "Admin",
-    items: [{ to: "/settings/modules", label: "Module Settings", icon: Settings2Icon }],
+    items: [
+      { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
+      { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
+      { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },
+      { to: "/settings/modules", label: "Module Settings", icon: Settings2Icon },
+    ],
   },
 ];
 
@@ -80,6 +98,7 @@ export function AppShell() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const selectBranch = useAppStore((s) => s.selectBranch);
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const logout = useAppStore((s) => s.logout);
   const navigate = useNavigate();
 
@@ -101,7 +120,11 @@ export function AppShell() {
         </div>
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4">
           {navSections.map((section) => {
-            const visibleItems = section.items.filter((item) => !item.module || isModuleEnabled(item.module));
+            const visibleItems = section.items.filter(
+              (item) =>
+                (!item.module || isModuleEnabled(item.module)) &&
+                (!item.permission || hasPermission(item.permission)),
+            );
             if (visibleItems.length === 0) return null;
             return (
               <div key={section.label || "main"} className="flex flex-col gap-1">

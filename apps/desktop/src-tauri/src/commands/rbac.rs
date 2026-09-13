@@ -6,11 +6,35 @@ use crate::models::{
     CreateStaffLoginInput, NewRoleInput, ResetStaffPasswordInput, Role, SetRolePermissionsInput,
     UserSummary, PERMISSION_CATALOG,
 };
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
+use crate::state::{current_actor_role_names, current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn list_permission_catalog() -> Vec<String> {
     PERMISSION_CATALOG.iter().map(|s| s.to_string()).collect()
+}
+
+/// The current user's effective permission set (union across all their
+/// assigned roles) -- what the frontend loads at login/bootstrap to decide
+/// which buttons/routes to show. This is the read-only counterpart to
+/// `require_permission`'s enforcement check.
+#[tauri::command]
+pub fn list_my_permissions(state: State<AppState>) -> Result<Vec<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let role_names = current_actor_role_names(&conn);
+    if role_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = role_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT DISTINCT rp.permission_key FROM role_permissions rp
+         JOIN roles r ON r.id = rp.role_id
+         WHERE r.name IN ({placeholders}) AND rp.deleted_at IS NULL"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let params: Vec<&dyn rusqlite::ToSql> = role_names.iter().map(|r| r as &dyn rusqlite::ToSql).collect();
+    let rows = stmt.query_map(params.as_slice(), |row| row.get(0)).map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

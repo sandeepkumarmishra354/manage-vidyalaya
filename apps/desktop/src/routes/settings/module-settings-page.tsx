@@ -7,6 +7,7 @@ import {
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
   TrophyIcon,
+  WalletIcon,
 } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
@@ -48,6 +49,11 @@ const MODULE_META: Record<ModuleKey, { label: string; description: string; icon:
     label: "ID Cards",
     description: "Student ID card generation and printing.",
     icon: IdCardIcon,
+  },
+  payroll: {
+    label: "Payroll",
+    description: "Salary structures, payroll runs, and payslips.",
+    icon: WalletIcon,
   },
 };
 

@@ -103,7 +103,7 @@ pub fn current_actor_user_id(conn: &rusqlite::Connection) -> Option<String> {
 
 /// The cached logged-in user's role *names* (as issued in the login JWT
 /// payload, see `commands/auth.rs::UserDto`).
-fn current_actor_role_names(conn: &rusqlite::Connection) -> Vec<String> {
+pub fn current_actor_role_names(conn: &rusqlite::Connection) -> Vec<String> {
     let Ok(user_json) =
         conn.query_row::<String, _, _>("SELECT value FROM app_settings WHERE key = 'user'", [], |row| row.get(0))
     else {

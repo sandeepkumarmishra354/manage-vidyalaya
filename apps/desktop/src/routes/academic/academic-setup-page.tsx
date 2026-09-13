@@ -1,16 +1,82 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type AcademicSession, type SchoolClass, type Section } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PromotionTab } from "./promotion-tab";
+
+function EditSessionDialog({ session, onUpdated }: { session: AcademicSession; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(session.name);
+  const [startDate, setStartDate] = useState(session.start_date);
+  const [endDate, setEndDate] = useState(session.end_date);
+  const [isCurrent, setIsCurrent] = useState(session.is_current);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.updateAcademicSession({ id: session.id, name, start_date: startDate, end_date: endDate, is_current: isCurrent });
+      setOpen(false);
+      onUpdated();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><PencilIcon className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit academic session</DialogTitle>
+        </DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="flex gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Start date</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>End date</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isCurrent} onChange={(e) => setIsCurrent(e.target.checked)} className="size-4 rounded border-input" />
+            Current session
+          </label>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
@@ -104,6 +170,7 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
               <TableHead>Start</TableHead>
               <TableHead>End</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -113,11 +180,14 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
                 <TableCell>{s.start_date}</TableCell>
                 <TableCell>{s.end_date}</TableCell>
                 <TableCell>{s.is_current && <Badge>Current</Badge>}</TableCell>
+                <TableCell>
+                  <EditSessionDialog session={s} onUpdated={() => { refresh(); onChanged(); }} />
+                </TableCell>
               </TableRow>
             ))}
             {sessions.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   No academic sessions yet.
                 </TableCell>
               </TableRow>
@@ -191,6 +261,25 @@ function ClassesAndSectionsTab() {
     } finally {
       setIsCreatingSection(false);
     }
+  };
+
+  const handleRenameClass = async (c: SchoolClass) => {
+    const name = window.prompt("Rename class", c.name);
+    if (!name || name === c.name) return;
+    await api.updateClass({ id: c.id, name, sort_order: c.sort_order });
+    refreshClasses();
+  };
+
+  const handleDeleteClass = async (c: SchoolClass) => {
+    if (!window.confirm(`Delete class "${c.name}"? This cannot be undone.`)) return;
+    await api.deleteClass(c.id);
+    refreshClasses();
+  };
+
+  const handleDeleteSection = async (s: Section) => {
+    if (!window.confirm(`Delete section "${s.name}"?`)) return;
+    await api.deleteSection(s.id);
+    refreshClasses();
   };
 
   return (
@@ -293,6 +382,7 @@ function ClassesAndSectionsTab() {
             <TableRow>
               <TableHead>Class</TableHead>
               <TableHead>Sections</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -301,19 +391,30 @@ function ClassesAndSectionsTab() {
                 <TableCell className="font-medium">{c.name}</TableCell>
                 <TableCell className="flex flex-wrap gap-1.5">
                   {(sectionsByClass[c.id] ?? []).map((sec) => (
-                    <Badge key={sec.id} variant="outline">
+                    <Badge key={sec.id} variant="outline" className="gap-1">
                       {sec.name}
+                      <button onClick={() => handleDeleteSection(sec)} className="text-muted-foreground hover:text-destructive">
+                        <XIcon className="size-3" />
+                      </button>
                     </Badge>
                   ))}
                   {(sectionsByClass[c.id] ?? []).length === 0 && (
                     <span className="text-muted-foreground">No sections yet</span>
                   )}
                 </TableCell>
+                <TableCell className="flex justify-end gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => handleRenameClass(c)}>
+                    <PencilIcon className="size-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(c)}>
+                    <XIcon className="size-3.5" />
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
             {classes.length === 0 && (
               <TableRow>
-                <TableCell colSpan={2} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
                   No classes yet for this branch.
                 </TableCell>
               </TableRow>
@@ -341,12 +442,16 @@ export function AcademicSetupPage() {
         <TabsList>
           <TabsTrigger value="classes">Classes &amp; Sections</TabsTrigger>
           <TabsTrigger value="sessions">Academic Sessions</TabsTrigger>
+          <TabsTrigger value="promotion">Promotion</TabsTrigger>
         </TabsList>
         <TabsContent value="classes">
           <ClassesAndSectionsTab key={refreshKey} />
         </TabsContent>
         <TabsContent value="sessions">
           <AcademicSessionsTab onChanged={() => setRefreshKey((k) => k + 1)} />
+        </TabsContent>
+        <TabsContent value="promotion">
+          <PromotionTab />
         </TabsContent>
       </Tabs>
     </div>
