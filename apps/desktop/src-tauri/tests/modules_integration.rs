@@ -355,6 +355,9 @@ fn exam_marks_roll_up_into_a_correct_report_card() {
             class_id,
             name: "Mid-Term".to_string(),
             exam_date: Some("2026-09-01".to_string()),
+            exam_type: None,
+            parent_exam_id: None,
+            passing_percentage: None,
         },
     )
     .unwrap();

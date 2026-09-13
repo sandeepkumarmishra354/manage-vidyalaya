@@ -89,3 +89,62 @@ pub fn current_tenant_id(conn: &rusqlite::Connection) -> Result<String, String> 
     conn.query_row("SELECT id FROM tenants LIMIT 1", [], |row| row.get(0))
         .map_err(|e| format!("no tenant provisioned: {e}"))
 }
+
+/// The cached logged-in user's id, read from the same `app_settings` "user"
+/// blob `commands::auth` caches on login (see `commands/auth.rs`). Used to
+/// stamp audit log rows and to resolve the current user's permissions.
+pub fn current_actor_user_id(conn: &rusqlite::Connection) -> Option<String> {
+    let user_json: String = conn
+        .query_row("SELECT value FROM app_settings WHERE key = 'user'", [], |row| row.get(0))
+        .ok()?;
+    let user: serde_json::Value = serde_json::from_str(&user_json).ok()?;
+    user.get("id")?.as_str().map(|s| s.to_string())
+}
+
+/// The cached logged-in user's role *names* (as issued in the login JWT
+/// payload, see `commands/auth.rs::UserDto`).
+fn current_actor_role_names(conn: &rusqlite::Connection) -> Vec<String> {
+    let Ok(user_json) =
+        conn.query_row::<String, _, _>("SELECT value FROM app_settings WHERE key = 'user'", [], |row| row.get(0))
+    else {
+        return Vec::new();
+    };
+    let Ok(user) = serde_json::from_str::<serde_json::Value>(&user_json) else {
+        return Vec::new();
+    };
+    user.get("roles")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default()
+}
+
+/// Checks whether the currently logged-in user holds `permission_key` via
+/// any of their assigned roles' `role_permissions`. Every command that
+/// performs a sensitive action should call this before doing any writes (or
+/// before returning sensitive reads). Fails closed: no session, no matching
+/// role, or no granted permission all return an error.
+pub fn require_permission(conn: &rusqlite::Connection, permission_key: &str) -> Result<(), String> {
+    let role_names = current_actor_role_names(conn);
+    if role_names.is_empty() {
+        return Err("not authorized: no active session".to_string());
+    }
+
+    let placeholders = role_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT COUNT(*) FROM role_permissions rp
+         JOIN roles r ON r.id = rp.role_id
+         WHERE r.name IN ({placeholders}) AND rp.permission_key = ? AND rp.deleted_at IS NULL"
+    );
+
+    let mut params: Vec<&dyn rusqlite::ToSql> = role_names.iter().map(|r| r as &dyn rusqlite::ToSql).collect();
+    params.push(&permission_key);
+
+    let granted_count: i64 = conn
+        .query_row(&sql, params.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    if granted_count == 0 {
+        return Err(format!("not authorized: missing permission '{permission_key}'"));
+    }
+    Ok(())
+}

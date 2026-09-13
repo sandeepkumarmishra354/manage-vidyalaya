@@ -1,9 +1,11 @@
 use tauri::State;
 
+use crate::audit::record_audit;
 use crate::models::{
-    AcademicSession, Branch, NewAcademicSessionInput, NewClassInput, NewSectionInput, SchoolClass, Section,
+    AcademicSession, Branch, NewAcademicSessionInput, NewClassInput, NewSectionInput, SchoolClass,
+    Section, UpdateAcademicSessionInput, UpdateClassInput, UpdateSectionInput,
 };
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn list_branches(state: State<AppState>) -> Result<Vec<Branch>, String> {
@@ -61,7 +63,7 @@ pub fn list_sections(state: State<AppState>, class_id: String) -> Result<Vec<Sec
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, class_id, name FROM sections
+            "SELECT id, class_id, name, capacity, class_teacher_staff_id FROM sections
              WHERE class_id = ?1 AND deleted_at IS NULL ORDER BY name",
         )
         .map_err(|e| e.to_string())?;
@@ -72,6 +74,8 @@ pub fn list_sections(state: State<AppState>, class_id: String) -> Result<Vec<Sec
                 id: row.get(0)?,
                 class_id: row.get(1)?,
                 name: row.get(2)?,
+                capacity: row.get(3)?,
+                class_teacher_staff_id: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -85,6 +89,7 @@ pub fn list_sections(state: State<AppState>, class_id: String) -> Result<Vec<Sec
 #[tauri::command]
 pub fn create_class(state: State<AppState>, input: NewClassInput) -> Result<SchoolClass, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
     create_class_impl(&mut conn, input)
 }
 
@@ -109,6 +114,8 @@ pub fn create_class_impl(conn: &mut rusqlite::Connection, input: NewClassInput) 
     )
     .map_err(|e| e.to_string())?;
     enqueue_outbox_from_row(&tx, "classes", &id, "insert").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, Some(&input.branch_id), "classes", &id, "create", &format!("Created class '{}'", input.name))
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(SchoolClass {
@@ -121,8 +128,48 @@ pub fn create_class_impl(conn: &mut rusqlite::Connection, input: NewClassInput) 
 }
 
 #[tauri::command]
+pub fn update_class(state: State<AppState>, input: UpdateClassInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE classes SET name = ?1, sort_order = ?2, updated_at = ?3, version = version + 1 WHERE id = ?4",
+        rusqlite::params![input.name, input.sort_order, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "classes", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "classes", &input.id, "update", &format!("Renamed class to '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_class(state: State<AppState>, id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE classes SET deleted_at = ?1, updated_at = ?1, version = version + 1 WHERE id = ?2",
+        rusqlite::params![now, id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "classes", &id, "delete").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "classes", &id, "delete", "Deleted class").map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn create_section(state: State<AppState>, input: NewSectionInput) -> Result<Section, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
     create_section_impl(&mut conn, input)
 }
 
@@ -133,15 +180,56 @@ pub fn create_section_impl(conn: &mut rusqlite::Connection, input: NewSectionInp
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute(
-        "INSERT INTO sections (id, tenant_id, class_id, name, updated_at, version)
-         VALUES (?1, ?2, ?3, ?4, ?5, 1)",
-        rusqlite::params![id, tenant_id, input.class_id, input.name, now],
+        "INSERT INTO sections (id, tenant_id, class_id, name, capacity, updated_at, version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
+        rusqlite::params![id, tenant_id, input.class_id, input.name, input.capacity, now],
     )
     .map_err(|e| e.to_string())?;
     enqueue_outbox_from_row(&tx, "sections", &id, "insert").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "sections", &id, "create", &format!("Created section '{}'", input.name))
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
-    Ok(Section { id, class_id: input.class_id, name: input.name })
+    Ok(Section { id, class_id: input.class_id, name: input.name, capacity: input.capacity, class_teacher_staff_id: None })
+}
+
+#[tauri::command]
+pub fn update_section(state: State<AppState>, input: UpdateSectionInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE sections SET name = ?1, capacity = ?2, updated_at = ?3, version = version + 1 WHERE id = ?4",
+        rusqlite::params![input.name, input.capacity, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "sections", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "sections", &input.id, "update", &format!("Renamed section to '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_section(state: State<AppState>, id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE sections SET deleted_at = ?1, updated_at = ?1, version = version + 1 WHERE id = ?2",
+        rusqlite::params![now, id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "sections", &id, "delete").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "sections", &id, "delete", "Deleted section").map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -177,6 +265,7 @@ pub fn create_academic_session(
     input: NewAcademicSessionInput,
 ) -> Result<AcademicSession, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
     create_academic_session_impl(&mut conn, input)
 }
 
@@ -191,27 +280,7 @@ pub fn create_academic_session_impl(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     if input.is_current {
-        let demoted_ids: Vec<String> = {
-            let mut stmt = tx
-                .prepare("SELECT id FROM academic_sessions WHERE tenant_id = ?1 AND is_current = 1")
-                .map_err(|e| e.to_string())?;
-            let ids = stmt
-                .query_map([&tenant_id], |row| row.get(0))
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| e.to_string())?;
-            ids
-        };
-
-        for demoted_id in demoted_ids {
-            tx.execute(
-                "UPDATE academic_sessions SET is_current = 0, updated_at = ?1, version = version + 1 WHERE id = ?2",
-                rusqlite::params![now, demoted_id],
-            )
-            .map_err(|e| e.to_string())?;
-            enqueue_outbox_from_row(&tx, "academic_sessions", &demoted_id, "update")
-                .map_err(|e| e.to_string())?;
-        }
+        demote_other_sessions(&tx, &tenant_id, &now)?;
     }
 
     tx.execute(
@@ -221,6 +290,8 @@ pub fn create_academic_session_impl(
     )
     .map_err(|e| e.to_string())?;
     enqueue_outbox_from_row(&tx, "academic_sessions", &id, "insert").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "academic_sessions", &id, "create", &format!("Created academic session '{}'", input.name))
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(AcademicSession {
@@ -230,6 +301,51 @@ pub fn create_academic_session_impl(
         end_date: input.end_date,
         is_current: input.is_current,
     })
+}
+
+fn demote_other_sessions(tx: &rusqlite::Transaction, tenant_id: &str, now: &str) -> Result<(), String> {
+    let demoted_ids: Vec<String> = {
+        let mut stmt = tx
+            .prepare("SELECT id FROM academic_sessions WHERE tenant_id = ?1 AND is_current = 1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([tenant_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+
+    for demoted_id in demoted_ids {
+        tx.execute(
+            "UPDATE academic_sessions SET is_current = 0, updated_at = ?1, version = version + 1 WHERE id = ?2",
+            rusqlite::params![now, demoted_id],
+        )
+        .map_err(|e| e.to_string())?;
+        enqueue_outbox_from_row(tx, "academic_sessions", &demoted_id, "update").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_academic_session(state: State<AppState>, input: UpdateAcademicSessionInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "academic_setup.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    if input.is_current {
+        demote_other_sessions(&tx, &tenant_id, &now)?;
+    }
+
+    tx.execute(
+        "UPDATE academic_sessions SET name = ?1, start_date = ?2, end_date = ?3, is_current = ?4, updated_at = ?5, version = version + 1 WHERE id = ?6",
+        rusqlite::params![input.name, input.start_date, input.end_date, input.is_current, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "academic_sessions", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "academic_sessions", &input.id, "update", "Updated academic session")
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

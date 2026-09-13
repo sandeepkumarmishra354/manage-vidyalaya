@@ -13,6 +13,20 @@ const HOUSES_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrati
 const LIBRARY_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0007_library.sql");
 const TRANSPORT_SCHEMA: &str =
     include_str!("../../../../packages/db-schema/migrations/0008_transport.sql");
+const RBAC_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0009_rbac.sql");
+const STAFF_SCHEMA: &str = include_str!("../../../../packages/db-schema/migrations/0010_staff.sql");
+const TEACHER_ASSIGNMENTS_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0011_teacher_assignments.sql");
+const STAFF_ATTENDANCE_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0012_staff_attendance.sql");
+const PAYROLL_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0013_payroll.sql");
+const PROMOTION_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0014_promotion.sql");
+const EXAM_BACKPAPER_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0015_exam_backpaper.sql");
+const AUDIT_LOG_SCHEMA: &str =
+    include_str!("../../../../packages/db-schema/migrations/0016_audit_log.sql");
 const LOCAL_APP_SETTINGS_SCHEMA: &str = include_str!("../migrations/local_0001_app_settings.sql");
 
 /// Opens (creating if needed) the local SQLite database and applies migrations.
@@ -50,6 +64,14 @@ fn run_migrations(conn: &Connection) -> anyhow::Result<()> {
     apply_if_pending(conn, "0006_houses", HOUSES_SCHEMA)?;
     apply_if_pending(conn, "0007_library", LIBRARY_SCHEMA)?;
     apply_if_pending(conn, "0008_transport", TRANSPORT_SCHEMA)?;
+    apply_if_pending(conn, "0009_rbac", RBAC_SCHEMA)?;
+    apply_if_pending(conn, "0010_staff", STAFF_SCHEMA)?;
+    apply_if_pending(conn, "0011_teacher_assignments", TEACHER_ASSIGNMENTS_SCHEMA)?;
+    apply_if_pending(conn, "0012_staff_attendance", STAFF_ATTENDANCE_SCHEMA)?;
+    apply_if_pending(conn, "0013_payroll", PAYROLL_SCHEMA)?;
+    apply_if_pending(conn, "0014_promotion", PROMOTION_SCHEMA)?;
+    apply_if_pending(conn, "0015_exam_backpaper", EXAM_BACKPAPER_SCHEMA)?;
+    apply_if_pending(conn, "0016_audit_log", AUDIT_LOG_SCHEMA)?;
 
     // Local-only (desktop-specific, never synced) schema.
     apply_if_pending(conn, "local_0001_app_settings", LOCAL_APP_SETTINGS_SCHEMA)?;
@@ -103,6 +125,19 @@ mod tests {
             "library_issues",
             "transport_routes",
             "student_transport",
+            "role_permissions",
+            "staff",
+            "teacher_subject_assignments",
+            "staff_attendance",
+            "salary_structures",
+            "salary_components",
+            "payroll_runs",
+            "payslips",
+            "payslip_line_items",
+            "student_enrollments",
+            "promotion_batches",
+            "promotion_batch_items",
+            "audit_log",
         ] {
             let table_count: i64 = conn2
                 .query_row(

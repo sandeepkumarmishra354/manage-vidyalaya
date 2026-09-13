@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 
+use crate::models::PERMISSION_CATALOG;
 use crate::state::enqueue_outbox_from_row;
 
 /// Fixed well-known ids shared with apps/cloud-api/prisma/seed.ts, so a local
@@ -27,6 +28,17 @@ pub const DEMO_BRANCH_ID: &str = "00000000-0000-0000-0000-000000000002";
 pub const DEMO_ACADEMIC_SESSION_ID: &str = "00000000-0000-0000-0000-000000000003";
 pub const DEMO_CLASS_ID: &str = "00000000-0000-0000-0000-000000000004";
 pub const DEMO_SECTION_ID: &str = "00000000-0000-0000-0000-000000000005";
+
+// Fixed ids for the five default roles, matching apps/cloud-api/prisma/seed.ts
+// exactly -- for the same reason the ids above are fixed rather than random
+// (see doc comment above): both sides seed the same tenant independently,
+// and `roles` has a UNIQUE (tenant_id, name) constraint, so two different
+// randomly-generated ids for "super_admin" would collide once synced.
+pub const DEMO_ROLE_SUPER_ADMIN_ID: &str = "00000000-0000-0000-0000-000000000010";
+pub const DEMO_ROLE_BRANCH_ADMIN_ID: &str = "00000000-0000-0000-0000-000000000011";
+pub const DEMO_ROLE_ACCOUNTANT_ID: &str = "00000000-0000-0000-0000-000000000012";
+pub const DEMO_ROLE_TEACHER_ID: &str = "00000000-0000-0000-0000-000000000013";
+pub const DEMO_ROLE_FRONT_DESK_ID: &str = "00000000-0000-0000-0000-000000000014";
 
 /// First-run bootstrap: creates a demo tenant/branch/academic session/class/
 /// section so the app is usable immediately after install, before cloud
@@ -93,6 +105,52 @@ pub fn seed_demo_data_if_empty(conn: &mut Connection) -> anyhow::Result<()> {
         rusqlite::params![section_id, tenant_id, class_id, now],
     )?;
     enqueue_outbox_from_row(&tx, "sections", &section_id, "insert")?;
+
+    // Default roles + their permission grants (see models::PERMISSION_CATALOG).
+    // Seeded locally (not just server-side) so RBAC works from first launch,
+    // before any login/sync has happened -- same reasoning as the rest of
+    // this function. Kept in sync by hand with apps/cloud-api/prisma/seed.ts,
+    // which seeds the identical role ids/permission sets for the same demo
+    // tenant.
+    let branch_admin_perms: Vec<&str> =
+        PERMISSION_CATALOG.iter().copied().filter(|k| *k != "roles.manage").collect();
+    let accountant_perms: &[&str] =
+        &["fees.view", "fees.manage", "fees.record_payment", "payroll.view", "payroll.generate", "payroll.finalize", "students.view"];
+    let teacher_perms: &[&str] = &[
+        "attendance.mark", "attendance.view", "exams.view", "exams.enter_marks",
+        "students.view", "staff_attendance.view", "payroll.view_own",
+    ];
+    let front_desk_perms: &[&str] = &[
+        "admissions.view", "admissions.create", "admissions.confirm",
+        "students.view", "students.create", "students.edit",
+        "library.view", "library.manage",
+    ];
+
+    let roles: [(&str, &str, &[&str]); 5] = [
+        (DEMO_ROLE_SUPER_ADMIN_ID, "super_admin", PERMISSION_CATALOG),
+        (DEMO_ROLE_BRANCH_ADMIN_ID, "branch_admin", branch_admin_perms.as_slice()),
+        (DEMO_ROLE_ACCOUNTANT_ID, "accountant", accountant_perms),
+        (DEMO_ROLE_TEACHER_ID, "teacher", teacher_perms),
+        (DEMO_ROLE_FRONT_DESK_ID, "front_desk", front_desk_perms),
+    ];
+
+    for (role_id, name, perms) in roles {
+        tx.execute(
+            "INSERT INTO roles (id, tenant_id, name, is_system, updated_at, version) VALUES (?1, ?2, ?3, 1, ?4, 1)",
+            rusqlite::params![role_id, tenant_id, name, now],
+        )?;
+        enqueue_outbox_from_row(&tx, "roles", role_id, "insert")?;
+
+        for key in perms {
+            let rp_id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO role_permissions (id, tenant_id, role_id, permission_key, updated_at, version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1)",
+                rusqlite::params![rp_id, tenant_id, role_id, key, now],
+            )?;
+            enqueue_outbox_from_row(&tx, "role_permissions", &rp_id, "insert")?;
+        }
+    }
 
     tx.commit()?;
 

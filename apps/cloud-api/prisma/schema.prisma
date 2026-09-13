@@ -10,9 +10,11 @@
 // relational mirror on the server (for a future web/reporting portal) is
 // intentionally deferred -- see plan doc's "future work" notes.
 //
-// tenants / branches / roles / users ARE modeled relationally here because
-// cloud-api needs to query them directly for auth and billing, independent
-// of any desktop client being online.
+// tenants / branches / roles / users / user_roles / role_permissions ARE
+// modeled relationally here because cloud-api needs to query them directly
+// for auth, RBAC and billing, independent of any desktop client being
+// online. SyncService.mirrorRelationalTable upserts into these models
+// alongside the sync_log write for pushes to these specific tables.
 
 generator client {
   provider = "prisma-client-js"
@@ -61,17 +63,41 @@ model Branch {
 }
 
 model Role {
-  id        String   @id
-  tenantId  String   @map("tenant_id")
+  id        String    @id
+  tenantId  String    @map("tenant_id")
   name      String
-  updatedAt DateTime @map("updated_at")
-  version   Int      @default(1)
+  isSystem  Boolean   @default(false) @map("is_system")
+  updatedAt DateTime  @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id])
-  userRoles UserRole[]
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  userRoles   UserRole[]
+  permissions RolePermission[]
 
   @@unique([tenantId, name])
   @@map("roles")
+}
+
+/// Relationally mirrored (unlike most domain tables, which live only in
+/// sync_log) because cloud-api's PermissionsGuard needs to query it directly
+/// when enforcing access on server-side endpoints (e.g. UsersModule),
+/// independent of any desktop client being online. Kept in sync by
+/// SyncService.mirrorRelationalTable on every push of a role_permissions row.
+model RolePermission {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  roleId        String    @map("role_id")
+  permissionKey String    @map("permission_key")
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, permissionKey])
+  @@map("role_permissions")
 }
 
 model User {

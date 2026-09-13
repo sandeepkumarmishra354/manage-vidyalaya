@@ -1,4 +1,5 @@
 pub mod attendance;
+pub mod audit;
 pub mod auth;
 pub mod branches;
 pub mod dashboard;
@@ -7,6 +8,11 @@ pub mod fees;
 pub mod houses;
 pub mod library;
 pub mod module_settings;
+pub mod payroll;
+pub mod promotion;
+pub mod rbac;
+pub mod staff;
+pub mod staff_attendance;
 pub mod students;
 pub mod sync;
 pub mod transport;

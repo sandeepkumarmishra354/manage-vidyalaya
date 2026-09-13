@@ -59,6 +59,20 @@ export class SyncService {
         },
       });
 
+      try {
+        await this.mirrorRelationalTable(tenantId, change);
+      } catch (e) {
+        // Non-fatal: sync_log (written above) is the source of truth used to
+        // replay state to other devices regardless of mirror outcome. The
+        // relational mirror only serves cloud-api's own direct queries
+        // (auth, RBAC) for the handful of tables it needs to read without a
+        // device being online -- see the design note atop schema.prisma.
+        console.error(
+          `relational mirror upsert failed for ${change.entity_table}:${change.entity_id}`,
+          e,
+        );
+      }
+
       results.push({
         entity_table: change.entity_table,
         entity_id: change.entity_id,
@@ -68,6 +82,153 @@ export class SyncService {
     }
 
     return results;
+  }
+
+  /**
+   * A handful of tables are also modeled relationally in Postgres (see
+   * schema.prisma design note) because cloud-api needs to query them
+   * directly -- auth (users/roles) and RBAC enforcement (role_permissions)
+   * -- independent of any desktop client being online. Every other synced
+   * table lives only in sync_log. `payload` is the full row snapshot in the
+   * same snake_case shape as the SQLite table, produced by
+   * enqueue_outbox_from_row on the desktop side.
+   */
+  private async mirrorRelationalTable(tenantId: string, change: SyncChangeDto): Promise<void> {
+    const p = change.payload as Record<string, any>;
+    const toDate = (v: unknown): Date | null => (v ? new Date(v as string) : null);
+
+    switch (change.entity_table) {
+      case "branches":
+        await this.prisma.branch.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            tenantId,
+            name: p.name,
+            code: p.code,
+            address: p.address ?? null,
+            city: p.city ?? null,
+            state: p.state ?? null,
+            pincode: p.pincode ?? null,
+            isActive: !!p.is_active,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+          update: {
+            name: p.name,
+            code: p.code,
+            address: p.address ?? null,
+            city: p.city ?? null,
+            state: p.state ?? null,
+            pincode: p.pincode ?? null,
+            isActive: !!p.is_active,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+        });
+        return;
+
+      case "roles":
+        await this.prisma.role.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            tenantId,
+            name: p.name,
+            isSystem: !!p.is_system,
+            updatedAt: new Date(p.updated_at),
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+          update: {
+            name: p.name,
+            isSystem: !!p.is_system,
+            updatedAt: new Date(p.updated_at),
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+        });
+        return;
+
+      case "users":
+        // passwordHash is intentionally never written here -- it's set
+        // server-side only via UsersModule (create login / reset password),
+        // never pushed from desktop (which never holds a plaintext or
+        // rehashable password to push in the first place).
+        await this.prisma.user.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            tenantId,
+            branchId: p.branch_id ?? null,
+            fullName: p.full_name,
+            email: p.email,
+            phone: p.phone ?? null,
+            isActive: p.is_active === undefined ? true : !!p.is_active,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+          update: {
+            branchId: p.branch_id ?? null,
+            fullName: p.full_name,
+            email: p.email,
+            phone: p.phone ?? null,
+            isActive: p.is_active === undefined ? true : !!p.is_active,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+        });
+        return;
+
+      case "user_roles":
+        await this.prisma.userRole.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            tenantId,
+            userId: p.user_id,
+            roleId: p.role_id,
+            updatedAt: new Date(p.updated_at),
+            version: p.version ?? 1,
+          },
+          update: { updatedAt: new Date(p.updated_at), version: p.version ?? 1 },
+        });
+        return;
+
+      case "role_permissions":
+        await this.prisma.rolePermission.upsert({
+          where: { id: p.id },
+          create: {
+            id: p.id,
+            tenantId,
+            roleId: p.role_id,
+            permissionKey: p.permission_key,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+          update: {
+            permissionKey: p.permission_key,
+            updatedAt: new Date(p.updated_at),
+            updatedBy: p.updated_by ?? null,
+            deletedAt: toDate(p.deleted_at),
+            version: p.version ?? 1,
+          },
+        });
+        return;
+
+      default:
+        return; // not a relationally-mirrored table -- sync_log alone is sufficient
+    }
   }
 
   async pull(

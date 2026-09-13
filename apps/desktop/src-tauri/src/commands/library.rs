@@ -1,12 +1,16 @@
 use rusqlite::params;
 use tauri::State;
 
-use crate::models::{IssueBookInput, LibraryBook, LibraryIssueListItem, NewLibraryBookInput};
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::audit::record_audit;
+use crate::models::{
+    IssueBookInput, LibraryBook, LibraryIssueListItem, NewLibraryBookInput, UpdateLibraryBookInput,
+};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn create_book(state: State<AppState>, input: NewLibraryBookInput) -> Result<LibraryBook, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -44,9 +48,44 @@ pub fn create_book(state: State<AppState>, input: NewLibraryBookInput) -> Result
     })
 }
 
+/// Books can't have their total_copies edited below however many are
+/// currently on loan -- that would make `available_copies` negative once
+/// issues are returned/reconciled.
+#[tauri::command]
+pub fn update_book(state: State<AppState>, input: UpdateLibraryBookInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (old_total, old_available): (i64, i64) = conn
+        .query_row("SELECT total_copies, available_copies FROM library_books WHERE id = ?1", [&input.id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+    let on_loan = old_total - old_available;
+    if input.total_copies < on_loan {
+        return Err(format!("cannot reduce total copies below {on_loan} currently on loan"));
+    }
+    let new_available = input.total_copies - on_loan;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE library_books SET title = ?1, author = ?2, isbn = ?3, category = ?4, total_copies = ?5, available_copies = ?6, updated_at = ?7, version = version + 1 WHERE id = ?8",
+        params![input.title, input.author, input.isbn, input.category, input.total_copies, new_available, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "library_books", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "library_books", &input.id, "update", &format!("Updated book '{}'", input.title))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_books(state: State<AppState>, branch_id: String, search: Option<String>) -> Result<Vec<LibraryBook>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.view")?;
     let search_pattern = format!("%{}%", search.unwrap_or_default().to_lowercase());
 
     let mut stmt = conn
@@ -82,6 +121,7 @@ pub fn list_books(state: State<AppState>, branch_id: String, search: Option<Stri
 #[tauri::command]
 pub fn issue_book(state: State<AppState>, input: IssueBookInput) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -124,6 +164,7 @@ pub fn issue_book(state: State<AppState>, input: IssueBookInput) -> Result<(), S
 #[tauri::command]
 pub fn return_book(state: State<AppState>, issue_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.manage")?;
     let now = chrono::Utc::now().to_rfc3339();
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -159,6 +200,7 @@ pub fn list_issues(
     status: Option<String>,
 ) -> Result<Vec<LibraryIssueListItem>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "library.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT i.id, i.book_id, b.title, i.student_id,

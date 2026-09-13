@@ -1,11 +1,12 @@
 use rusqlite::params;
 use tauri::State;
 
+use crate::audit::record_audit;
 use crate::models::{
     FeeInvoiceListItem, FeePayment, FeeStructure, NewFeeStructureInput, RecordPaymentInput,
-    StudentFeeSummary,
+    ReversePaymentInput, StudentFeeSummary, UpdateFeeStructureInput, VoidInvoiceInput,
 };
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn create_fee_structure(
@@ -13,7 +14,28 @@ pub fn create_fee_structure(
     input: NewFeeStructureInput,
 ) -> Result<FeeStructure, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.manage")?;
     create_fee_structure_impl(&mut conn, input)
+}
+
+#[tauri::command]
+pub fn update_fee_structure(state: State<AppState>, input: UpdateFeeStructureInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE fee_structures SET name = ?1, amount = ?2, frequency = ?3, updated_at = ?4, version = version + 1 WHERE id = ?5",
+        params![input.name, input.amount, input.frequency, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "fee_structures", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "fee_structures", &input.id, "update", &format!("Updated fee structure '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn create_fee_structure_impl(
@@ -61,6 +83,7 @@ pub fn create_fee_structure_impl(
 #[tauri::command]
 pub fn list_fee_structures(state: State<AppState>, branch_id: String) -> Result<Vec<FeeStructure>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT id, branch_id, academic_session_id, class_id, name, amount, frequency
@@ -91,7 +114,32 @@ pub fn list_fee_structures(state: State<AppState>, branch_id: String) -> Result<
 #[tauri::command]
 pub fn generate_invoices(state: State<AppState>, fee_structure_id: String) -> Result<i64, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.manage")?;
     generate_invoices_impl(&mut conn, fee_structure_id)
+}
+
+/// Voids an invoice with a required reason (e.g. issued in error, waived by
+/// policy) rather than deleting it outright -- the invoice stays visible
+/// with a `voided` status so the audit trail and any already-recorded
+/// payments against it remain intact.
+#[tauri::command]
+pub fn void_invoice(state: State<AppState>, input: VoidInvoiceInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE fee_invoices SET status = 'voided', updated_at = ?1, version = version + 1 WHERE id = ?2",
+        params![now, input.invoice_id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "fee_invoices", &input.invoice_id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "fee_invoices", &input.invoice_id, "update", &format!("Voided invoice: {}", input.reason))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn generate_invoices_impl(conn: &mut rusqlite::Connection, fee_structure_id: String) -> Result<i64, String> {
@@ -171,6 +219,7 @@ pub fn list_invoices(
     status: Option<String>,
 ) -> Result<Vec<FeeInvoiceListItem>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT i.id, i.student_id, s.first_name || ' ' || coalesce(s.last_name, ''), fs.name,
@@ -205,6 +254,7 @@ pub fn list_invoices(
 #[tauri::command]
 pub fn get_student_fee_summary(state: State<AppState>, student_id: String) -> Result<StudentFeeSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.view")?;
 
     let mut inv_stmt = conn
         .prepare(
@@ -271,7 +321,60 @@ pub fn get_student_fee_summary(state: State<AppState>, student_id: String) -> Re
 #[tauri::command]
 pub fn record_payment(state: State<AppState>, input: RecordPaymentInput) -> Result<FeePayment, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.record_payment")?;
     record_payment_impl(&mut conn, input)
+}
+
+/// Reverses a payment by inserting a negative-amount `fee_payments` row
+/// (rather than deleting the original) and recomputing the invoice's
+/// amount_paid/status -- keeps the full payment history/audit trail intact
+/// instead of erasing a mistaken or bounced payment.
+#[tauri::command]
+pub fn reverse_payment(state: State<AppState>, input: ReversePaymentInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "fees.record_payment")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (invoice_id, amount, payment_method): (String, i64, String) = conn
+        .query_row(
+            "SELECT invoice_id, amount, payment_method FROM fee_payments WHERE id = ?1 AND deleted_at IS NULL",
+            [&input.payment_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| format!("payment not found: {e}"))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let reversal_id = uuid::Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO fee_payments (id, tenant_id, invoice_id, amount, payment_method, payment_date, remarks, updated_at, version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
+        params![reversal_id, tenant_id, invoice_id, -amount, payment_method, now, format!("Reversal: {}", input.reason), now],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "fee_payments", &reversal_id, "insert").map_err(|e| e.to_string())?;
+
+    let (amount_due, amount_paid): (i64, i64) = tx
+        .query_row("SELECT amount_due, amount_paid FROM fee_invoices WHERE id = ?1", [&invoice_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+    let new_paid = amount_paid - amount;
+    let new_status = if new_paid >= amount_due { "paid" } else if new_paid > 0 { "partial" } else { "pending" };
+
+    tx.execute(
+        "UPDATE fee_invoices SET amount_paid = ?1, status = ?2, updated_at = ?3, version = version + 1 WHERE id = ?4",
+        params![new_paid, new_status, now, invoice_id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "fee_invoices", &invoice_id, "update").map_err(|e| e.to_string())?;
+
+    record_audit(&tx, &tenant_id, None, "fee_payments", &input.payment_id, "update", &format!("Reversed payment: {}", input.reason))
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn record_payment_impl(
@@ -327,6 +430,9 @@ pub fn record_payment_impl(
     )
     .map_err(|e| e.to_string())?;
     enqueue_outbox_from_row(&tx, "fee_invoices", &input.invoice_id, "update").map_err(|e| e.to_string())?;
+
+    record_audit(&tx, &tenant_id, None, "fee_payments", &payment_id, "create", &format!("Recorded payment of {} paise", input.amount))
+        .map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
 

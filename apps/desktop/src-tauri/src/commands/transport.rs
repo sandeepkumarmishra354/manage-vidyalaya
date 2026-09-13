@@ -1,15 +1,17 @@
 use rusqlite::params;
 use tauri::State;
 
+use crate::audit::record_audit;
 use crate::models::{
     AssignTransportInput, NewTransportRouteInput, NewTransportStopInput, StudentTransportInfo,
-    TransportRoute, TransportRosterEntry, TransportStop,
+    TransportRoute, TransportRosterEntry, TransportStop, UpdateTransportRouteInput, UpdateTransportStopInput,
 };
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn create_route(state: State<AppState>, input: NewTransportRouteInput) -> Result<TransportRoute, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -47,8 +49,29 @@ pub fn create_route(state: State<AppState>, input: NewTransportRouteInput) -> Re
 }
 
 #[tauri::command]
+pub fn update_route(state: State<AppState>, input: UpdateTransportRouteInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE transport_routes SET name = ?1, vehicle_number = ?2, driver_name = ?3, driver_phone = ?4, capacity = ?5, updated_at = ?6, version = version + 1 WHERE id = ?7",
+        params![input.name, input.vehicle_number, input.driver_name, input.driver_phone, input.capacity, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "transport_routes", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "transport_routes", &input.id, "update", &format!("Updated route '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn list_routes(state: State<AppState>, branch_id: String) -> Result<Vec<TransportRoute>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT id, branch_id, name, vehicle_number, driver_name, driver_phone, capacity
@@ -76,6 +99,7 @@ pub fn list_routes(state: State<AppState>, branch_id: String) -> Result<Vec<Tran
 #[tauri::command]
 pub fn create_stop(state: State<AppState>, input: NewTransportStopInput) -> Result<TransportStop, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -100,8 +124,29 @@ pub fn create_stop(state: State<AppState>, input: NewTransportStopInput) -> Resu
 }
 
 #[tauri::command]
+pub fn update_stop(state: State<AppState>, input: UpdateTransportStopInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE transport_stops SET name = ?1, sequence = ?2, pickup_time = ?3, updated_at = ?4, version = version + 1 WHERE id = ?5",
+        params![input.name, input.sequence, input.pickup_time, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "transport_stops", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "transport_stops", &input.id, "update", &format!("Updated stop '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn list_stops(state: State<AppState>, route_id: String) -> Result<Vec<TransportStop>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT id, route_id, name, sequence, pickup_time FROM transport_stops
@@ -128,6 +173,7 @@ pub fn list_stops(state: State<AppState>, route_id: String) -> Result<Vec<Transp
 #[tauri::command]
 pub fn assign_student_transport(state: State<AppState>, input: AssignTransportInput) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -164,6 +210,7 @@ pub fn get_student_transport(
     student_id: String,
 ) -> Result<Option<StudentTransportInfo>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.view")?;
     conn.query_row(
         "SELECT r.name, st.name, st.pickup_time
          FROM student_transport t
@@ -192,6 +239,7 @@ pub fn get_student_transport(
 #[tauri::command]
 pub fn list_route_roster(state: State<AppState>, route_id: String) -> Result<Vec<TransportRosterEntry>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "transport.view")?;
     let mut stmt = conn
         .prepare(
             "SELECT s.id, s.first_name, s.last_name, st.name

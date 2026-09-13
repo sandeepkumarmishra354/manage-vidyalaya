@@ -2,7 +2,7 @@ use rusqlite::params;
 use tauri::State;
 
 use crate::models::{AttendanceHistoryEntry, AttendanceRosterEntry, MarkAttendanceInput};
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 /// Returns every (non-withdrawn) student in a class/section along with
 /// whatever attendance status is already recorded for that date, so the UI
@@ -16,6 +16,7 @@ pub fn get_attendance_roster(
     attendance_date: String,
 ) -> Result<Vec<AttendanceRosterEntry>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "attendance.view")?;
 
     let sql = "SELECT s.id, s.first_name, s.last_name, a.status, a.remarks
          FROM students s
@@ -48,6 +49,7 @@ pub fn get_attendance_roster(
 #[tauri::command]
 pub fn mark_attendance(state: State<AppState>, input: MarkAttendanceInput) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "attendance.mark")?;
     mark_attendance_impl(&mut conn, input)
 }
 
@@ -112,6 +114,7 @@ pub fn get_student_attendance_history(
     student_id: String,
 ) -> Result<Vec<AttendanceHistoryEntry>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "attendance.view")?;
 
     let mut stmt = conn
         .prepare(

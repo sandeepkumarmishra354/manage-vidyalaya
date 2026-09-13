@@ -32,12 +32,15 @@ pub struct Section {
     pub id: String,
     pub class_id: String,
     pub name: String,
+    pub capacity: Option<i64>,
+    pub class_teacher_staff_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewSectionInput {
     pub class_id: String,
     pub name: String,
+    pub capacity: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,6 +278,10 @@ pub struct Exam {
     pub class_id: String,
     pub name: String,
     pub exam_date: Option<String>,
+    /// regular | back_paper | supplementary | unit_test | term
+    pub exam_type: String,
+    pub parent_exam_id: Option<String>,
+    pub passing_percentage: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -284,6 +291,9 @@ pub struct NewExamInput {
     pub class_id: String,
     pub name: String,
     pub exam_date: Option<String>,
+    pub exam_type: Option<String>,
+    pub parent_exam_id: Option<String>,
+    pub passing_percentage: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,6 +327,10 @@ pub struct ReportCardSubjectRow {
     pub max_marks: i64,
     pub marks_obtained: Option<f64>,
     pub is_absent: bool,
+    /// Marks from a back-paper exam linked to this one for the same
+    /// subject/student, if the student sat one -- lets the report card show
+    /// both attempts rather than only the original.
+    pub backpaper_marks_obtained: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,7 +351,7 @@ pub struct ReportCard {
 /// Modules a branch can turn off. Core areas (students/admissions, academic
 /// setup, dashboard) aren't in this list -- they're never toggleable.
 pub const TOGGLEABLE_MODULES: &[&str] =
-    &["attendance", "fees", "exams", "library", "transport", "houses", "id_cards"];
+    &["attendance", "fees", "exams", "library", "transport", "houses", "id_cards", "payroll"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleSetting {
@@ -551,6 +565,542 @@ pub struct FeeStatusCount {
     pub status: String,
     pub count: i64,
     pub amount: i64,
+}
+
+// ============================================================================
+// RBAC: permission catalog, roles, users
+// ============================================================================
+
+/// Hand-kept catalog of valid `permission_key` values (mirrors
+/// `TOGGLEABLE_MODULES` above and `lib/permissions.ts` on the frontend --
+/// kept in sync by hand across all three, same convention as `SYNCABLE_TABLES`).
+/// Grouped by module; not exhaustive per sub-action, just the checks the app
+/// actually makes.
+pub const PERMISSION_CATALOG: &[&str] = &[
+    "students.view", "students.create", "students.edit", "students.delete",
+    "admissions.view", "admissions.create", "admissions.confirm",
+    "attendance.mark", "attendance.view",
+    "fees.view", "fees.manage", "fees.record_payment",
+    "exams.view", "exams.manage", "exams.enter_marks",
+    "houses.view", "houses.manage",
+    "library.view", "library.manage",
+    "transport.view", "transport.manage",
+    "staff.view", "staff.manage",
+    "staff_attendance.mark", "staff_attendance.view",
+    "payroll.view", "payroll.view_own", "payroll.generate", "payroll.finalize",
+    "academic_setup.view", "academic_setup.manage", "academic_setup.promote",
+    "roles.manage", "users.manage",
+    "audit.view",
+    "module_settings.manage",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Role {
+    pub id: String,
+    pub name: String,
+    pub is_system: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewRoleInput {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetRolePermissionsInput {
+    pub role_id: String,
+    pub permission_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSummary {
+    pub id: String,
+    pub full_name: String,
+    pub email: String,
+    pub is_active: bool,
+    pub role_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateStaffLoginInput {
+    pub staff_id: String,
+    pub email: String,
+    pub full_name: String,
+    pub initial_password: String,
+    pub branch_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResetStaffPasswordInput {
+    pub user_id: String,
+    pub new_password: String,
+}
+
+// ============================================================================
+// Staff / HR
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Staff {
+    pub id: String,
+    pub branch_id: String,
+    pub user_id: Option<String>,
+    pub employee_code: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub phone: Option<String>,
+    pub personal_email: Option<String>,
+    pub address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub pincode: Option<String>,
+    pub designation: String,
+    pub department: Option<String>,
+    pub employment_type: String,
+    pub date_of_joining: String,
+    pub date_of_leaving: Option<String>,
+    pub status: String,
+    pub qualification: Option<String>,
+    pub blood_group: Option<String>,
+    pub photo_path: Option<String>,
+    pub pan_number: Option<String>,
+    pub aadhaar_number: Option<String>,
+    pub bank_account_number: Option<String>,
+    pub bank_ifsc: Option<String>,
+    pub bank_name: Option<String>,
+    pub pf_number: Option<String>,
+    pub esi_number: Option<String>,
+    pub uan_number: Option<String>,
+    pub emergency_contact_name: Option<String>,
+    pub emergency_contact_phone: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaffListItem {
+    pub id: String,
+    pub employee_code: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub designation: String,
+    pub department: Option<String>,
+    pub status: String,
+    pub has_login: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewStaffInput {
+    pub branch_id: String,
+    pub employee_code: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub phone: Option<String>,
+    pub personal_email: Option<String>,
+    pub address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub pincode: Option<String>,
+    pub designation: String,
+    pub department: Option<String>,
+    pub employment_type: String,
+    pub date_of_joining: String,
+    pub qualification: Option<String>,
+    pub blood_group: Option<String>,
+    pub pan_number: Option<String>,
+    pub aadhaar_number: Option<String>,
+    pub bank_account_number: Option<String>,
+    pub bank_ifsc: Option<String>,
+    pub bank_name: Option<String>,
+    pub pf_number: Option<String>,
+    pub esi_number: Option<String>,
+    pub uan_number: Option<String>,
+    pub emergency_contact_name: Option<String>,
+    pub emergency_contact_phone: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateStaffInput {
+    pub id: String,
+    #[serde(flatten)]
+    pub fields: NewStaffInput,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetStaffStatusInput {
+    pub staff_id: String,
+    pub status: String,
+    pub date_of_leaving: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeacherAssignment {
+    pub id: String,
+    pub staff_id: String,
+    pub staff_name: String,
+    pub class_id: String,
+    pub class_name: String,
+    pub section_id: Option<String>,
+    pub section_name: Option<String>,
+    pub subject_id: String,
+    pub subject_name: String,
+    pub academic_session_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewTeacherAssignmentInput {
+    pub branch_id: String,
+    pub staff_id: String,
+    pub class_id: String,
+    pub section_id: Option<String>,
+    pub subject_id: String,
+    pub academic_session_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetClassTeacherInput {
+    pub section_id: String,
+    pub staff_id: Option<String>,
+}
+
+// ============================================================================
+// Staff attendance
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaffAttendanceRosterEntry {
+    pub staff_id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub designation: String,
+    pub status: Option<String>,
+    pub remarks: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarkStaffAttendanceEntry {
+    pub staff_id: String,
+    pub status: String,
+    pub remarks: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarkStaffAttendanceInput {
+    pub branch_id: String,
+    pub attendance_date: String,
+    pub entries: Vec<MarkStaffAttendanceEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaffAttendanceHistoryEntry {
+    pub attendance_date: String,
+    pub status: String,
+    pub remarks: Option<String>,
+}
+
+// ============================================================================
+// Payroll
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SalaryComponent {
+    pub id: Option<String>,
+    pub component_name: String,
+    /// earning | deduction
+    pub component_type: String,
+    /// fixed | percent_of_basic
+    pub calculation_type: String,
+    pub amount: Option<i64>,
+    pub percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SalaryStructure {
+    pub id: String,
+    pub staff_id: String,
+    pub effective_from: String,
+    pub basic_amount: i64,
+    pub components: Vec<SalaryComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetSalaryStructureInput {
+    pub staff_id: String,
+    pub branch_id: String,
+    pub effective_from: String,
+    pub basic_amount: i64,
+    pub components: Vec<SalaryComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeneratePayrollRunInput {
+    pub branch_id: String,
+    pub period_month: i64,
+    pub period_year: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayrollRun {
+    pub id: String,
+    pub branch_id: String,
+    pub period_month: i64,
+    pub period_year: i64,
+    pub status: String,
+    pub generated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayslipLineItem {
+    pub id: String,
+    pub component_name: String,
+    pub component_type: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Payslip {
+    pub id: String,
+    pub payroll_run_id: String,
+    pub staff_id: String,
+    pub staff_name: String,
+    pub days_in_month: i64,
+    pub days_present: f64,
+    pub days_lop: f64,
+    pub gross_earnings: i64,
+    pub total_deductions: i64,
+    pub net_pay: i64,
+    pub status: String,
+    pub paid_on: Option<String>,
+    pub line_items: Vec<PayslipLineItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayrollRunDetail {
+    #[serde(flatten)]
+    pub run: PayrollRun,
+    pub payslips: Vec<Payslip>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdjustPayslipLineItemInput {
+    pub payslip_id: String,
+    pub component_name: String,
+    pub component_type: String,
+    pub amount: i64,
+}
+
+// ============================================================================
+// Session promotion / rollover
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassMappingSuggestion {
+    pub from_class_id: String,
+    pub from_class_name: String,
+    pub suggested_to_class_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreatePromotionBatchInput {
+    pub branch_id: String,
+    pub from_session_id: String,
+    pub to_session_id: String,
+    /// from_class_id -> to_class_id
+    pub class_mapping: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromotionBatchItem {
+    pub id: String,
+    pub student_id: String,
+    pub student_name: String,
+    pub from_class_name: Option<String>,
+    pub to_class_id: Option<String>,
+    pub to_class_name: Option<String>,
+    pub to_section_id: Option<String>,
+    pub decision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromotionBatch {
+    pub id: String,
+    pub branch_id: String,
+    pub from_session_id: String,
+    pub to_session_id: String,
+    pub status: String,
+    pub items: Vec<PromotionBatchItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetPromotionDecisionInput {
+    pub batch_item_id: String,
+    pub decision: String,
+    pub to_class_id: Option<String>,
+    pub to_section_id: Option<String>,
+}
+
+// ============================================================================
+// Back-paper / supplementary exams
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackpaperCandidate {
+    pub student_id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub marks_obtained: Option<f64>,
+    pub max_marks: i64,
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLogEntry {
+    pub id: String,
+    pub actor_name: Option<String>,
+    pub entity_table: String,
+    pub entity_id: String,
+    pub action: String,
+    pub summary: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuditLogFilter {
+    pub entity_table: Option<String>,
+    pub actor_user_id: Option<String>,
+    pub from_date: Option<String>,
+    pub to_date: Option<String>,
+    pub page: Option<i64>,
+}
+
+// ============================================================================
+// Update inputs for entities that previously had create-only commands
+// ============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateGuardianInput {
+    pub id: String,
+    pub full_name: String,
+    pub relation: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateStudentInput {
+    pub id: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub blood_group: Option<String>,
+    pub current_class_id: Option<String>,
+    pub current_section_id: Option<String>,
+    pub address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub pincode: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateClassInput {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateSectionInput {
+    pub id: String,
+    pub name: String,
+    pub capacity: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateAcademicSessionInput {
+    pub id: String,
+    pub name: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateFeeStructureInput {
+    pub id: String,
+    pub name: String,
+    pub amount: i64,
+    pub frequency: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VoidInvoiceInput {
+    pub invoice_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReversePaymentInput {
+    pub payment_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateSubjectInput {
+    pub id: String,
+    pub name: String,
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateExamInput {
+    pub id: String,
+    pub name: String,
+    pub exam_date: Option<String>,
+    pub passing_percentage: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateHouseInput {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateLibraryBookInput {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub isbn: Option<String>,
+    pub category: Option<String>,
+    pub total_copies: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateTransportRouteInput {
+    pub id: String,
+    pub name: String,
+    pub vehicle_number: Option<String>,
+    pub driver_name: Option<String>,
+    pub driver_phone: Option<String>,
+    pub capacity: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateTransportStopInput {
+    pub id: String,
+    pub name: String,
+    pub sequence: i64,
+    pub pickup_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

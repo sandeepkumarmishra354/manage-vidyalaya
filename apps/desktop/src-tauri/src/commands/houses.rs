@@ -1,15 +1,17 @@
 use rusqlite::params;
 use tauri::State;
 
+use crate::audit::record_audit;
 use crate::models::{
     AssignHouseInput, House, HouseLeaderboardRow, HousePointEventListItem, NewHouseInput,
-    NewHousePointEventInput,
+    NewHousePointEventInput, UpdateHouseInput,
 };
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 #[tauri::command]
 pub fn create_house(state: State<AppState>, input: NewHouseInput) -> Result<House, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "houses.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -28,8 +30,29 @@ pub fn create_house(state: State<AppState>, input: NewHouseInput) -> Result<Hous
 }
 
 #[tauri::command]
+pub fn update_house(state: State<AppState>, input: UpdateHouseInput) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "houses.manage")?;
+    let tenant_id = current_tenant_id(&conn)?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE houses SET name = ?1, color = ?2, updated_at = ?3, version = version + 1 WHERE id = ?4",
+        params![input.name, input.color, now, input.id],
+    )
+    .map_err(|e| e.to_string())?;
+    enqueue_outbox_from_row(&tx, "houses", &input.id, "update").map_err(|e| e.to_string())?;
+    record_audit(&tx, &tenant_id, None, "houses", &input.id, "update", &format!("Renamed house to '{}'", input.name))
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn list_houses(state: State<AppState>, branch_id: String) -> Result<Vec<House>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "houses.view")?;
     let mut stmt = conn
         .prepare("SELECT id, branch_id, name, color FROM houses WHERE branch_id = ?1 AND deleted_at IS NULL ORDER BY name")
         .map_err(|e| e.to_string())?;
@@ -48,6 +71,7 @@ pub fn list_houses(state: State<AppState>, branch_id: String) -> Result<Vec<Hous
 #[tauri::command]
 pub fn assign_student_house(state: State<AppState>, input: AssignHouseInput) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "houses.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
@@ -104,6 +128,7 @@ pub fn award_house_points(
     input: NewHousePointEventInput,
 ) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "houses.manage")?;
     let tenant_id = current_tenant_id(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();

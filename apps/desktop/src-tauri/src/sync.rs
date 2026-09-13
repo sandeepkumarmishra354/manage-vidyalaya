@@ -36,6 +36,19 @@ const SYNCABLE_TABLES: &[&str] = &[
     "transport_routes",
     "transport_stops",
     "student_transport",
+    "role_permissions",
+    "staff",
+    "teacher_subject_assignments",
+    "staff_attendance",
+    "salary_structures",
+    "salary_components",
+    "payroll_runs",
+    "payslips",
+    "payslip_line_items",
+    "student_enrollments",
+    "promotion_batches",
+    "promotion_batch_items",
+    "audit_log",
 ];
 
 #[derive(Debug, Serialize)]

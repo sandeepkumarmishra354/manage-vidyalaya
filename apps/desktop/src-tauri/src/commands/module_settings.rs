@@ -1,8 +1,9 @@
 use rusqlite::params;
 use tauri::State;
 
+use crate::audit::record_audit;
 use crate::models::{ModuleSetting, SetModuleEnabledInput, TOGGLEABLE_MODULES};
-use crate::state::{current_tenant_id, enqueue_outbox_from_row, AppState};
+use crate::state::{current_tenant_id, enqueue_outbox_from_row, require_permission, AppState};
 
 /// Returns every toggleable module's enabled state for a branch. A module
 /// with no row yet defaults to enabled -- so existing branches (and the
@@ -38,6 +39,7 @@ pub fn get_module_settings(state: State<AppState>, branch_id: String) -> Result<
 #[tauri::command]
 pub fn set_module_enabled(state: State<AppState>, input: SetModuleEnabledInput) -> Result<ModuleSetting, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    require_permission(&conn, "module_settings.manage")?;
 
     if !TOGGLEABLE_MODULES.contains(&input.module_key.as_str()) {
         return Err(format!("'{}' is not a toggleable module", input.module_key));
@@ -67,6 +69,16 @@ pub fn set_module_enabled(state: State<AppState>, input: SetModuleEnabledInput) 
         )
         .map_err(|e| e.to_string())?;
     enqueue_outbox_from_row(&tx, "module_settings", &row_id, "update").map_err(|e| e.to_string())?;
+    record_audit(
+        &tx,
+        &tenant_id,
+        Some(&input.branch_id),
+        "module_settings",
+        &row_id,
+        "update",
+        &format!("Set module '{}' to {}", input.module_key, if input.is_enabled { "enabled" } else { "disabled" }),
+    )
+    .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(ModuleSetting { module_key: input.module_key, is_enabled: input.is_enabled })
