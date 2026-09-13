@@ -93,7 +93,17 @@ fn load_batch_items(conn: &rusqlite::Connection, batch_id: &str) -> Result<Vec<P
 pub fn create_promotion_batch(state: State<AppState>, input: CreatePromotionBatchInput) -> Result<PromotionBatch, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     require_permission(&conn, "academic_setup.promote")?;
-    let tenant_id = current_tenant_id(&conn)?;
+    create_promotion_batch_impl(&mut conn, input)
+}
+
+/// Core logic behind `create_promotion_batch`, factored out so it can be
+/// exercised directly from integration tests (see
+/// commands::students::create_admission_impl for the same pattern).
+pub fn create_promotion_batch_impl(
+    conn: &mut rusqlite::Connection,
+    input: CreatePromotionBatchInput,
+) -> Result<PromotionBatch, String> {
+    let tenant_id = current_tenant_id(conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let batch_id = uuid::Uuid::new_v4().to_string();
 
@@ -150,7 +160,7 @@ pub fn create_promotion_batch(state: State<AppState>, input: CreatePromotionBatc
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    let items = load_batch_items(&conn, &batch_id)?;
+    let items = load_batch_items(conn, &batch_id)?;
     Ok(PromotionBatch {
         id: batch_id,
         branch_id: input.branch_id,
@@ -205,8 +215,15 @@ pub fn set_promotion_decision(state: State<AppState>, input: SetPromotionDecisio
 pub fn execute_promotion_batch(state: State<AppState>, batch_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     require_permission(&conn, "academic_setup.promote")?;
-    let tenant_id = current_tenant_id(&conn)?;
-    let actor = current_actor_user_id(&conn);
+    execute_promotion_batch_impl(&mut conn, batch_id)
+}
+
+/// Core logic behind `execute_promotion_batch`, factored out so it can be
+/// exercised directly from integration tests (see
+/// commands::students::create_admission_impl for the same pattern).
+pub fn execute_promotion_batch_impl(conn: &mut rusqlite::Connection, batch_id: String) -> Result<(), String> {
+    let tenant_id = current_tenant_id(conn)?;
+    let actor = current_actor_user_id(conn);
     let now = chrono::Utc::now().to_rfc3339();
 
     let (branch_id, to_session_id, status): (String, String, String) = conn
@@ -220,7 +237,9 @@ pub fn execute_promotion_batch(state: State<AppState>, batch_id: String) -> Resu
         return Err("promotion batch already executed".to_string());
     }
 
-    let items: Vec<(String, String, Option<String>, Option<String>, Option<String>, String)> = {
+    // (item_id, student_id, from_section_id, to_class_id, to_section_id, decision)
+    type BatchItemRow = (String, String, Option<String>, Option<String>, Option<String>, String);
+    let items: Vec<BatchItemRow> = {
         let mut stmt = conn
             .prepare(
                 "SELECT id, student_id, from_section_id, to_class_id, to_section_id, decision

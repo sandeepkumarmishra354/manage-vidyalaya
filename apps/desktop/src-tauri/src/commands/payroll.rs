@@ -145,8 +145,19 @@ fn component_amount(basic_amount: i64, component: &SalaryComponent) -> i64 {
 pub fn generate_payroll_run(state: State<AppState>, input: GeneratePayrollRunInput) -> Result<PayrollRunDetail, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     require_permission(&conn, "payroll.generate")?;
-    let tenant_id = current_tenant_id(&conn)?;
-    let actor = current_actor_user_id(&conn);
+    generate_payroll_run_impl(&mut conn, input)
+}
+
+/// Core logic behind `generate_payroll_run`, factored out so it can be
+/// exercised directly from integration tests against a plain
+/// `rusqlite::Connection` (see commands::students::create_admission_impl for
+/// the same pattern).
+pub fn generate_payroll_run_impl(
+    conn: &mut rusqlite::Connection,
+    input: GeneratePayrollRunInput,
+) -> Result<PayrollRunDetail, String> {
+    let tenant_id = current_tenant_id(conn)?;
+    let actor = current_actor_user_id(conn);
     let now = chrono::Utc::now().to_rfc3339();
     let run_id = uuid::Uuid::new_v4().to_string();
 
@@ -234,7 +245,7 @@ pub fn generate_payroll_run(state: State<AppState>, input: GeneratePayrollRunInp
             "INSERT INTO payslips (
                 id, tenant_id, payroll_run_id, staff_id, days_in_month, days_present, days_lop,
                 gross_earnings, total_deductions, net_pay, status, updated_at, version
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'draft',?10,1)",
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'draft',?11,1)",
             params![
                 payslip_id, tenant_id, run_id, staff_id, days_in_month, days_present, days_lop,
                 gross_earnings, deduction_components, net_pay, now,
