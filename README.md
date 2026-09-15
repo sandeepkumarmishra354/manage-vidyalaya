@@ -1,9 +1,8 @@
 # Vidyalaya
 
 Online-only, multi-branch school management software for Indian schools and
-colleges. A thin Tauri v2 desktop shell around a React frontend that talks
-directly to a NestJS + PostgreSQL cloud backend over HTTPS -- no local
-database, no offline mode.
+colleges. A React single-page web app that talks directly to a NestJS +
+PostgreSQL cloud backend over HTTPS -- no local database, no offline mode.
 
 See `docs/architecture.md` for the design (data model, auth, RBAC) and
 `docs/production-readiness.md` for the plan to take this from working
@@ -60,9 +59,8 @@ logged in.
 
 ```
 apps/
-  desktop/      Tauri v2 app: React + TypeScript + Tailwind + shadcn/ui
-                frontend talking to cloud-api over plain fetch(); the Rust
-                side is just the native window bootstrap, nothing else
+  web/          React + TypeScript + Tailwind + shadcn/ui single-page app,
+                talking to cloud-api over plain fetch()
   cloud-api/    NestJS + Prisma + PostgreSQL: the entire system of record --
                 auth, every domain entity, RBAC, and audit logging
 ```
@@ -70,9 +68,6 @@ apps/
 ## Prerequisites
 
 - Node.js 20+, pnpm 10+
-- Rust stable + Tauri v2 Linux build deps (`libwebkit2gtk-4.1-dev`,
-  `libjavascriptcoregtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`,
-  `libayatana-appindicator3-dev`, `librsvg2-dev`, `build-essential`)
 - PostgreSQL 14+ (for cloud-api)
 
 ## First-time setup
@@ -94,12 +89,12 @@ Demo login (from the seed script): `admin@demo.vidyalaya.in` /
 In another terminal:
 
 ```bash
-cd apps/desktop
+cd apps/web
 cp .env.example .env   # edit VITE_API_BASE_URL if cloud-api isn't on :3001
-pnpm tauri dev
+pnpm dev                # starts on :5173
 ```
 
-The desktop app is unusable without a running cloud-api -- there is no local
+The web app is unusable without a running cloud-api -- there is no local
 data and no offline fallback. Login calls `POST /auth/login`, the app then
 fetches `GET /auth/me` for session/branch/permission data, and every page
 after that reads and writes directly against cloud-api's REST endpoints.
@@ -112,6 +107,5 @@ pnpm turbo run lint        # lint all apps/packages
 pnpm turbo run typecheck   # typecheck all apps/packages
 pnpm turbo run test        # test all apps/packages
 
-cd apps/desktop/src-tauri && cargo build && cargo clippy --all-targets
 cd apps/cloud-api && pnpm test && pnpm test:e2e
 ```

@@ -10,21 +10,21 @@ later phases are what you build out as you scale past a handful of clients.
 ## Where things stand today
 
 Working: an online-only architecture where cloud-api (NestJS + Postgres)
-is the sole system of record and the desktop app is a thin Tauri shell
-around a React frontend talking to it over HTTPS -- no local database, no
-offline mode. JWT auth with refresh tokens, and a full module set (Student
-Info & Admissions, Attendance, Fees & Billing, Exams & Report Cards,
-Houses, Library, Transport, ID Cards, Academic Setup with session
-promotion, Staff/HR, Payroll, Roles & Permissions, Audit Log) with a
-consistent UI, granular RBAC enforcement on every endpoint, and edit/
-delete on every entity, not just create. Running locally, with a local
-Postgres and a demo tenant.
+is the sole system of record and `apps/web` is a plain React SPA talking
+to it over HTTPS -- no local database, no offline mode, no native shell.
+JWT auth with refresh tokens, and a full module set (Student Info &
+Admissions, Attendance, Fees & Billing, Exams & Report Cards, Houses,
+Library, Transport, ID Cards, Academic Setup with session promotion,
+Staff/HR, Payroll, Roles & Permissions, Audit Log) with a consistent UI,
+granular RBAC enforcement on every endpoint, and edit/delete on every
+entity, not just create. Running locally, with a local Postgres and a
+demo tenant.
 
 Not yet done, and covered below: real hosting, HTTPS, secrets management,
-backups, error monitoring, a signed/installable desktop build, a real
-onboarding flow (today there's one hardcoded demo tenant), legal basics,
-and a support process. None of this is optional for a paying client, even
-one -- it's the difference between a demo and a product.
+backups, error monitoring, a deployed web build, a real onboarding flow
+(today there's one hardcoded demo tenant), legal basics, and a support
+process. None of this is optional for a paying client, even one -- it's
+the difference between a demo and a product.
 
 ---
 
@@ -39,11 +39,13 @@ project phase, not a footnote.
   VM (DigitalOcean, Hetzner, AWS Lightsail -- Mumbai/Bangalore region for
   latency) running Docker Compose (Postgres + cloud-api + a reverse proxy)
   is plenty. Don't over-engineer with Kubernetes at this stage.
-- **HTTPS is mandatory** -- the desktop app sends passwords and JWTs over
-  this connection. Use Caddy or nginx + Let's Encrypt in front of cloud-api.
-  Never ship `http://` to a client.
-- A real domain (e.g. `api.vidyalaya.in` or similar), not an IP address --
-  needed for TLS and for the desktop app's default config.
+- **HTTPS is mandatory** -- the web app sends passwords and JWTs over this
+  connection, and browsers block a mixed-content HTTPS page from calling
+  an `http://` API anyway. Use Caddy or nginx + Let's Encrypt in front of
+  cloud-api. Never ship `http://` to a client.
+- A real domain for cloud-api (e.g. `api.vidyalaya.in`), not an IP address
+  -- needed for TLS. The web app itself needs its own domain too (e.g.
+  `app.vidyalaya.in`), since it's now just a static site a browser loads.
 - Automated Postgres backups (`pg_dump` on a cron, shipped off-box to S3/
   Backblaze/etc., not just sitting on the same disk). Test the restore
   process before you need it for real -- an untested backup is not a backup.
@@ -51,21 +53,26 @@ project phase, not a footnote.
   properly: not committed to git (already `.gitignore`d), rotated if ever
   exposed, different values in prod vs. dev.
 
-### 2. Desktop app distribution
+### 2. Web app hosting & deployment
 
-- **Code signing.** Unsigned Windows/macOS builds trigger scary OS warnings
-  ("unknown publisher") that will make a school's IT person refuse to
-  install it. Windows: get a code-signing certificate (~$100-400/yr).
-  macOS: an Apple Developer account ($99/yr) + notarization. Tauri has
-  built-in support for both -- configure it in `tauri.conf.json`'s
-  `bundle.windows`/`bundle.macOS` sections before your first real install.
-- **Auto-update.** Use Tauri's built-in updater plugin so bug fixes and new
-  modules reach installed schools without a manual reinstall. Set this up
-  *before* your first client, not after -- retrofitting an update channel
-  onto machines you can't remotely access is painful.
-- Decide the installer flow: a downloadable `.msi`/`.exe` (Windows is what
-  most Indian schools run) hosted somewhere you control, with a simple
-  "download and run" instruction sheet for non-technical staff.
+Being a plain static SPA (`apps/web` builds to `dist/` via `vite build`)
+turns what used to be per-platform installer/code-signing/auto-update work
+into a much smaller problem: build, upload, done.
+
+- **Static hosting.** Any static host works -- Vercel, Netlify, Cloudflare
+  Pages, or an S3 bucket behind CloudFront/nginx if you'd rather keep
+  everything on your own VM alongside cloud-api. No server-side rendering
+  is needed; it's a pure client-side app.
+- **Cache headers.** `index.html` should be `no-cache` (so a new deploy is
+  picked up immediately on next load) while the hashed `assets/*.js`/`.css`
+  files Vite produces can be cached aggressively/immutably -- their
+  filenames change on every build, so there's no staleness risk.
+- **Bake `VITE_API_BASE_URL` in at build time** (it's a `.env` value read
+  by Vite, see `apps/web/.env.example`) pointing at your deployed cloud-api
+  domain -- don't ship a build that still points at `localhost:3001`.
+- Rollout is now "push a new build," not "get everyone to reinstall" --
+  every school is always on the latest version the moment you deploy, with
+  no auto-update mechanism to build or maintain.
 
 ### 3. Real tenant onboarding (replace the demo seed)
 
@@ -104,14 +111,18 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   now covers every create/update/delete across every module (see
   `docs/architecture.md`'s "Audit log" section), with an admin-facing
   filterable viewer.
+- **Lock down CORS before going live.** `app.enableCors()` on cloud-api
+  currently allows every origin -- harmless while the frontend was a Tauri
+  webview (which doesn't send `Origin` the way browsers do), but now that
+  `apps/web` is a real browser app this is a genuine open door: restrict
+  cloud-api's CORS to your deployed web app's actual origin
+  (`app.vidyalaya.in` or whatever domain you land on) as part of the same
+  deploy that ships the web build, not as a follow-up.
 - Run the `security-review` workflow (or equivalent manual review) against
   the current diff before your first deploy, specifically checking: every
   Prisma query goes through the query builder (no raw SQL string
   concatenation) so there's no injection surface to audit table-by-table,
-  JWT secret strength, and CORS config on cloud-api (`app.enableCors()`
-  currently allows everything -- restrict it to your desktop app's actual
-  origin needs before going live, or confirm it's fine given Tauri apps
-  don't send an `Origin` header the way browsers do).
+  and JWT secret strength.
 
 ### 6. Support & legal basics
 
@@ -133,12 +144,12 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 
 ## Phase 2 -- Once you have a few paying schools
 
-- **CI/CD**: GitHub Actions running `cargo test`, `cargo clippy`,
-  `pnpm turbo run build lint typecheck`, and the cloud-api test suites on
-  every PR; auto-deploy cloud-api on merge to main after tests pass.
-- **Error monitoring**: Sentry (or similar) in both cloud-api and the
-  desktop app's Rust/JS layers, so you learn about crashes before the
-  school calls you.
+- **CI/CD**: GitHub Actions running `pnpm turbo run build lint typecheck
+  test` on every PR; auto-deploy cloud-api and the `apps/web` static build
+  on merge to main after tests pass.
+- **Error monitoring**: Sentry (or similar) in both cloud-api and the web
+  app's browser-side JS, so you learn about crashes before the school
+  calls you.
 - **Structured logging + basic metrics** on cloud-api (request rates, sync
   push/pull volume, login failures) -- start with something simple
   (pino + a log aggregator) rather than building an observability stack.
@@ -192,18 +203,19 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   integration before you have a Phase-1-ready product and at least one
   committed pilot school -- these are Phase 2 investments that don't matter
   until Phase 1 is solid.
-- Don't skip code signing "for now" -- it's the single most common reason
-  a non-technical school IT person abandons an install, and retrofitting
-  it later means re-issuing installers to everyone.
 - Don't self-host secrets or skip HTTPS "just for the pilot" -- pilots
   become production the moment real student data goes in, and by then
   it's much harder to migrate.
+- Don't leave cloud-api's CORS wide open past your first real deploy --
+  it's a one-line fix (see Security basics above) and easy to forget
+  precisely because an open CORS config doesn't break anything visibly.
 
 ## Suggested immediate next steps, in order
 
 1. Stand up cloud-api on a real VM with HTTPS + automated Postgres backups.
-2. Wire up Tauri code signing + auto-update for at least one platform
-   (whichever your pilot school uses -- almost certainly Windows).
+2. Deploy `apps/web`'s static build to a real host and domain, with
+   `VITE_API_BASE_URL` pointed at cloud-api, then lock cloud-api's CORS
+   down to that domain.
 3. Build the minimal manual tenant-provisioning path (random UUIDs, no more
    hardcoded demo tenant) and an admin-triggered password reset.
 4. Add login rate-limiting. (Audit logging itself is done -- see above.)

@@ -3,17 +3,18 @@
 ## Decisions
 
 - **Online-only**: no local database, no offline mode, no sync engine. The
-  Tauri desktop app is a thin native shell around a React frontend that
-  talks directly to cloud-api over HTTPS using plain browser `fetch()`.
-  This is a deliberate pivot away from an earlier offline-first design
-  (SQLite + outbox sync) -- see "Why not offline-first" below.
+  React web app talks directly to cloud-api over HTTPS using plain browser
+  `fetch()`. This is a deliberate pivot away from an earlier offline-first
+  design (SQLite + outbox sync, then briefly a Tauri desktop shell) -- see
+  "Why not offline-first" and "Why not a desktop app" below.
 - **Tenancy**: one school (customer) = one tenant, with many branches
   underneath sharing the same dataset, each record tagged with a
   `branchId`. Every tenant-scoped row also carries `tenantId` so real
   multi-school SaaS works without a schema rewrite.
 - **Business model**: subscription SaaS (per branch/student).
-- **Frontend**: React + TypeScript + Tailwind + shadcn/ui inside Tauri v2,
-  with `@tanstack/react-query` as the data-fetching/caching layer.
+- **Frontend**: React + TypeScript + Tailwind + shadcn/ui, a plain Vite
+  single-page app, with `@tanstack/react-query` as the data-fetching/
+  caching layer.
 - **Cloud backend**: NestJS + PostgreSQL (via Prisma) is the entire system
   of record -- every domain entity is a real, relational Postgres table
   with full CRUD REST endpoints, not just auth/billing metadata.
@@ -23,32 +24,33 @@
 An earlier version of this app used SQLite-on-device with a custom
 outbox/changelog sync engine, so staff could keep working during a
 connectivity outage. That's been dropped: it roughly doubled the surface
-area of every feature (a Rust command *and* a NestJS endpoint *and* a sync
+area of every feature (a command *and* a NestJS endpoint *and* a sync
 reconciliation path for each entity), conflict resolution was last-write-
 wins with no real merge story, and the schools this targets have reliable
-enough connectivity that the offline case wasn't worth that cost. Cutting
-it also lets Rust shrink to almost nothing (see "Desktop shell" below),
-which was worth doing on its own.
+enough connectivity that the offline case wasn't worth that cost.
 
-## Desktop shell
+### Why not a desktop app
 
-`apps/desktop/src-tauri` is now the minimum Tauri needs to produce a native
-window: `lib.rs` is just
-`tauri::Builder::default().plugin(tauri_plugin_opener::init()).run(...)`,
-with no managed state, no invoke handlers, and no commands. `Cargo.toml`
-depends on only `tauri` and `tauri-plugin-opener` -- no SQLite driver, no
-HTTP client, no async runtime; the frontend's own `fetch()` calls handle
-all networking directly from the webview; that's possible because
-`tauri.conf.json`'s CSP is `null` and cloud-api's CORS is unrestricted
-(`app.enableCors()` with no origin allowlist).
+The pivot to online-only also removed the need for Tauri: once every read
+and write already goes straight to cloud-api over `fetch()`, a native
+window buys nothing but distribution overhead (per-platform installers,
+code signing, an auto-update channel) for a product schools open in a
+browser anyway. `apps/web` is now a plain Vite + React SPA with no native
+shell at all -- see `docs/production-readiness.md` for what a real web
+deployment (hosting, HTTPS, CORS) still needs.
 
-`apps/desktop/src/lib/http.ts` is the one shared HTTP client: it attaches
+## Frontend HTTP layer
+
+`apps/web/src/lib/http.ts` is the one shared HTTP client: it attaches
 `Authorization: Bearer <access_token>` from `localStorage`, retries once
 after a single-flight token refresh on a 401, and throws a typed
-`ApiError` on failure. `apps/desktop/src/lib/api.ts` wraps every cloud-api
+`ApiError` on failure. `apps/web/src/lib/api.ts` wraps every cloud-api
 route in a typed method on top of that client; page components call these
 methods through React Query (`useQuery`/`useMutation`) rather than
-`useEffect` + manual refetch.
+`useEffect` + manual refetch. cloud-api's CORS is currently unrestricted
+(`app.enableCors()` with no origin allowlist) -- fine for local dev, but
+worth locking down to the deployed web app's real origin before going
+live (see `docs/production-readiness.md`).
 
 ## Auth
 
