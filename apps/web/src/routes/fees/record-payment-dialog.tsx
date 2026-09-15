@@ -163,7 +163,7 @@ export function RecordPaymentDialog({
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter className="sm:justify-between">
-            {hasPermission("fees.manage") && invoice?.status !== "voided" && (
+            {hasPermission("fees.void_invoice") && invoice?.status !== "voided" && (
               <Button type="button" variant="outline" onClick={handleVoid} disabled={isSubmitting}>
                 Void invoice
               </Button>

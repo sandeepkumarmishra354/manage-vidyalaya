@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlusIcon, TrashIcon } from "lucide-react";
 
-import { api, type Role } from "@/lib/api";
+import { api, type PermissionCatalogEntry, type Role } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -63,7 +63,7 @@ function NewRoleDialog({ onCreated }: { onCreated: () => void }) {
 }
 
 function PermissionMatrix({ role }: { role: Role }) {
-  const [catalog, setCatalog] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<PermissionCatalogEntry[]>([]);
   const [granted, setGranted] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
 
@@ -76,10 +76,10 @@ function PermissionMatrix({ role }: { role: Role }) {
   }, [role.id]);
 
   const grouped = useMemo(() => {
-    const groups = new Map<string, string[]>();
-    for (const key of catalog) {
-      const module = key.split(".")[0];
-      groups.set(module, [...(groups.get(module) ?? []), key]);
+    const groups = new Map<string, PermissionCatalogEntry[]>();
+    for (const entry of catalog) {
+      const module = entry.key.split(".")[0];
+      groups.set(module, [...(groups.get(module) ?? []), entry]);
     }
     return groups;
   }, [catalog]);
@@ -111,13 +111,18 @@ function PermissionMatrix({ role }: { role: Role }) {
         </Button>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3">
-        {[...grouped.entries()].map(([module, keys]) => (
+        {[...grouped.entries()].map(([module, entries]) => (
           <div key={module} className="flex flex-col gap-1.5">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{module.replace("_", " ")}</p>
-            {keys.map((key) => (
-              <label key={key} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={granted.has(key)} onChange={() => toggle(key)} className="size-4 rounded border-input" />
-                {key.split(".").slice(1).join(".")}
+            {entries.map((entry) => (
+              <label key={entry.key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={granted.has(entry.key)}
+                  onChange={() => toggle(entry.key)}
+                  className="size-4 rounded border-input"
+                />
+                {entry.label}
               </label>
             ))}
           </div>

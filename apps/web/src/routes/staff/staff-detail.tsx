@@ -69,7 +69,7 @@ export function StaffDetailPage() {
           </h1>
           <Badge variant={staff.status === "active" ? "success" : "secondary"}>{staff.status}</Badge>
         </div>
-        {hasPermission("staff.manage") && <EditStaffDialog staff={staff} onUpdated={refresh} />}
+        {hasPermission("staff.manage_profile") && <EditStaffDialog staff={staff} onUpdated={refresh} />}
       </div>
 
       <Tabs defaultValue="profile">
@@ -77,7 +77,7 @@ export function StaffDetailPage() {
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
-          <TabsTrigger value="salary">Salary</TabsTrigger>
+          {hasPermission("payroll.view") && <TabsTrigger value="salary">Salary</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="profile">
@@ -96,9 +96,11 @@ export function StaffDetailPage() {
             {attendance.length === 0 && <p className="text-muted-foreground">No attendance recorded yet.</p>}
           </div>
         </TabsContent>
-        <TabsContent value="salary">
-          <SalaryStructureTab staffId={staff.id} branchId={staff.branch_id} />
-        </TabsContent>
+        {hasPermission("payroll.view") && (
+          <TabsContent value="salary">
+            <SalaryStructureTab staffId={staff.id} branchId={staff.branch_id} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -351,7 +353,7 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {hasPermission("staff.manage") && (
+      {hasPermission("staff.manage_assignments") && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Assign a subject</CardTitle>
@@ -409,7 +411,7 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
                 <TableCell>{a.section_name ?? "All"}</TableCell>
                 <TableCell>{a.subject_name}</TableCell>
                 <TableCell className="text-right">
-                  {hasPermission("staff.manage") && (
+                  {hasPermission("staff.manage_assignments") && (
                     <Button
                       variant="ghost"
                       size="sm"

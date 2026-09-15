@@ -20,6 +20,7 @@ const statusVariant: Record<StudentStatus, "outline" | "info" | "success" | "sec
 
 export function StudentListPage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -41,7 +42,7 @@ export function StudentListPage() {
             {students.length} student{students.length === 1 ? "" : "s"} at this branch
           </p>
         </div>
-        <NewAdmissionDialog onCreated={refresh} />
+        {hasPermission("admissions.create") && <NewAdmissionDialog onCreated={refresh} />}
       </div>
 
       <div className="relative max-w-sm">

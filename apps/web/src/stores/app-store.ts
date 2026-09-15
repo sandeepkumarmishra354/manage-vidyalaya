@@ -18,7 +18,6 @@ interface AppStore {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   selectBranch: (branchId: string) => void;
-  refreshModuleSettings: () => Promise<void>;
   refreshBranches: () => Promise<void>;
   isModuleEnabled: (key: ModuleKey) => boolean;
   hasPermission: (key: string) => boolean;
@@ -107,11 +106,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ selectedBranchId: branchId });
       loadDisabledModules(branchId).then((disabledModules) => set({ disabledModules }));
     }
-  },
-
-  refreshModuleSettings: async () => {
-    const disabledModules = await loadDisabledModules(get().selectedBranchId);
-    set({ disabledModules });
   },
 
   refreshBranches: async () => {

@@ -24,13 +24,13 @@ export class SubjectsController {
   }
 
   @Post()
-  @RequirePermission("exams.manage")
+  @RequirePermission("exams.manage_subjects")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateSubjectDto) {
     return this.examsService.createSubject(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("exams.manage")
+  @RequirePermission("exams.manage_subjects")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateSubjectDto) {
     return this.examsService.updateSubject(user.tenant_id, user.sub, id, dto);
   }
@@ -48,19 +48,19 @@ export class ExamsController {
   }
 
   @Post()
-  @RequirePermission("exams.manage")
+  @RequirePermission("exams.manage_exams")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateExamDto) {
     return this.examsService.createExam(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("exams.manage")
+  @RequirePermission("exams.manage_exams")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateExamDto) {
     return this.examsService.updateExam(user.tenant_id, user.sub, id, dto);
   }
 
   @Get(":examId/subjects/:subjectId/pending-backpaper")
-  @RequirePermission("exams.manage")
+  @RequirePermission("exams.manage_exams")
   pendingBackpaper(@Param("examId") examId: string, @Param("subjectId") subjectId: string) {
     return this.examsService.listStudentsPendingBackpaper(examId, subjectId);
   }

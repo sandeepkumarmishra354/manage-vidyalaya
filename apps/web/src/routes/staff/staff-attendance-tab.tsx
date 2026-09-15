@@ -80,18 +80,21 @@ export function StaffAttendanceTab() {
                 </TableCell>
                 <TableCell>{r.designation}</TableCell>
                 <TableCell>
-                  <Select
-                    value={statuses[r.staff_id] ?? "present"}
-                    onValueChange={(v) => setStatuses((s) => ({ ...s, [r.staff_id]: v as AttendanceStatus }))}
-                    disabled={!hasPermission("staff_attendance.mark")}
-                  >
-                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STATUS_OPTIONS.map((s) => (
-                        <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {hasPermission("staff_attendance.mark") ? (
+                    <Select
+                      value={statuses[r.staff_id] ?? "present"}
+                      onValueChange={(v) => setStatuses((s) => ({ ...s, [r.staff_id]: v as AttendanceStatus }))}
+                    >
+                      <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((s) => (
+                          <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className="capitalize">{(statuses[r.staff_id] ?? "present").replace("_", " ")}</span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

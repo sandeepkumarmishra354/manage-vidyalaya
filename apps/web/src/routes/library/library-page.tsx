@@ -88,6 +88,8 @@ function inDays(days: number) {
 
 function CatalogTab({ onChanged }: { onChanged: () => void }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManageCatalog = hasPermission("library.manage_catalog");
   const [books, setBooks] = useState<LibraryBook[]>([]);
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
@@ -128,6 +130,7 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManageCatalog && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Add book</CardTitle>
@@ -160,6 +163,7 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="relative max-w-sm">
         <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -187,7 +191,7 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <EditBookDialog book={b} onUpdated={refresh} />
+                  {canManageCatalog && <EditBookDialog book={b} onUpdated={refresh} />}
                 </TableCell>
               </TableRow>
             ))}
@@ -207,6 +211,8 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
 
 function IssuesTab({ books }: { books: LibraryBook[] }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManageIssues = hasPermission("library.manage_issues");
   const [issues, setIssues] = useState<LibraryIssueListItem[]>([]);
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [bookId, setBookId] = useState("");
@@ -245,6 +251,7 @@ function IssuesTab({ books }: { books: LibraryBook[] }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManageIssues && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Issue a book</CardTitle>
@@ -289,6 +296,7 @@ function IssuesTab({ books }: { books: LibraryBook[] }) {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -307,9 +315,11 @@ function IssuesTab({ books }: { books: LibraryBook[] }) {
                 <TableCell>{issue.student_name}</TableCell>
                 <TableCell>{issue.due_date}</TableCell>
                 <TableCell className="text-right">
-                  <Button variant="outline" size="sm" onClick={() => handleReturn(issue.id)}>
-                    Mark returned
-                  </Button>
+                  {canManageIssues && (
+                    <Button variant="outline" size="sm" onClick={() => handleReturn(issue.id)}>
+                      Mark returned
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

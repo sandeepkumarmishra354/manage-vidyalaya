@@ -24,19 +24,19 @@ export class FeeStructuresController {
   }
 
   @Post()
-  @RequirePermission("fees.manage")
+  @RequirePermission("fees.manage_structures")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateFeeStructureDto) {
     return this.feesService.createFeeStructure(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("fees.manage")
+  @RequirePermission("fees.manage_structures")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateFeeStructureDto) {
     return this.feesService.updateFeeStructure(user.tenant_id, user.sub, id, dto);
   }
 
   @Post(":id/generate-invoices")
-  @RequirePermission("fees.manage")
+  @RequirePermission("fees.generate_invoices")
   async generateInvoices(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     const created = await this.feesService.generateInvoices(user.tenant_id, id);
     return { created };
@@ -66,7 +66,7 @@ export class FeeInvoicesController {
   }
 
   @Post(":id/void")
-  @RequirePermission("fees.manage")
+  @RequirePermission("fees.void_invoice")
   void_(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: VoidInvoiceDto) {
     return this.feesService.voidInvoice(user.tenant_id, user.sub, id, dto.reason);
   }

@@ -22,13 +22,13 @@ export class LibraryBooksController {
   }
 
   @Post()
-  @RequirePermission("library.manage")
+  @RequirePermission("library.manage_catalog")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateBookDto) {
     return this.libraryService.createBook(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("library.manage")
+  @RequirePermission("library.manage_catalog")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBookDto) {
     return this.libraryService.updateBook(user.tenant_id, user.sub, id, dto);
   }
@@ -46,13 +46,13 @@ export class LibraryIssuesController {
   }
 
   @Post()
-  @RequirePermission("library.manage")
+  @RequirePermission("library.manage_issues")
   issue(@CurrentUser() user: JwtPayload, @Body() dto: IssueBookDto) {
     return this.libraryService.issueBook(user.tenant_id, user.sub, dto);
   }
 
   @Post(":id/return")
-  @RequirePermission("library.manage")
+  @RequirePermission("library.manage_issues")
   return_(@Param("id") id: string) {
     return this.libraryService.returnBook(id);
   }

@@ -202,6 +202,8 @@ function EditSessionDialog({ session, onUpdated }: { session: AcademicSession; o
 }
 
 function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManage = hasPermission("academic_setup.manage_sessions");
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -238,6 +240,7 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManage && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New academic session</CardTitle>
@@ -284,6 +287,7 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -304,7 +308,7 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
                 <TableCell>{s.end_date}</TableCell>
                 <TableCell>{s.is_current && <Badge>Current</Badge>}</TableCell>
                 <TableCell>
-                  <EditSessionDialog session={s} onUpdated={() => { refresh(); onChanged(); }} />
+                  {canManage && <EditSessionDialog session={s} onUpdated={() => { refresh(); onChanged(); }} />}
                 </TableCell>
               </TableRow>
             ))}
@@ -324,6 +328,9 @@ function AcademicSessionsTab({ onChanged }: { onChanged: () => void }) {
 
 function ClassesAndSectionsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManageClasses = hasPermission("academic_setup.manage_classes");
+  const canManageSections = hasPermission("academic_setup.manage_sections");
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [sectionsByClass, setSectionsByClass] = useState<Record<string, Section[]>>({});
@@ -408,6 +415,7 @@ function ClassesAndSectionsTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {canManageClasses && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">New class</CardTitle>
@@ -457,7 +465,9 @@ function ClassesAndSectionsTab() {
             </form>
           </CardContent>
         </Card>
+        )}
 
+        {canManageSections && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">New section</CardTitle>
@@ -497,6 +507,7 @@ function ClassesAndSectionsTab() {
             </form>
           </CardContent>
         </Card>
+        )}
       </div>
 
       <div className="rounded-lg border">
@@ -516,9 +527,11 @@ function ClassesAndSectionsTab() {
                   {(sectionsByClass[c.id] ?? []).map((sec) => (
                     <Badge key={sec.id} variant="outline" className="gap-1">
                       {sec.name}
-                      <button onClick={() => handleDeleteSection(sec)} className="text-muted-foreground hover:text-destructive">
-                        <XIcon className="size-3" />
-                      </button>
+                      {canManageSections && (
+                        <button onClick={() => handleDeleteSection(sec)} className="text-muted-foreground hover:text-destructive">
+                          <XIcon className="size-3" />
+                        </button>
+                      )}
                     </Badge>
                   ))}
                   {(sectionsByClass[c.id] ?? []).length === 0 && (
@@ -526,12 +539,16 @@ function ClassesAndSectionsTab() {
                   )}
                 </TableCell>
                 <TableCell className="flex justify-end gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => handleRenameClass(c)}>
-                    <PencilIcon className="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(c)}>
-                    <XIcon className="size-3.5" />
-                  </Button>
+                  {canManageClasses && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => handleRenameClass(c)}>
+                        <PencilIcon className="size-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(c)}>
+                        <XIcon className="size-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -564,7 +581,9 @@ export function AcademicSetupPage() {
           <TabsTrigger value="classes">Classes &amp; Sections</TabsTrigger>
           <TabsTrigger value="sessions">Academic Sessions</TabsTrigger>
           <TabsTrigger value="promotion">Promotion</TabsTrigger>
-          {hasPermission("academic_setup.manage") && <TabsTrigger value="school">School Details</TabsTrigger>}
+          {hasPermission("academic_setup.manage_school_details") && (
+            <TabsTrigger value="school">School Details</TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="classes">
           <ClassesAndSectionsTab key={refreshKey} />
@@ -575,7 +594,7 @@ export function AcademicSetupPage() {
         <TabsContent value="promotion">
           <PromotionTab />
         </TabsContent>
-        {hasPermission("academic_setup.manage") && (
+        {hasPermission("academic_setup.manage_school_details") && (
           <TabsContent value="school">
             <SchoolDetailsTab />
           </TabsContent>

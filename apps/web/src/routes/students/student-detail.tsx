@@ -242,6 +242,8 @@ export function StudentDetailPage() {
 }
 
 function HouseCard({ studentId, branchId }: { studentId: string; branchId: string }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canAssign = hasPermission("houses.manage_teams");
   const [houses, setHouses] = useState<House[]>([]);
   const [currentHouse, setCurrentHouse] = useState<House | null>(null);
 
@@ -261,24 +263,30 @@ function HouseCard({ studentId, branchId }: { studentId: string; branchId: strin
         <CardTitle className="text-base">House</CardTitle>
       </CardHeader>
       <CardContent>
-        <Select value={currentHouse?.id ?? undefined} onValueChange={handleAssign}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Assign a house" />
-          </SelectTrigger>
-          <SelectContent>
-            {houses.map((h) => (
-              <SelectItem key={h.id} value={h.id}>
-                {h.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {canAssign ? (
+          <Select value={currentHouse?.id ?? undefined} onValueChange={handleAssign}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Assign a house" />
+            </SelectTrigger>
+            <SelectContent>
+              {houses.map((h) => (
+                <SelectItem key={h.id} value={h.id}>
+                  {h.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-sm text-muted-foreground">{currentHouse?.name ?? "Not assigned"}</p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 function TransportCard({ studentId, branchId }: { studentId: string; branchId: string }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canAssign = hasPermission("transport.manage_assignments");
   const [routes, setRoutes] = useState<TransportRoute[]>([]);
   const [stops, setStops] = useState<TransportStop[]>([]);
   const [routeId, setRouteId] = useState("");
@@ -312,32 +320,35 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
             {current.pickup_time ? ` (${current.pickup_time})` : ""}
           </p>
         )}
-        <div className="flex gap-3">
-          <Select value={routeId} onValueChange={setRouteId}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Select route" />
-            </SelectTrigger>
-            <SelectContent>
-              {routes.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {r.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select disabled={!routeId} onValueChange={handleAssign}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Select stop" />
-            </SelectTrigger>
-            <SelectContent>
-              {stops.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {canAssign && (
+          <div className="flex gap-3">
+            <Select value={routeId} onValueChange={setRouteId}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select route" />
+              </SelectTrigger>
+              <SelectContent>
+                {routes.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select disabled={!routeId} onValueChange={handleAssign}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select stop" />
+              </SelectTrigger>
+              <SelectContent>
+                {stops.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {!canAssign && !current && <p className="text-sm text-muted-foreground">Not assigned</p>}
       </CardContent>
     </Card>
   );

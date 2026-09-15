@@ -61,7 +61,7 @@ export function SalaryStructureTab({ staffId, branchId }: { staffId: string; bra
     setComponents((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
   };
 
-  if (!hasPermission("payroll.generate")) {
+  if (!hasPermission("payroll.manage_salary_structure")) {
     return structure ? (
       <div className="grid grid-cols-2 gap-y-3 text-sm">
         <div>

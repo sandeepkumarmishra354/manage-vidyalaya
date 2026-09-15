@@ -23,13 +23,13 @@ export class HousesController {
   }
 
   @Post()
-  @RequirePermission("houses.manage")
+  @RequirePermission("houses.manage_teams")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateHouseDto) {
     return this.housesService.createHouse(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("houses.manage")
+  @RequirePermission("houses.manage_teams")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateHouseDto) {
     return this.housesService.updateHouse(user.tenant_id, user.sub, id, dto);
   }
@@ -45,13 +45,13 @@ export class HousesController {
   }
 
   @Post("points-events")
-  @RequirePermission("houses.manage")
+  @RequirePermission("houses.manage_points")
   awardPoints(@CurrentUser() user: JwtPayload, @Body() dto: AwardPointsDto) {
     return this.housesService.awardHousePoints(user.tenant_id, dto);
   }
 
   @Post("assign-student")
-  @RequirePermission("houses.manage")
+  @RequirePermission("houses.manage_teams")
   assign(@CurrentUser() user: JwtPayload, @Body() dto: AssignHouseDto) {
     return this.housesService.assignStudentHouse(user.tenant_id, user.sub, dto);
   }

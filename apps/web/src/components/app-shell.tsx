@@ -12,7 +12,6 @@ import {
   LogOutIcon,
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
-  Settings2Icon,
   ShieldCheckIcon,
   TrophyIcon,
   UserCogIcon,
@@ -60,10 +59,22 @@ const navSections: NavSection[] = [
     label: "Academics",
     accent: "academics",
     items: [
-      { to: "/students", label: "Students & Admissions", icon: UsersIcon },
-      { to: "/attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
-      { to: "/exams", label: "Exams & Report Cards", icon: ScrollTextIcon, module: "exams" },
-      { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon },
+      { to: "/students", label: "Students & Admissions", icon: UsersIcon, permission: "students.view" },
+      {
+        to: "/attendance",
+        label: "Attendance",
+        icon: CalendarCheckIcon,
+        module: "attendance",
+        permission: "attendance.view",
+      },
+      {
+        to: "/exams",
+        label: "Exams & Report Cards",
+        icon: ScrollTextIcon,
+        module: "exams",
+        permission: "exams.view",
+      },
+      { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon, permission: "academic_setup.view" },
     ],
   },
   {
@@ -77,15 +88,17 @@ const navSections: NavSection[] = [
   {
     label: "Finance",
     accent: "finance",
-    items: [{ to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, module: "fees" }],
+    items: [
+      { to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, module: "fees", permission: "fees.view" },
+    ],
   },
   {
     label: "Services",
     accent: "services",
     items: [
-      { to: "/library", label: "Library", icon: BookOpenIcon, module: "library" },
-      { to: "/transport", label: "Transport", icon: BusIcon, module: "transport" },
-      { to: "/houses", label: "Houses", icon: TrophyIcon, module: "houses" },
+      { to: "/library", label: "Library", icon: BookOpenIcon, module: "library", permission: "library.view" },
+      { to: "/transport", label: "Transport", icon: BusIcon, module: "transport", permission: "transport.view" },
+      { to: "/houses", label: "Houses", icon: TrophyIcon, module: "houses", permission: "houses.view" },
       { to: "/id-cards", label: "ID Cards", icon: IdCardIcon, module: "id_cards" },
     ],
   },
@@ -96,7 +109,6 @@ const navSections: NavSection[] = [
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
       { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },
-      { to: "/settings/modules", label: "Module Settings", icon: Settings2Icon },
     ],
   },
 ];

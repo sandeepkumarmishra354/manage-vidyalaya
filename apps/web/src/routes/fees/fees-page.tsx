@@ -152,6 +152,7 @@ const feeTypeVariant: Record<FeeType, "default" | "secondary" | "outline" | "inf
 
 function StructuresTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [name, setName] = useState("");
@@ -209,6 +210,7 @@ function StructuresTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      {hasPermission("fees.manage_structures") && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New fee structure</CardTitle>
@@ -284,6 +286,7 @@ function StructuresTab() {
           </form>
         </CardContent>
       </Card>
+      )}
 
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
 
@@ -312,15 +315,19 @@ function StructuresTab() {
                   {classes.find((c) => c.id === s.class_id)?.name ?? "All classes"}
                 </TableCell>
                 <TableCell className="flex justify-end gap-2 text-right">
-                  <EditFeeStructureDialog structure={s} classes={classes} onUpdated={refresh} />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={generatingId === s.id}
-                    onClick={() => handleGenerate(s.id)}
-                  >
-                    {generatingId === s.id ? "Generating..." : "Generate invoices"}
-                  </Button>
+                  {hasPermission("fees.manage_structures") && (
+                    <EditFeeStructureDialog structure={s} classes={classes} onUpdated={refresh} />
+                  )}
+                  {hasPermission("fees.generate_invoices") && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={generatingId === s.id}
+                      onClick={() => handleGenerate(s.id)}
+                    >
+                      {generatingId === s.id ? "Generating..." : "Generate invoices"}
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -340,6 +347,8 @@ function StructuresTab() {
 
 function InvoicesTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canRecordPayment = hasPermission("fees.record_payment");
   const [invoices, setInvoices] = useState<FeeInvoiceListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
   const [feeTypeFilter, setFeeTypeFilter] = useState<string>("__all__");
@@ -404,7 +413,11 @@ function InvoicesTab() {
           </TableHeader>
           <TableBody>
             {invoices.map((inv) => (
-              <TableRow key={inv.id} className="cursor-pointer" onClick={() => setActiveInvoice(inv)}>
+              <TableRow
+                key={inv.id}
+                className={canRecordPayment ? "cursor-pointer" : undefined}
+                onClick={canRecordPayment ? () => setActiveInvoice(inv) : undefined}
+              >
                 <TableCell className="font-medium">{inv.student_name}</TableCell>
                 <TableCell>{inv.fee_structure_name}</TableCell>
                 <TableCell>

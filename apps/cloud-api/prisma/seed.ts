@@ -75,7 +75,7 @@ async function main() {
     for (const permissionKey of defaultRole.permissions) {
       await prisma.rolePermission.upsert({
         where: { roleId_permissionKey: { roleId: role.id, permissionKey } },
-        update: {},
+        update: { deletedAt: null },
         create: {
           id: randomUUID(),
           tenantId: tenant.id,
@@ -84,6 +84,22 @@ async function main() {
           updatedAt: now,
         },
       });
+    }
+
+    // Reconcile: soft-delete any grant this system role no longer has in
+    // permission-catalog.ts (e.g. a renamed/split key from a past catalog
+    // change) so re-seeding never leaves stale RolePermission rows behind.
+    const currentKeys = new Set(defaultRole.permissions);
+    const existingGrants = await prisma.rolePermission.findMany({
+      where: { roleId: role.id, deletedAt: null },
+    });
+    for (const grant of existingGrants) {
+      if (!currentKeys.has(grant.permissionKey)) {
+        await prisma.rolePermission.update({
+          where: { id: grant.id },
+          data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
+        });
+      }
     }
   }
 

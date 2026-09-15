@@ -711,6 +711,12 @@ export interface Role {
   is_system: boolean;
 }
 
+export interface PermissionCatalogEntry {
+  key: string;
+  label: string;
+  description?: string;
+}
+
 export interface NewRoleInput {
   name: string;
 }
@@ -1120,12 +1126,6 @@ export const api = {
   getSiblings: (studentId: string) => http.get<Sibling[]>(`/students/${studentId}/siblings`),
 
   getModuleSettings: (branchId: string) => http.get<ModuleSetting[]>("/module-settings", { branch_id: branchId }),
-  setModuleEnabled: (branchId: string, moduleKey: ModuleKey, isEnabled: boolean) =>
-    http.post<ModuleSetting>("/module-settings", {
-      branch_id: branchId,
-      module_key: moduleKey,
-      is_enabled: isEnabled,
-    }),
 
   createHouse: (input: NewHouseInput) => http.post<House>("/houses", input),
   updateHouse: (input: UpdateHouseInput) => http.patch<void>(`/houses/${input.id}`, input),
@@ -1215,7 +1215,7 @@ export const api = {
   getDashboardStats: (branchId: string) => http.get<DashboardStats>("/dashboard/stats", { branch_id: branchId }),
 
   // RBAC: permissions, roles, users
-  listPermissionCatalog: () => http.get<string[]>("/permissions/catalog"),
+  listPermissionCatalog: () => http.get<PermissionCatalogEntry[]>("/permissions/catalog"),
   listRoles: () => http.get<Role[]>("/roles"),
   createRole: (input: NewRoleInput) => http.post<Role>("/roles", input),
   updateRole: (id: string, name: string) => http.patch<void>(`/roles/${id}`, { name }),

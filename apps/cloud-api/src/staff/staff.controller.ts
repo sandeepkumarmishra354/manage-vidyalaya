@@ -30,19 +30,19 @@ export class StaffController {
   }
 
   @Post()
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_profile")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateStaffDto) {
     return this.staffService.createStaff(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_profile")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStaffDto) {
     return this.staffService.updateStaff(user.tenant_id, user.sub, id, dto);
   }
 
   @Post(":id/status")
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_profile")
   setStatus(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetStaffStatusDto) {
     return this.staffService.setStaffStatus(user.tenant_id, user.sub, id, dto);
   }
@@ -60,28 +60,28 @@ export class TeacherAssignmentsController {
   }
 
   @Post()
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_assignments")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateTeacherAssignmentDto) {
     return this.staffService.createTeacherAssignment(user.tenant_id, user.sub, dto);
   }
 
   @Delete(":id")
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_assignments")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.staffService.deleteTeacherAssignment(user.tenant_id, user.sub, id);
   }
 }
 
 // Owns just the class-teacher assignment on a section -- gated by
-// staff.manage (a staffing decision), unlike the rest of /sections's CRUD
-// in AcademicModule which is gated by academic_setup.manage.
+// staff.manage_assignments (a staffing decision), unlike the rest of
+// /sections's CRUD in AcademicModule which is gated by academic_setup keys.
 @Controller("sections")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SectionClassTeacherController {
   constructor(private readonly staffService: StaffService) {}
 
   @Patch(":sectionId/class-teacher")
-  @RequirePermission("staff.manage")
+  @RequirePermission("staff.manage_assignments")
   setClassTeacher(@CurrentUser() user: JwtPayload, @Param("sectionId") sectionId: string, @Body() dto: SetClassTeacherDto) {
     return this.staffService.setClassTeacher(user.tenant_id, user.sub, sectionId, dto);
   }

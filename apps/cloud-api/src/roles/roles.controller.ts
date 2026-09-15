@@ -3,7 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } fro
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
-import { PERMISSION_CATALOG } from "../common/permission-catalog.js";
+import { PERMISSION_CATALOG, PERMISSION_LABELS } from "../common/permission-catalog.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateRoleDto } from "./dto/create-role.dto.js";
@@ -56,6 +56,6 @@ export class RolesController {
 export class PermissionsCatalogController {
   @Get("catalog")
   catalog() {
-    return PERMISSION_CATALOG;
+    return PERMISSION_CATALOG.map((key) => ({ key, ...PERMISSION_LABELS[key] }));
   }
 }

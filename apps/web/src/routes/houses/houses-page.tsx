@@ -116,6 +116,8 @@ function LeaderboardTab() {
 
 function HousesTab({ onChanged }: { onChanged: () => void }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManageTeams = hasPermission("houses.manage_teams");
   const [houses, setHouses] = useState<House[]>([]);
   const [name, setName] = useState("");
   const [color, setColor] = useState("#dc2626");
@@ -145,6 +147,7 @@ function HousesTab({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManageTeams && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New house</CardTitle>
@@ -179,12 +182,13 @@ function HousesTab({ onChanged }: { onChanged: () => void }) {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {houses.map((h) => (
           <Badge key={h.id} style={{ backgroundColor: h.color ?? undefined, color: "white" }} className="gap-1.5">
             {h.name}
-            <EditHouseDialog house={h} onUpdated={refresh} />
+            {canManageTeams && <EditHouseDialog house={h} onUpdated={refresh} />}
           </Badge>
         ))}
       </div>
@@ -194,6 +198,7 @@ function HousesTab({ onChanged }: { onChanged: () => void }) {
 
 function PointsTab({ houses, onChanged }: { houses: House[]; onChanged: () => void }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const [events, setEvents] = useState<HousePointEventListItem[]>([]);
   const [houseId, setHouseId] = useState("");
   const [points, setPoints] = useState("");
@@ -233,6 +238,7 @@ function PointsTab({ houses, onChanged }: { houses: House[]; onChanged: () => vo
 
   return (
     <div className="flex flex-col gap-4">
+      {hasPermission("houses.manage_points") && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Award / deduct points</CardTitle>
@@ -283,6 +289,7 @@ function PointsTab({ houses, onChanged }: { houses: House[]; onChanged: () => vo
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>

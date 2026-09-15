@@ -28,7 +28,7 @@ export class SalaryStructuresController {
   }
 
   @Post()
-  @RequirePermission("payroll.generate")
+  @RequirePermission("payroll.manage_salary_structure")
   set(@CurrentUser() user: JwtPayload, @Body() dto: SetSalaryStructureDto) {
     return this.payrollService.setSalaryStructure(user.tenant_id, user.sub, dto);
   }

@@ -78,6 +78,8 @@ function EditRouteDialog({ route, onUpdated }: { route: TransportRoute; onUpdate
 }
 
 function RouteDetail({ route, onRouteUpdated }: { route: TransportRoute; onRouteUpdated: () => void }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManageRoutes = hasPermission("transport.manage_routes");
   const [stops, setStops] = useState<TransportStop[]>([]);
   const [roster, setRoster] = useState<TransportRosterEntry[]>([]);
   const [stopName, setStopName] = useState("");
@@ -127,29 +129,31 @@ function RouteDetail({ route, onRouteUpdated }: { route: TransportRoute; onRoute
           {route.driver_phone && <span>{route.driver_phone}</span>}
           {route.capacity && <span>Capacity: {route.capacity}</span>}
         </div>
-        <EditRouteDialog route={route} onUpdated={onRouteUpdated} />
+        {canManageRoutes && <EditRouteDialog route={route} onUpdated={onRouteUpdated} />}
       </div>
 
-      <form className="flex flex-wrap items-end gap-3" onSubmit={handleAddStop}>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`stop-${route.id}`}>New stop</Label>
-          <Input
-            id={`stop-${route.id}`}
-            placeholder="e.g. Gandhi Chowk"
-            value={stopName}
-            onChange={(e) => setStopName(e.target.value)}
-            required
-            className="w-48"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label>Pickup time</Label>
-          <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="w-32" />
-        </div>
-        <Button type="submit" size="sm" disabled={isSubmitting}>
-          Add stop
-        </Button>
-      </form>
+      {canManageRoutes && (
+        <form className="flex flex-wrap items-end gap-3" onSubmit={handleAddStop}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`stop-${route.id}`}>New stop</Label>
+            <Input
+              id={`stop-${route.id}`}
+              placeholder="e.g. Gandhi Chowk"
+              value={stopName}
+              onChange={(e) => setStopName(e.target.value)}
+              required
+              className="w-48"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Pickup time</Label>
+            <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="w-32" />
+          </div>
+          <Button type="submit" size="sm" disabled={isSubmitting}>
+            Add stop
+          </Button>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
@@ -160,7 +164,9 @@ function RouteDetail({ route, onRouteUpdated }: { route: TransportRoute; onRoute
                 <span>{s.name}</span>
                 <span className="flex items-center gap-2 text-muted-foreground">
                   {s.pickup_time ?? "—"}
-                  <button onClick={() => handleRenameStop(s)} className="hover:text-foreground"><PencilIcon className="size-3" /></button>
+                  {canManageRoutes && (
+                    <button onClick={() => handleRenameStop(s)} className="hover:text-foreground"><PencilIcon className="size-3" /></button>
+                  )}
                 </span>
               </li>
             ))}
@@ -188,6 +194,7 @@ function RouteDetail({ route, onRouteUpdated }: { route: TransportRoute; onRoute
 
 export function TransportPage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const [routes, setRoutes] = useState<TransportRoute[]>([]);
   const [name, setName] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
@@ -234,6 +241,7 @@ export function TransportPage() {
         <p className="text-muted-foreground">Bus routes, stops, and student assignments.</p>
       </div>
 
+      {hasPermission("transport.manage_routes") && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New route</CardTitle>
@@ -263,6 +271,7 @@ export function TransportPage() {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>

@@ -31,6 +31,8 @@ function todayIso() {
 
 export function AttendancePage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canMark = hasPermission("attendance.mark");
   const branches = useAppStore((s) => s.branches);
   const branch = branches.find((b) => b.id === selectedBranchId);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -158,7 +160,7 @@ export function AttendancePage() {
               onChange={(e) => setDate(e.target.value)}
             />
           </div>
-          {roster.length > 0 && (
+          {roster.length > 0 && canMark && (
             <div className="ml-auto flex gap-2">
               <Button variant="outline" size="sm" onClick={() => markAll("present")}>
                 Mark all present
@@ -187,21 +189,27 @@ export function AttendancePage() {
                     {entry.first_name} {entry.last_name ?? ""}
                   </TableCell>
                   <TableCell>
-                    <Select
-                      value={entry.status ?? undefined}
-                      onValueChange={(v) => setStatus(entry.student_id, v as AttendanceStatus)}
-                    >
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Not marked" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {canMark ? (
+                      <Select
+                        value={entry.status ?? undefined}
+                        onValueChange={(v) => setStatus(entry.student_id, v as AttendanceStatus)}
+                      >
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="Not marked" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="text-sm">
+                        {STATUS_OPTIONS.find((opt) => opt.value === entry.status)?.label ?? "Not marked"}
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -217,7 +225,7 @@ export function AttendancePage() {
         </div>
       )}
 
-      {classId && roster.length > 0 && (
+      {classId && roster.length > 0 && canMark && (
         <div className="flex items-center gap-3" data-no-print>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save attendance"}

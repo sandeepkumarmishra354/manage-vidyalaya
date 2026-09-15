@@ -24,13 +24,13 @@ export class TransportRoutesController {
   }
 
   @Post()
-  @RequirePermission("transport.manage")
+  @RequirePermission("transport.manage_routes")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateRouteDto) {
     return this.transportService.createRoute(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("transport.manage")
+  @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateRouteDto) {
     return this.transportService.updateRoute(user.tenant_id, user.sub, id, dto);
   }
@@ -54,13 +54,13 @@ export class TransportStopsController {
   }
 
   @Post()
-  @RequirePermission("transport.manage")
+  @RequirePermission("transport.manage_routes")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateStopDto) {
     return this.transportService.createStop(user.tenant_id, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("transport.manage")
+  @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStopDto) {
     return this.transportService.updateStop(user.tenant_id, user.sub, id, dto);
   }
@@ -72,7 +72,7 @@ export class TransportAssignmentsController {
   constructor(private readonly transportService: TransportService) {}
 
   @Post()
-  @RequirePermission("transport.manage")
+  @RequirePermission("transport.manage_assignments")
   assign(@CurrentUser() user: JwtPayload, @Body() dto: AssignTransportDto) {
     return this.transportService.assignStudentTransport(user.tenant_id, user.sub, dto);
   }

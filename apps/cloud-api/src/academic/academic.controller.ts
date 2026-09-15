@@ -28,7 +28,7 @@ export class BranchesController {
   }
 
   @Patch(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_school_details")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBranchDto) {
     return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto);
   }
@@ -46,13 +46,13 @@ export class AcademicSessionsController {
   }
 
   @Post()
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_sessions")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateAcademicSessionDto) {
     return this.academicService.createAcademicSession(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_sessions")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateAcademicSessionDto) {
     return this.academicService.updateAcademicSession(user.tenant_id, user.sub, id, dto);
   }
@@ -70,19 +70,19 @@ export class ClassesController {
   }
 
   @Post()
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_classes")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateClassDto) {
     return this.academicService.createClass(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_classes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateClassDto) {
     return this.academicService.updateClass(user.tenant_id, user.sub, id, dto);
   }
 
   @Delete(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_classes")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.academicService.deleteClass(user.tenant_id, user.sub, id);
   }
@@ -100,19 +100,19 @@ export class SectionsController {
   }
 
   @Post()
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_sections")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateSectionDto) {
     return this.academicService.createSection(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_sections")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateSectionDto) {
     return this.academicService.updateSection(user.tenant_id, user.sub, id, dto);
   }
 
   @Delete(":id")
-  @RequirePermission("academic_setup.manage")
+  @RequirePermission("academic_setup.manage_sections")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.academicService.deleteSection(user.tenant_id, user.sub, id);
   }

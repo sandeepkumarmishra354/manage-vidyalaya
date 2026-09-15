@@ -116,6 +116,8 @@ function EditExamDialog({ exam, onUpdated }: { exam: Exam; onUpdated: () => void
 
 function SubjectsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManage = hasPermission("exams.manage_subjects");
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -145,6 +147,7 @@ function SubjectsTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManage && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New subject</CardTitle>
@@ -166,6 +169,7 @@ function SubjectsTab() {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -182,7 +186,7 @@ function SubjectsTab() {
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>{s.code ?? "—"}</TableCell>
                 <TableCell className="text-right">
-                  <EditSubjectDialog subject={s} onUpdated={refresh} />
+                  {canManage && <EditSubjectDialog subject={s} onUpdated={refresh} />}
                 </TableCell>
               </TableRow>
             ))}
@@ -202,6 +206,8 @@ function SubjectsTab() {
 
 function ExamsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canManage = hasPermission("exams.manage_exams");
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -248,6 +254,7 @@ function ExamsTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      {canManage && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New exam</CardTitle>
@@ -284,6 +291,7 @@ function ExamsTab() {
           </form>
         </CardContent>
       </Card>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -312,10 +320,10 @@ function ExamsTab() {
                 <TableCell>{classes.find((c) => c.id === exam.class_id)?.name ?? "—"}</TableCell>
                 <TableCell>{exam.exam_date ?? "—"}</TableCell>
                 <TableCell className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                  {exam.exam_type === "regular" && (
+                  {canManage && exam.exam_type === "regular" && (
                     <CreateBackpaperDialog exam={exam} subjects={subjects} onCreated={refresh} />
                   )}
-                  <EditExamDialog exam={exam} onUpdated={refresh} />
+                  {canManage && <EditExamDialog exam={exam} onUpdated={refresh} />}
                 </TableCell>
               </TableRow>
             ))}

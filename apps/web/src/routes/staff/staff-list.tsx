@@ -43,7 +43,7 @@ export function StaffListPage() {
             {staff.length} staff member{staff.length === 1 ? "" : "s"} at this branch
           </p>
         </div>
-        {hasPermission("staff.manage") && <NewStaffDialog onCreated={refresh} />}
+        {hasPermission("staff.manage_profile") && <NewStaffDialog onCreated={refresh} />}
       </div>
 
       <Tabs defaultValue="directory">

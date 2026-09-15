@@ -15,7 +15,6 @@ import { AcademicSetupPage } from "@/routes/academic/academic-setup-page";
 import { HousesPage } from "@/routes/houses/houses-page";
 import { LibraryPage } from "@/routes/library/library-page";
 import { TransportPage } from "@/routes/transport/transport-page";
-import { ModuleSettingsPage } from "@/routes/settings/module-settings-page";
 import { IdCardsPage } from "@/routes/id-cards/id-cards-page";
 import { StaffListPage } from "@/routes/staff/staff-list";
 import { StaffDetailPage } from "@/routes/staff/staff-detail";
@@ -77,13 +76,29 @@ export default function App() {
         }
       >
         <Route index element={<DashboardPage />} />
-        <Route path="students" element={<StudentListPage />} />
-        <Route path="students/:id" element={<StudentDetailPage />} />
+        <Route
+          path="students"
+          element={
+            <RequirePermission permission="students.view">
+              <StudentListPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="students/:id"
+          element={
+            <RequirePermission permission="students.view">
+              <StudentDetailPage />
+            </RequirePermission>
+          }
+        />
         <Route
           path="attendance"
           element={
             <RequireModule module="attendance">
-              <AttendancePage />
+              <RequirePermission permission="attendance.view">
+                <AttendancePage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -91,7 +106,9 @@ export default function App() {
           path="fees"
           element={
             <RequireModule module="fees">
-              <FeesPage />
+              <RequirePermission permission="fees.view">
+                <FeesPage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -99,7 +116,9 @@ export default function App() {
           path="exams"
           element={
             <RequireModule module="exams">
-              <ExamsPage />
+              <RequirePermission permission="exams.view">
+                <ExamsPage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -107,7 +126,9 @@ export default function App() {
           path="library"
           element={
             <RequireModule module="library">
-              <LibraryPage />
+              <RequirePermission permission="library.view">
+                <LibraryPage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -115,7 +136,9 @@ export default function App() {
           path="transport"
           element={
             <RequireModule module="transport">
-              <TransportPage />
+              <RequirePermission permission="transport.view">
+                <TransportPage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -123,7 +146,9 @@ export default function App() {
           path="houses"
           element={
             <RequireModule module="houses">
-              <HousesPage />
+              <RequirePermission permission="houses.view">
+                <HousesPage />
+              </RequirePermission>
             </RequireModule>
           }
         />
@@ -135,7 +160,14 @@ export default function App() {
             </RequireModule>
           }
         />
-        <Route path="academic-setup" element={<AcademicSetupPage />} />
+        <Route
+          path="academic-setup"
+          element={
+            <RequirePermission permission="academic_setup.view">
+              <AcademicSetupPage />
+            </RequirePermission>
+          }
+        />
         <Route
           path="staff"
           element={
@@ -196,7 +228,6 @@ export default function App() {
             </RequirePermission>
           }
         />
-        <Route path="settings/modules" element={<ModuleSettingsPage />} />
       </Route>
     </Routes>
   );
