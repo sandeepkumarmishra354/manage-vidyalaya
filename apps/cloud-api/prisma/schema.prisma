@@ -54,6 +54,9 @@ model Branch {
   city      String?
   state     String?
   pincode   String?
+  phone     String?
+  email     String?
+  logoUrl   String?   @map("logo_url")
   isActive  Boolean   @default(true) @map("is_active")
   updatedAt DateTime  @map("updated_at")
   updatedBy String?   @map("updated_by")
@@ -237,28 +240,37 @@ model Section {
 // ============================================================================
 
 model Student {
-  id               String    @id
-  tenantId         String    @map("tenant_id")
-  branchId         String    @map("branch_id")
-  admissionNumber  String?   @map("admission_number")
-  firstName        String    @map("first_name")
-  lastName         String?   @map("last_name")
-  dateOfBirth      DateTime? @map("date_of_birth")
-  gender           String?
-  bloodGroup       String?   @map("blood_group")
-  photoPath        String?   @map("photo_path")
-  currentClassId   String?   @map("current_class_id")
-  currentSectionId String?   @map("current_section_id")
-  status           String    @default("enquiry")
-  address          String?
-  city             String?
-  state            String?
-  pincode          String?
-  notes            String?
-  updatedAt        DateTime  @map("updated_at")
-  updatedBy        String?   @map("updated_by")
-  deletedAt        DateTime? @map("deleted_at")
-  version          Int       @default(1)
+  id                    String    @id
+  tenantId              String    @map("tenant_id")
+  branchId              String    @map("branch_id")
+  admissionNumber       String?   @map("admission_number")
+  firstName             String    @map("first_name")
+  lastName              String?   @map("last_name")
+  dateOfBirth           DateTime? @map("date_of_birth")
+  gender                String?
+  bloodGroup            String?   @map("blood_group")
+  photoPath             String?   @map("photo_path")
+  currentClassId        String?   @map("current_class_id")
+  currentSectionId      String?   @map("current_section_id")
+  status                String    @default("enquiry")
+  address               String?
+  city                  String?
+  state                 String?
+  pincode               String?
+  notes                 String?
+  category              String?
+  religion              String?
+  nationality           String?
+  motherTongue          String?   @map("mother_tongue")
+  aadhaarNumber         String?   @map("aadhaar_number")
+  previousSchoolName    String?   @map("previous_school_name")
+  medicalNotes          String?   @map("medical_notes")
+  emergencyContactName  String?   @map("emergency_contact_name")
+  emergencyContactPhone String?   @map("emergency_contact_phone")
+  updatedAt             DateTime  @map("updated_at")
+  updatedBy             String?   @map("updated_by")
+  deletedAt             DateTime? @map("deleted_at")
+  version               Int       @default(1)
 
   currentClass   Class?   @relation(fields: [currentClassId], references: [id])
   currentSection Section? @relation(fields: [currentSectionId], references: [id])
@@ -282,19 +294,21 @@ model Student {
 }
 
 model Guardian {
-  id         String    @id
-  tenantId   String    @map("tenant_id")
-  fullName   String    @map("full_name")
-  relation   String?
-  phone      String?
-  altPhone   String?   @map("alt_phone")
-  email      String?
-  occupation String?
-  address    String?
-  updatedAt  DateTime  @map("updated_at")
-  updatedBy  String?   @map("updated_by")
-  deletedAt  DateTime? @map("deleted_at")
-  version    Int       @default(1)
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  fullName      String    @map("full_name")
+  relation      String?
+  phone         String?
+  altPhone      String?   @map("alt_phone")
+  email         String?
+  occupation    String?
+  address       String?
+  aadhaarNumber String?   @map("aadhaar_number")
+  annualIncome  Int?      @map("annual_income") // rupees, NOT paise -- informational/eligibility field, not a transactional amount.
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
 
   studentGuardians StudentGuardian[]
 
@@ -389,6 +403,7 @@ model FeeStructure {
   name              String
   amount            Int
   frequency         String    @default("one_time")
+  feeType           String    @default("tuition") @map("fee_type")
   updatedAt         DateTime  @map("updated_at")
   updatedBy         String?   @map("updated_by")
   deletedAt         DateTime? @map("deleted_at")
