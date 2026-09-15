@@ -13,9 +13,10 @@ const DEMO_BRANCH_ID = "00000000-0000-0000-0000-000000000002";
 const DEMO_ADMIN_EMAIL = "admin@demo.vidyalaya.in";
 const DEMO_ADMIN_PASSWORD = "vidyalaya-demo";
 
-// Matches apps/desktop/src-tauri/src/seed.rs exactly (fixed ids, same reason
-// as DEMO_TENANT_ID/DEMO_BRANCH_ID above: both sides seed the same tenant
-// independently, and `roles` has a UNIQUE (tenant_id, name) constraint).
+// Fixed ids, same reason as DEMO_TENANT_ID/DEMO_BRANCH_ID above: re-running
+// this script (e.g. after a schema reset) must upsert the same rows rather
+// than creating duplicates, and `roles` has a UNIQUE (tenant_id, name)
+// constraint.
 const DEMO_ROLE_SUPER_ADMIN_ID = "00000000-0000-0000-0000-000000000010";
 const DEMO_ROLE_BRANCH_ADMIN_ID = "00000000-0000-0000-0000-000000000011";
 const DEMO_ROLE_ACCOUNTANT_ID = "00000000-0000-0000-0000-000000000012";

@@ -20,10 +20,8 @@ export interface AuditEntry {
 }
 
 /// Writes one row to the append-only `audit_log` table. Every mutating
-/// service method calls this -- ideally via `prisma.$transaction`, so the
-/// audit row and the mutation it describes commit atomically, mirroring the
-/// old Rust `audit::record_audit` (which ran inside the same SQLite
-/// transaction as the write it recorded).
+/// service method calls this via `prisma.$transaction`, so the audit row
+/// and the mutation it describes commit atomically.
 @Injectable()
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}

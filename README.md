@@ -1,13 +1,13 @@
 # Vidyalaya
 
-Offline-first, multi-branch school management software for Indian schools and
-colleges. Desktop app built on Tauri v2, syncing to a cloud backend when
-connectivity is available.
+Online-only, multi-branch school management software for Indian schools and
+colleges. A thin Tauri v2 desktop shell around a React frontend that talks
+directly to a NestJS + PostgreSQL cloud backend over HTTPS -- no local
+database, no offline mode.
 
-See `docs/architecture.md` for the design (sync engine, data model, auth) and
-build-order rationale, and `docs/production-readiness.md` for the plan to
-take this from working software to something you can hand to a paying
-school.
+See `docs/architecture.md` for the design (data model, auth, RBAC) and
+`docs/production-readiness.md` for the plan to take this from working
+software to something you can hand to a paying school.
 
 ## Modules implemented so far
 
@@ -15,8 +15,8 @@ school.
   records, class/section assignment, and admission confirmation (assigns a
   real admission number and flips the student to `enrolled` -- only
   enrolled students are eligible for attendance/fees/exams)
-- **Attendance** -- daily attendance per class/section, marked offline, with
-  a client-side printable register
+- **Attendance** -- daily attendance per class/section, with a client-side
+  printable register
 - **Fees & Billing** -- fee structures, invoice generation, payments/receipts
   (amounts in paise, not floats)
 - **Exams & Report Cards** -- subjects, exams, marks entry, per-student
@@ -26,8 +26,7 @@ school.
 - **Library** -- book catalog and issue/return tracking
 - **Transport** -- bus routes, stops, and student assignments
 - **ID Cards** -- 4 selectable print-ready templates, single or whole-class
-- **Academic Setup** -- academic sessions, classes, and sections (create as
-  many as the school needs -- these sync like everything else), plus a
+- **Academic Setup** -- academic sessions, classes, and sections, plus a
   **session promotion** wizard (suggested class mapping, per-student
   promote/retain/withdraw review, batch execution with full enrollment
   history)
@@ -38,9 +37,8 @@ school.
   monthly payroll runs with loss-of-pay computed automatically from staff
   attendance, and printable payslips
 - **Roles & Permissions** -- custom roles with a granular, per-action
-  permission grid (not just the five seeded defaults), enforced on both
-  the desktop commands and the cloud-api endpoints that require server-side
-  connectivity
+  permission grid (not just the five seeded defaults), enforced on every
+  cloud-api endpoint
 - **Audit Log** -- a generic, append-only trail of every create/update/
   delete across every module, filterable by entity and date
 - **Module Settings** -- every optional module above can be turned off
@@ -51,25 +49,22 @@ school.
 - **Edit everywhere** -- every entity above (students, staff, classes,
   sessions, fee structures, invoices, payments, subjects, exams, houses,
   library books, transport routes/stops, roles) has update/soft-delete
-  commands, not just create
+  endpoints, not just create
 
-All of the above are wired through the same offline-write -> outbox -> sync
-architecture proven by the Student Info module, and are reachable from the
-app's left nav (grouped into Academics / Staff / Finance / Services / Admin)
-once logged in.
+Every module is a real Postgres table with full CRUD REST endpoints,
+guarded by JWT auth + permission checks, and reachable from the app's left
+nav (grouped into Academics / Staff / Finance / Services / Admin) once
+logged in.
 
 ## Structure
 
 ```
 apps/
-  desktop/      Tauri v2 app: React + TypeScript + Tailwind + shadcn/ui frontend,
-                Rust backend (SQLite via rusqlite, sync engine, Tauri commands)
-  cloud-api/    NestJS + Prisma + PostgreSQL: auth, billing, and the sync
-                push/pull API
-packages/
-  shared-types/ TypeScript types shared between desktop and cloud-api
-  db-schema/    SQL migrations -- the source of truth for the desktop's
-                local SQLite schema
+  desktop/      Tauri v2 app: React + TypeScript + Tailwind + shadcn/ui
+                frontend talking to cloud-api over plain fetch(); the Rust
+                side is just the native window bootstrap, nothing else
+  cloud-api/    NestJS + Prisma + PostgreSQL: the entire system of record --
+                auth, every domain entity, RBAC, and audit logging
 ```
 
 ## Prerequisites
@@ -100,39 +95,14 @@ In another terminal:
 
 ```bash
 cd apps/desktop
+cp .env.example .env   # edit VITE_API_BASE_URL if cloud-api isn't on :3001
 pnpm tauri dev
 ```
 
-The desktop app works immediately offline (it seeds its own demo
-tenant/branch locally on first run, using the same fixed ids as the
-cloud-api seed script -- see comments in `src-tauri/src/seed.rs`). Logging in
-against a running cloud-api enables sync; after that first login the app
-keeps working fully offline using the cached session.
-
-## Verifying the sync engine
-
-`apps/desktop/src-tauri/tests/sync_integration.rs` spins up two independent
-local SQLite databases ("device A" and "device B"), creates an admission
-offline on device A, and asserts it reaches device B purely through the
-sync engine, against a real running cloud-api:
-
-```bash
-# with cloud-api running and seeded (see above)
-cd apps/desktop/src-tauri
-cargo test --test sync_integration -- --ignored --nocapture
-```
-
-It's `#[ignore]`d by default since it depends on that external process --
-regular `cargo test` stays green without cloud-api running.
-
-`apps/desktop/src-tauri/tests/modules_integration.rs` covers Attendance,
-Fees & Billing, and Exams & Report Cards against a real local SQLite
-database (no network needed) -- marking/re-marking attendance, generating
-and paying off a fee invoice, and rolling up exam marks into a report card.
-`rbac_integration.rs`, `payroll_integration.rs`, and
-`promotion_integration.rs` cover permission enforcement, attendance-driven
-payroll math, and session promotion the same way. All run as part of plain
-`cargo test`.
+The desktop app is unusable without a running cloud-api -- there is no local
+data and no offline fallback. Login calls `POST /auth/login`, the app then
+fetches `GET /auth/me` for session/branch/permission data, and every page
+after that reads and writes directly against cloud-api's REST endpoints.
 
 ## Common commands
 
@@ -140,7 +110,8 @@ payroll math, and session promotion the same way. All run as part of plain
 pnpm turbo run build       # build all apps/packages
 pnpm turbo run lint        # lint all apps/packages
 pnpm turbo run typecheck   # typecheck all apps/packages
+pnpm turbo run test        # test all apps/packages
 
-cd apps/desktop/src-tauri && cargo test && cargo clippy --all-targets
+cd apps/desktop/src-tauri && cargo build && cargo clippy --all-targets
 cd apps/cloud-api && pnpm test && pnpm test:e2e
 ```

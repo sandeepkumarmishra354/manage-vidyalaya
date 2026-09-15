@@ -9,14 +9,16 @@ later phases are what you build out as you scale past a handful of clients.
 
 ## Where things stand today
 
-Working: the offline-first architecture (SQLite + outbox sync, proven with
-a real two-device test), JWT auth with offline session caching, and a full
-module set (Student Info & Admissions, Attendance, Fees & Billing, Exams &
-Report Cards, Houses, Library, Transport, ID Cards, Academic Setup with
-session promotion, Staff/HR, Payroll, Roles & Permissions, Audit Log) with
-a consistent UI, granular RBAC enforcement, and edit/delete on every
-entity, not just create. Running locally, with a local Postgres and a demo
-tenant.
+Working: an online-only architecture where cloud-api (NestJS + Postgres)
+is the sole system of record and the desktop app is a thin Tauri shell
+around a React frontend talking to it over HTTPS -- no local database, no
+offline mode. JWT auth with refresh tokens, and a full module set (Student
+Info & Admissions, Attendance, Fees & Billing, Exams & Report Cards,
+Houses, Library, Transport, ID Cards, Academic Setup with session
+promotion, Staff/HR, Payroll, Roles & Permissions, Audit Log) with a
+consistent UI, granular RBAC enforcement on every endpoint, and edit/
+delete on every entity, not just create. Running locally, with a local
+Postgres and a demo tenant.
 
 Not yet done, and covered below: real hosting, HTTPS, secrets management,
 backups, error monitoring, a signed/installable desktop build, a real
@@ -82,19 +84,12 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 
 ### 4. Data safety & correctness
 
-- ~~Fix academic sessions/classes/sections not syncing~~ **Done.** They now
-  go through the same outbox path as everything else, and
-  `create_academic_session`/`create_class`/`create_section` exist so a
-  school can add more than the one seeded class in the first place -- see
-  `docs/architecture.md`. One deliberate simplification remains: the
-  *seeded demo* branch/session/class/section still use fixed ids rather
-  than ones pulled from a real provisioning flow (documented in
-  `apps/desktop/src-tauri/src/seed.rs`) -- revisit once real school signup
-  exists.
-- Decide and document your backup/data-loss story for the *desktop* side
-  too: if a laptop is lost/stolen before ever syncing, that data is gone.
-  Make sure staff understand "sync often" is not optional, and consider a
-  periodic local `.sqlite3` file backup reminder in the UI.
+- Since there's no local database, data safety is entirely cloud-api's
+  Postgres backup story (see above) -- a lost/stolen laptop carries no data
+  with it, only a cached JWT. One deliberate simplification remains: the
+  *seeded demo* tenant/branch/roles still use fixed ids rather than ones
+  from a real provisioning flow (`apps/cloud-api/prisma/seed.ts`) -- revisit
+  once real school signup exists (see item 3 above).
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
 
@@ -109,15 +104,14 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   now covers every create/update/delete across every module (see
   `docs/architecture.md`'s "Audit log" section), with an admin-facing
   filterable viewer.
-- Run `docs/../` -- actually just run the `security-review` workflow (or
-  equivalent manual review) against the current diff before your first
-  deploy, specifically checking: SQL injection surface (the dynamic
-  `INSERT OR REPLACE` / outbox-apply code paths use an allowlist already --
-  keep it that way as you add tables), JWT secret strength, and CORS
-  config on cloud-api (`app.enableCors()` currently allows everything --
-  restrict it to your desktop app's actual origin needs before going live,
-  or confirm it's fine given Tauri apps don't send an `Origin` header the
-  way browsers do).
+- Run the `security-review` workflow (or equivalent manual review) against
+  the current diff before your first deploy, specifically checking: every
+  Prisma query goes through the query builder (no raw SQL string
+  concatenation) so there's no injection surface to audit table-by-table,
+  JWT secret strength, and CORS config on cloud-api (`app.enableCors()`
+  currently allows everything -- restrict it to your desktop app's actual
+  origin needs before going live, or confirm it's fine given Tauri apps
+  don't send an `Origin` header the way browsers do).
 
 ### 6. Support & legal basics
 
@@ -159,9 +153,13 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 - **SMS/WhatsApp notifications** for fee due reminders and attendance
   alerts -- genuinely expected by Indian schools; the MSG91/Gupshup/
   WhatsApp Business API integrations are well-trodden.
-- **Multi-device conflict handling**: revisit the documented last-write-
-  wins limitation once you have schools with several front-desk devices
-  editing the same records concurrently.
+- **Concurrent-edit handling**: every write already goes straight to
+  Postgres, so there's no sync-conflict window, but two staff editing the
+  same record at once can still silently clobber each other's changes
+  (last write to commit wins). The `version` column on most tables is
+  there for exactly this -- start enforcing optimistic-concurrency checks
+  (reject a write whose `version` doesn't match the current row) once
+  schools have several front-desk devices editing the same records.
 - **Statutory payroll compliance**: Payroll currently treats PF/ESI/
   Professional-Tax/TDS as manually configured deduction components, not
   computed against government slabs (a deliberate v1 scope boundary --
@@ -169,7 +167,8 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   compliance filing; this needs dedicated tooling kept current with
   yearly rule changes, not a bolt-on to the salary-structure model.
 - **Formal SLA & uptime monitoring** (UptimeRobot/Better Stack, cheap and
-  simple) once cloud-api being down means multiple schools can't sync.
+  simple) once cloud-api being down means multiple schools can't work at
+  all -- there's no offline fallback.
 
 ## Phase 3 -- Scaling past a handful of schools
 
@@ -202,13 +201,12 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
 
 ## Suggested immediate next steps, in order
 
-1. ~~Fix the academic-structure sync gap~~ Done.
-2. Stand up cloud-api on a real VM with HTTPS + automated Postgres backups.
-3. Wire up Tauri code signing + auto-update for at least one platform
+1. Stand up cloud-api on a real VM with HTTPS + automated Postgres backups.
+2. Wire up Tauri code signing + auto-update for at least one platform
    (whichever your pilot school uses -- almost certainly Windows).
-4. Build the minimal manual tenant-provisioning path (random UUIDs, no more
+3. Build the minimal manual tenant-provisioning path (random UUIDs, no more
    hardcoded demo tenant) and an admin-triggered password reset.
-5. Add login rate-limiting. (Audit logging itself is done -- see above.)
-6. Get a privacy policy/ToS drafted (DPDP-aware) and a one-page service
+4. Add login rate-limiting. (Audit logging itself is done -- see above.)
+5. Get a privacy policy/ToS drafted (DPDP-aware) and a one-page service
    agreement.
-7. Pilot with one real school, watching closely, before taking on a second.
+6. Pilot with one real school, watching closely, before taking on a second.
