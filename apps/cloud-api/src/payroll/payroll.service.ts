@@ -8,7 +8,7 @@ import type { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
 import type { GeneratePayrollRunDto } from "./dto/generate-payroll-run.dto.js";
 import type { SetSalaryStructureDto } from "./dto/set-salary-structure.dto.js";
 
-interface ComponentLike {
+export interface ComponentLike {
   calculationType: string;
   amount: number | null;
   percent: number | null;
@@ -16,14 +16,14 @@ interface ComponentLike {
 
 // percent_of_basic: basic_amount * percent / 100, rounded. fixed: the
 // stored amount as-is. Matches commands/payroll.rs::component_amount.
-function componentAmount(basicAmount: number, component: ComponentLike): number {
+export function componentAmount(basicAmount: number, component: ComponentLike): number {
   if (component.calculationType === "percent_of_basic") {
     return Math.round((basicAmount * (component.percent ?? 0)) / 100);
   }
   return component.amount ?? 0;
 }
 
-function daysInMonth(year: number, month: number): number {
+export function daysInMonth(year: number, month: number): number {
   const startOfThis = Date.UTC(year, month - 1, 1);
   const startOfNext = month === 12 ? Date.UTC(year + 1, 0, 1) : Date.UTC(year, month, 1);
   return Math.round((startOfNext - startOfThis) / (24 * 60 * 60 * 1000));
