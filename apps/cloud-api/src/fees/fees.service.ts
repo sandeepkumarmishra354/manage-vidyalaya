@@ -21,9 +21,16 @@ export class FeesService {
     private readonly audit: AuditService,
   ) {}
 
-  listFeeStructures(branchId: string) {
+  listFeeStructures(branchId: string, feeType?: string, classId?: string) {
     return this.prisma.feeStructure.findMany({
-      where: { branchId, deletedAt: null },
+      where: {
+        branchId,
+        deletedAt: null,
+        ...(feeType ? { feeType } : {}),
+        // A structure with no class (applies to the whole branch) should
+        // still surface when filtering by a specific class.
+        ...(classId ? { OR: [{ classId }, { classId: null }] } : {}),
+      },
       orderBy: { name: "asc" },
     });
   }
@@ -39,6 +46,7 @@ export class FeesService {
         name: dto.name,
         amount: dto.amount,
         frequency: dto.frequency,
+        feeType: dto.fee_type ?? "tuition",
         updatedAt: new Date(),
       },
     });
@@ -50,7 +58,16 @@ export class FeesService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.feeStructure.update({
         where: { id },
-        data: { name: dto.name, amount: dto.amount, frequency: dto.frequency, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+        data: {
+          name: dto.name,
+          amount: dto.amount,
+          frequency: dto.frequency,
+          feeType: dto.fee_type,
+          classId: dto.class_id ?? null,
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
       });
 
       await this.audit.record(tx, {
@@ -137,9 +154,15 @@ export class FeesService {
     });
   }
 
-  async listInvoices(branchId: string, status?: string) {
+  async listInvoices(branchId: string, status?: string, feeType?: string, classId?: string) {
     const invoices = await this.prisma.feeInvoice.findMany({
-      where: { branchId, deletedAt: null, ...(status ? { status } : {}) },
+      where: {
+        branchId,
+        deletedAt: null,
+        ...(status ? { status } : {}),
+        ...(feeType ? { feeStructure: { feeType } } : {}),
+        ...(classId ? { student: { currentClassId: classId } } : {}),
+      },
       include: { student: true, feeStructure: true },
       orderBy: [{ dueDate: "asc" }, { student: { firstName: "asc" } }],
     });
@@ -278,7 +301,7 @@ export class FeesService {
     id: string;
     studentId: string;
     student: { firstName: string; lastName: string | null };
-    feeStructure: { name: string };
+    feeStructure: { name: string; feeType: string };
     amountDue: number;
     amountPaid: number;
     dueDate: Date | null;
@@ -289,6 +312,7 @@ export class FeesService {
       student_id: invoice.studentId,
       student_name: [invoice.student.firstName, invoice.student.lastName].filter(Boolean).join(" "),
       fee_structure_name: invoice.feeStructure.name,
+      fee_type: invoice.feeStructure.feeType,
       amount_due: invoice.amountDue,
       amount_paid: invoice.amountPaid,
       due_date: invoice.dueDate,

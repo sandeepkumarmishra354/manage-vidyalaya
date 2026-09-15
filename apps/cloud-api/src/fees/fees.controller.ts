@@ -19,8 +19,8 @@ export class FeeStructuresController {
 
   @Get()
   @RequirePermission("fees.view")
-  list(@Query("branch_id") branchId: string) {
-    return this.feesService.listFeeStructures(branchId);
+  list(@Query("branch_id") branchId: string, @Query("fee_type") feeType?: string, @Query("class_id") classId?: string) {
+    return this.feesService.listFeeStructures(branchId, feeType, classId);
   }
 
   @Post()
@@ -50,8 +50,13 @@ export class FeeInvoicesController {
 
   @Get()
   @RequirePermission("fees.view")
-  list(@Query("branch_id") branchId: string, @Query("status") status?: string) {
-    return this.feesService.listInvoices(branchId, status);
+  list(
+    @Query("branch_id") branchId: string,
+    @Query("status") status?: string,
+    @Query("fee_type") feeType?: string,
+    @Query("class_id") classId?: string,
+  ) {
+    return this.feesService.listInvoices(branchId, status, feeType, classId);
   }
 
   @Get("student/:studentId/summary")

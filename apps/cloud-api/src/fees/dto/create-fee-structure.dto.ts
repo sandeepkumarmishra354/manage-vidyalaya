@@ -1,4 +1,6 @@
-import { IsInt, IsOptional, IsString } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString } from "class-validator";
+
+import { FEE_TYPES, type FeeType } from "../fee-type.js";
 
 export class CreateFeeStructureDto {
   @IsString()
@@ -19,4 +21,8 @@ export class CreateFeeStructureDto {
 
   @IsString()
   frequency!: string;
+
+  @IsOptional()
+  @IsIn(FEE_TYPES)
+  fee_type?: FeeType;
 }
