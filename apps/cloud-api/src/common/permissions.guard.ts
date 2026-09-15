@@ -1,9 +1,10 @@
 import { ForbiddenException, Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 
-import { PrismaService } from "../prisma/prisma.service.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
+import type { PermissionKey } from "./permission-catalog.js";
 import { PERMISSION_KEY } from "./require-permission.decorator.js";
+import { ScopedAccessService } from "./scoped-access.service.js";
 
 /// Must run after JwtAuthGuard (so `request.user` is populated). Checks
 /// fresh against the database rather than trusting the JWT's `roles` array,
@@ -13,11 +14,11 @@ import { PERMISSION_KEY } from "./require-permission.decorator.js";
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly prisma: PrismaService,
+    private readonly scopedAccess: ScopedAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredPermission = this.reflector.get<string | undefined>(PERMISSION_KEY, context.getHandler());
+    const requiredPermission = this.reflector.get<PermissionKey | undefined>(PERMISSION_KEY, context.getHandler());
     if (!requiredPermission) {
       return true;
     }
@@ -28,19 +29,7 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException("not authorized");
     }
 
-    const roleIds = (
-      await this.prisma.userRole.findMany({ where: { userId: user.sub }, select: { roleId: true } })
-    ).map((ur) => ur.roleId);
-
-    if (roleIds.length === 0) {
-      throw new ForbiddenException(`missing permission: ${requiredPermission}`);
-    }
-
-    const grant = await this.prisma.rolePermission.findFirst({
-      where: { roleId: { in: roleIds }, permissionKey: requiredPermission, deletedAt: null },
-    });
-
-    if (!grant) {
+    if (!(await this.scopedAccess.hasPermission(user.sub, requiredPermission))) {
       throw new ForbiddenException(`missing permission: ${requiredPermission}`);
     }
 

@@ -4,10 +4,13 @@ import { PrinterIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type ReportCard, type StudentListItem } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+const OVERALL_BADGE_VARIANT = { pass: "success", fail: "destructive", pending: "outline" } as const;
 
 export function ReportCardViewer({ exam }: { exam: Exam }) {
   const branches = useAppStore((s) => s.branches);
@@ -56,9 +59,19 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
       {reportCard && (
         <Card data-no-print>
           <CardHeader>
-            <CardTitle className="text-base">
-              {reportCard.student_name} -- {reportCard.exam_name}
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                {reportCard.student_name} -- {reportCard.exam_name}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {!reportCard.results_published && <Badge variant="outline">Provisional — Not Yet Published</Badge>}
+                {reportCard.rows.length > 0 && (
+                  <Badge variant={OVERALL_BADGE_VARIANT[reportCard.overall_result]} className="capitalize">
+                    {reportCard.overall_result}
+                  </Badge>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -67,6 +80,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                   <TableHead>Subject</TableHead>
                   <TableHead>Max marks</TableHead>
                   <TableHead>Obtained</TableHead>
+                  <TableHead>Result</TableHead>
                   <TableHead>Back paper</TableHead>
                 </TableRow>
               </TableHeader>
@@ -76,12 +90,13 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                     <TableCell>{row.subject_name}</TableCell>
                     <TableCell>{row.max_marks}</TableCell>
                     <TableCell>{row.is_absent ? "Absent" : (row.marks_obtained ?? "—")}</TableCell>
+                    <TableCell className="capitalize">{row.result ?? "—"}</TableCell>
                     <TableCell>{row.backpaper_marks_obtained ?? "—"}</TableCell>
                   </TableRow>
                 ))}
                 {reportCard.rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                       No marks entered yet for this exam.
                     </TableCell>
                   </TableRow>
@@ -99,15 +114,21 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
       )}
 
       {reportCard && reportCard.rows.length > 0 && (
-        <div data-print-area className="hidden p-8 print:block">
+        <div data-print-area className="relative hidden p-8 print:block">
+          {!reportCard.results_published && (
+            <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-6xl font-bold text-slate-200 select-none" style={{ transform: "rotate(-25deg)" }}>
+              PROVISIONAL — NOT YET PUBLISHED
+            </p>
+          )}
           <PrintLetterhead
             branch={branch}
             documentTitle="Report Card"
             right={<p className="font-medium text-slate-900">{reportCard.exam_name}</p>}
           />
 
-          <div className="mb-6">
+          <div className="mb-6 flex items-center justify-between">
             <p className="text-lg font-semibold">{reportCard.student_name}</p>
+            <p className="font-medium capitalize">Overall: {reportCard.overall_result}</p>
           </div>
 
           <table className="w-full border-collapse text-sm">
@@ -116,6 +137,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                 <th className="py-2 text-left">Subject</th>
                 <th className="py-2 text-right">Max Marks</th>
                 <th className="py-2 text-right">Obtained</th>
+                <th className="py-2 text-right">Result</th>
                 <th className="py-2 text-right">Back Paper</th>
               </tr>
             </thead>
@@ -125,6 +147,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
                   <td className="py-2">{row.subject_name}</td>
                   <td className="py-2 text-right">{row.max_marks}</td>
                   <td className="py-2 text-right">{row.is_absent ? "Absent" : (row.marks_obtained ?? "—")}</td>
+                  <td className="py-2 text-right capitalize">{row.result ?? "—"}</td>
                   <td className="py-2 text-right">{row.backpaper_marks_obtained ?? "—"}</td>
                 </tr>
               ))}
@@ -133,9 +156,10 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
               <tr className="border-t-2 font-semibold">
                 <td className="py-2">Total</td>
                 <td className="py-2 text-right">{reportCard.total_max}</td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right" colSpan={2}>
                   {reportCard.total_obtained} ({reportCard.percentage.toFixed(1)}%)
                 </td>
+                <td></td>
               </tr>
             </tfoot>
           </table>

@@ -7,6 +7,7 @@ import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import { CreateAdmissionDto } from "./dto/create-admission.dto.js";
+import { ElectSubjectDto } from "./dto/elect-subject.dto.js";
 import { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import { UpdateStudentDto } from "./dto/update-student.dto.js";
 import { StudentsService } from "./students.service.js";
@@ -56,6 +57,18 @@ export class StudentsController {
   @RequirePermission("students.edit")
   addGuardian(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AddGuardianDto) {
     return this.studentsService.addGuardianToStudent(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Get(":id/electives")
+  @RequirePermission("students.view")
+  listElectives(@Param("id") id: string, @Query("academic_session_id") academicSessionId?: string) {
+    return this.studentsService.listElectiveChoices(id, academicSessionId);
+  }
+
+  @Post(":id/electives")
+  @RequirePermission("students.edit")
+  elect(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ElectSubjectDto) {
+    return this.studentsService.electSubject(user.tenant_id, user.sub, id, dto);
   }
 }
 

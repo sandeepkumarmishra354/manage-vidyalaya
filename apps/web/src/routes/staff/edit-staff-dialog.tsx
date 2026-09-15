@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StaffCategorySelect } from "./staff-category-select";
 
 export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -48,6 +49,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
         state: form.state,
         pincode: form.pincode,
         designation: form.designation,
+        category_id: form.category_id,
         department: form.department,
         employment_type: form.employment_type,
         date_of_joining: form.date_of_joining,
@@ -104,6 +106,13 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="edit-designation">Designation</Label>
               <Input id="edit-designation" value={form.designation} onChange={update("designation")} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Category</Label>
+              <StaffCategorySelect
+                value={form.category_id ?? ""}
+                onChange={(v) => setForm((f) => ({ ...f, category_id: v }))}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="edit-department">Department</Label>

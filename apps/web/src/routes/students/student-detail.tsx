@@ -6,7 +6,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
+  type AcademicSession,
+  type ElectiveGroup,
   type House,
+  type StudentElectiveChoice,
   type StudentGuardianLink,
   type StudentTransportInfo,
   type TransportRoute,
@@ -223,6 +226,10 @@ export function StudentDetailPage() {
         <TransportCard studentId={student.id} branchId={student.branch_id} />
       )}
 
+      {student.status === "enrolled" && student.current_class_id && (
+        <ElectivesCard studentId={student.id} classId={student.current_class_id} />
+      )}
+
       {attendance.length > 0 && (
         <Card>
           <CardHeader>
@@ -349,6 +356,85 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
           </div>
         )}
         {!canAssign && !current && <p className="text-sm text-muted-foreground">Not assigned</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ElectivesCard({ studentId, classId }: { studentId: string; classId: string }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  const canEdit = hasPermission("students.edit");
+  const [groups, setGroups] = useState<ElectiveGroup[]>([]);
+  const [choices, setChoices] = useState<StudentElectiveChoice[]>([]);
+  const [sessions, setSessions] = useState<AcademicSession[]>([]);
+  const [sessionId, setSessionId] = useState("");
+
+  useEffect(() => {
+    api.listElectiveGroups(classId).then(setGroups);
+    api.listAcademicSessions().then((list) => {
+      setSessions(list);
+      setSessionId((current) => current || list.find((s) => s.is_current)?.id || list[0]?.id || "");
+    });
+  }, [classId]);
+
+  useEffect(() => {
+    if (sessionId) api.listStudentElectives(studentId, sessionId).then(setChoices);
+  }, [studentId, sessionId]);
+
+  const handleElect = async (groupId: string, subjectId: string) => {
+    if (!sessionId) return;
+    await api.electSubject(studentId, groupId, subjectId, sessionId);
+    setChoices(await api.listStudentElectives(studentId, sessionId));
+  };
+
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Electives</CardTitle>
+        {sessions.length > 1 && (
+          <Select value={sessionId} onValueChange={setSessionId}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sessions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {groups.map((group) => {
+          const choice = choices.find((c) => c.elective_group_id === group.id);
+          return (
+            <div key={group.id} className="flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">{group.name}</span>
+              {canEdit ? (
+                <Select value={choice?.subject_id ?? undefined} onValueChange={(v) => handleElect(group.id, v)}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Not chosen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {group.members.map((m) => (
+                      <SelectItem key={m.subject_id} value={m.subject_id}>
+                        {m.subject_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-sm font-medium">{choice?.subject_name ?? "Not chosen"}</span>
+              )}
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

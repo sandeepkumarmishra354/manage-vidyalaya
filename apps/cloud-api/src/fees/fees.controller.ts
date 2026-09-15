@@ -6,6 +6,8 @@ import { CurrentUser } from "../common/current-user.decorator.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateFeeStructureDto } from "./dto/create-fee-structure.dto.js";
+import { GenerateInvoicesBulkDto } from "./dto/generate-invoices-bulk.dto.js";
+import { RecordPaymentBatchDto } from "./dto/record-payment-batch.dto.js";
 import { RecordPaymentDto } from "./dto/record-payment.dto.js";
 import { ReversePaymentDto } from "./dto/reverse-payment.dto.js";
 import { UpdateFeeStructureDto } from "./dto/update-fee-structure.dto.js";
@@ -40,6 +42,18 @@ export class FeeStructuresController {
   async generateInvoices(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     const created = await this.feesService.generateInvoices(user.tenant_id, id);
     return { created };
+  }
+
+  @Post("generate-invoices-bulk")
+  @RequirePermission("fees.generate_invoices")
+  generateInvoicesBulk(@CurrentUser() user: JwtPayload, @Body() dto: GenerateInvoicesBulkDto) {
+    return this.feesService.generateInvoicesBulk(
+      user.tenant_id,
+      user.sub,
+      dto.branch_id,
+      dto.academic_session_id,
+      dto.fee_structure_ids,
+    );
   }
 }
 
@@ -81,6 +95,12 @@ export class FeePaymentsController {
   @RequirePermission("fees.record_payment")
   record(@CurrentUser() user: JwtPayload, @Body() dto: RecordPaymentDto) {
     return this.feesService.recordPayment(user.tenant_id, user.sub, dto);
+  }
+
+  @Post("batch")
+  @RequirePermission("fees.record_payment")
+  recordBatch(@CurrentUser() user: JwtPayload, @Body() dto: RecordPaymentBatchDto) {
+    return this.feesService.recordPaymentBatch(user.tenant_id, user.sub, dto);
   }
 
   @Post(":id/reverse")

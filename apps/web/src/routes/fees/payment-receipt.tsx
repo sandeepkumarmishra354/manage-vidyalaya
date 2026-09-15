@@ -15,20 +15,21 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   bank_transfer: "Bank Transfer",
 };
 
-/** Fee payment receipt, printed via the same data-print-area mechanism as every other document. */
-export function PaymentReceipt({
-  payment,
-  invoice,
-  branch,
-}: {
+export interface PaymentReceiptEntry {
   payment: FeePayment;
   invoice: FeeInvoiceListItem;
-  branch?: Branch;
-}) {
-  // `invoice` is a pre-payment snapshot (the parent doesn't re-fetch mid-dialog),
-  // so the running total/balance are derived from it plus this payment.
-  const totalPaid = invoice.amount_paid + payment.amount;
-  const balance = invoice.amount_due - totalPaid;
+}
+
+/**
+ * Fee payment receipt, printed via the same data-print-area mechanism as
+ * every other document. Accepts one or more {payment, invoice} entries so a
+ * single shared component covers both the single-payment flow (one entry)
+ * and the combined/batch-payment flow (several entries, all for the same
+ * student, sharing one receipt number and payment date).
+ */
+export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEntry[]; branch?: Branch }) {
+  const first = entries[0];
+  const totalThisPayment = entries.reduce((sum, e) => sum + e.payment.amount, 0);
 
   return (
     <>
@@ -41,7 +42,10 @@ export function PaymentReceipt({
           </Button>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          {formatPaise(payment.amount)} received from {invoice.student_name} for {invoice.fee_structure_name}.
+          {formatPaise(totalThisPayment)} received from {first.invoice.student_name}
+          {entries.length === 1
+            ? ` for ${first.invoice.fee_structure_name}.`
+            : ` across ${entries.length} invoices.`}
         </CardContent>
       </Card>
 
@@ -51,40 +55,55 @@ export function PaymentReceipt({
           documentTitle="Payment Receipt"
           right={
             <>
-              {payment.receipt_number && <p>Receipt #{payment.receipt_number}</p>}
-              <p>Date: {payment.payment_date.slice(0, 10)}</p>
+              {first.payment.receipt_number && <p>Receipt #{first.payment.receipt_number}</p>}
+              <p>Date: {first.payment.payment_date.slice(0, 10)}</p>
             </>
           }
         />
         <div className="mb-6 grid grid-cols-2 gap-y-2 text-sm">
           <p className="text-slate-600">Student</p>
-          <p className="font-medium">{invoice.student_name}</p>
-          <p className="text-slate-600">Fee</p>
-          <p className="font-medium">
-            {invoice.fee_structure_name} ({FEE_TYPE_LABELS[invoice.fee_type]})
-          </p>
+          <p className="font-medium">{first.invoice.student_name}</p>
           <p className="text-slate-600">Payment method</p>
-          <p className="font-medium">{PAYMENT_METHOD_LABELS[payment.payment_method] ?? payment.payment_method}</p>
+          <p className="font-medium">
+            {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}
+          </p>
         </div>
         <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b-2">
+              <th className="py-1.5 text-left">Fee</th>
+              <th className="py-1.5 text-right">Amount due</th>
+              <th className="py-1.5 text-right">This payment</th>
+              <th className="py-1.5 text-right">Balance</th>
+            </tr>
+          </thead>
           <tbody>
-            <tr className="border-b">
-              <td className="py-1.5 text-slate-600">Amount due</td>
-              <td className="py-1.5 text-right font-medium">{formatPaise(invoice.amount_due)}</td>
-            </tr>
-            <tr className="border-b">
-              <td className="py-1.5 text-slate-600">This payment</td>
-              <td className="py-1.5 text-right font-medium">{formatPaise(payment.amount)}</td>
-            </tr>
-            <tr className="border-b">
-              <td className="py-1.5 text-slate-600">Total paid to date</td>
-              <td className="py-1.5 text-right font-medium">{formatPaise(totalPaid)}</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 font-semibold">Balance due</td>
-              <td className="py-1.5 text-right font-semibold">{formatPaise(balance)}</td>
-            </tr>
+            {entries.map(({ payment, invoice }) => {
+              const totalPaid = invoice.amount_paid + payment.amount;
+              const balance = invoice.amount_due - totalPaid;
+              return (
+                <tr key={payment.id} className="border-b">
+                  <td className="py-1.5">
+                    {invoice.fee_structure_name} ({FEE_TYPE_LABELS[invoice.fee_type] ?? invoice.fee_type})
+                  </td>
+                  <td className="py-1.5 text-right">{formatPaise(invoice.amount_due)}</td>
+                  <td className="py-1.5 text-right">{formatPaise(payment.amount)}</td>
+                  <td className="py-1.5 text-right">{formatPaise(balance)}</td>
+                </tr>
+              );
+            })}
           </tbody>
+          {entries.length > 1 && (
+            <tfoot>
+              <tr className="border-t-2 font-semibold">
+                <td className="py-1.5" colSpan={2}>
+                  Total
+                </td>
+                <td className="py-1.5 text-right">{formatPaise(totalThisPayment)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
         <div className="mt-16 flex justify-end">
           <div className="border-t pt-1 text-center text-xs text-slate-600">Authorized signatory</div>

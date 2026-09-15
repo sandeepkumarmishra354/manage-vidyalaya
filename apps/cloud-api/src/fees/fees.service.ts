@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { CreateFeeStructureDto } from "./dto/create-fee-structure.dto.js";
+import type { RecordPaymentBatchDto } from "./dto/record-payment-batch.dto.js";
 import type { RecordPaymentDto } from "./dto/record-payment.dto.js";
 import type { UpdateFeeStructureDto } from "./dto/update-fee-structure.dto.js";
 
@@ -35,7 +37,20 @@ export class FeesService {
     });
   }
 
+  // Fee categories are tenant-extensible (FeeCategoriesModule), not a
+  // static enum, so fee_type is checked against the tenant's own category
+  // list here rather than via a class-validator constraint.
+  private async assertValidFeeType(tenantId: string, feeType: string) {
+    const category = await this.prisma.feeCategory.findFirst({ where: { tenantId, key: feeType, deletedAt: null } });
+    if (!category) {
+      throw new BadRequestException(`unknown fee category '${feeType}'`);
+    }
+  }
+
   async createFeeStructure(tenantId: string, dto: CreateFeeStructureDto) {
+    const feeType = dto.fee_type ?? "tuition";
+    await this.assertValidFeeType(tenantId, feeType);
+
     return this.prisma.feeStructure.create({
       data: {
         id: randomUUID(),
@@ -46,13 +61,14 @@ export class FeesService {
         name: dto.name,
         amount: dto.amount,
         frequency: dto.frequency,
-        feeType: dto.fee_type ?? "tuition",
+        feeType,
         updatedAt: new Date(),
       },
     });
   }
 
   async updateFeeStructure(tenantId: string, actorUserId: string, id: string, dto: UpdateFeeStructureDto) {
+    await this.assertValidFeeType(tenantId, dto.fee_type);
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -86,13 +102,22 @@ export class FeesService {
   // Creates one invoice per enrolled student covered by the structure (its
   // class, or every class in the branch if class_id is null), skipping
   // students who already have an invoice for it. Returns the created count.
-  async generateInvoices(tenantId: string, feeStructureId: string): Promise<number> {
-    const structure = await this.prisma.feeStructure.findUnique({ where: { id: feeStructureId } });
+  // Accepts an optional transaction client so the bulk path
+  // (generateInvoicesBulk) can share this exact implementation across
+  // several structures inside one transaction, rather than duplicating it.
+  async generateInvoices(
+    tenantId: string,
+    feeStructureId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const client = tx ?? this.prisma;
+
+    const structure = await client.feeStructure.findUnique({ where: { id: feeStructureId } });
     if (!structure) {
       throw new NotFoundException("fee structure not found");
     }
 
-    const students = await this.prisma.student.findMany({
+    const students = await client.student.findMany({
       where: {
         branchId: structure.branchId,
         deletedAt: null,
@@ -102,7 +127,7 @@ export class FeesService {
       select: { id: true },
     });
 
-    const existing = await this.prisma.feeInvoice.findMany({
+    const existing = await client.feeInvoice.findMany({
       where: { feeStructureId, studentId: { in: students.map((s) => s.id) } },
       select: { studentId: true },
     });
@@ -114,7 +139,7 @@ export class FeesService {
     }
 
     const now = new Date();
-    await this.prisma.feeInvoice.createMany({
+    await client.feeInvoice.createMany({
       data: toCreate.map((s) => ({
         id: randomUUID(),
         tenantId,
@@ -130,6 +155,52 @@ export class FeesService {
     });
 
     return toCreate.length;
+  }
+
+  // Generates invoices for every active fee structure in a branch+session
+  // in one click -- omitting fee_structure_ids means "every one of them",
+  // otherwise just the given subset. Loops generateInvoices inside a single
+  // transaction so the whole batch either lands together or not at all.
+  async generateInvoicesBulk(
+    tenantId: string,
+    actorUserId: string,
+    branchId: string,
+    academicSessionId: string,
+    feeStructureIds?: string[],
+  ) {
+    const structures = await this.prisma.feeStructure.findMany({
+      where: {
+        tenantId,
+        branchId,
+        academicSessionId,
+        deletedAt: null,
+        ...(feeStructureIds && feeStructureIds.length > 0 ? { id: { in: feeStructureIds } } : {}),
+      },
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const byStructure: { fee_structure_id: string; created: number }[] = [];
+      for (const structure of structures) {
+        const created = await this.generateInvoices(tenantId, structure.id, tx);
+        byStructure.push({ fee_structure_id: structure.id, created });
+      }
+
+      const total = byStructure.reduce((sum, r) => sum + r.created, 0);
+
+      if (total > 0) {
+        await this.audit.record(tx, {
+          tenantId,
+          branchId,
+          actorUserId,
+          entityTable: "fee_invoices",
+          entityId: branchId,
+          action: "create",
+          summary: `Bulk-generated ${total} invoice(s) across ${structures.length} fee structure(s)`,
+        });
+      }
+
+      return { created: total, by_structure: byStructure };
+    });
   }
 
   async voidInvoice(tenantId: string, actorUserId: string, invoiceId: string, reason: string) {
@@ -200,51 +271,118 @@ export class FeesService {
     };
   }
 
+  // Creates one FeePayment row and updates its invoice's amount_paid/status
+  // accordingly -- the core logic shared by both the single-payment and
+  // batch/combined-payment paths, so they don't duplicate the
+  // amount/status-recompute logic.
+  private async applyPayment(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    actorUserId: string,
+    now: Date,
+    entry: {
+      invoiceId: string;
+      amount: number;
+      paymentMethod: string;
+      paymentDate: string;
+      receiptNumber: string | null;
+      remarks: string | null;
+    },
+  ) {
+    const paymentId = randomUUID();
+
+    const payment = await tx.feePayment.create({
+      data: {
+        id: paymentId,
+        tenantId,
+        invoiceId: entry.invoiceId,
+        amount: entry.amount,
+        paymentMethod: entry.paymentMethod,
+        paymentDate: new Date(entry.paymentDate),
+        receiptNumber: entry.receiptNumber,
+        remarks: entry.remarks,
+        recordedBy: actorUserId,
+        updatedAt: now,
+      },
+    });
+
+    const invoice = await tx.feeInvoice.findUniqueOrThrow({ where: { id: entry.invoiceId } });
+    const newPaid = invoice.amountPaid + entry.amount;
+
+    await tx.feeInvoice.update({
+      where: { id: entry.invoiceId },
+      data: {
+        amountPaid: newPaid,
+        status: invoiceStatus(invoice.amountDue, newPaid),
+        updatedAt: now,
+        version: { increment: 1 },
+      },
+    });
+
+    return payment;
+  }
+
   // Records a payment and updates the invoice's amount_paid/status
   // accordingly, in one transaction.
   async recordPayment(tenantId: string, actorUserId: string, dto: RecordPaymentDto) {
     const now = new Date();
-    const paymentId = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
-      const payment = await tx.feePayment.create({
-        data: {
-          id: paymentId,
-          tenantId,
-          invoiceId: dto.invoice_id,
-          amount: dto.amount,
-          paymentMethod: dto.payment_method,
-          paymentDate: new Date(dto.payment_date),
-          receiptNumber: dto.receipt_number ?? null,
-          remarks: dto.remarks ?? null,
-          recordedBy: actorUserId,
-          updatedAt: now,
-        },
-      });
-
-      const invoice = await tx.feeInvoice.findUniqueOrThrow({ where: { id: dto.invoice_id } });
-      const newPaid = invoice.amountPaid + dto.amount;
-
-      await tx.feeInvoice.update({
-        where: { id: dto.invoice_id },
-        data: {
-          amountPaid: newPaid,
-          status: invoiceStatus(invoice.amountDue, newPaid),
-          updatedAt: now,
-          version: { increment: 1 },
-        },
+      const payment = await this.applyPayment(tx, tenantId, actorUserId, now, {
+        invoiceId: dto.invoice_id,
+        amount: dto.amount,
+        paymentMethod: dto.payment_method,
+        paymentDate: dto.payment_date,
+        receiptNumber: dto.receipt_number ?? null,
+        remarks: dto.remarks ?? null,
       });
 
       await this.audit.record(tx, {
         tenantId,
         actorUserId,
         entityTable: "fee_payments",
-        entityId: paymentId,
+        entityId: payment.id,
         action: "create",
         summary: `Recorded payment of ${dto.amount} paise`,
       });
 
       return payment;
+    });
+  }
+
+  // Records one payment per invoice, sharing one receipt number/timestamp,
+  // in a single transaction -- the "pay several outstanding invoices for
+  // one student in one combined receipt" flow. Amounts are explicit per
+  // invoice, no auto-allocation across them.
+  async recordPaymentBatch(tenantId: string, actorUserId: string, dto: RecordPaymentBatchDto) {
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const payments = [];
+      for (const entry of dto.entries) {
+        const payment = await this.applyPayment(tx, tenantId, actorUserId, now, {
+          invoiceId: entry.invoice_id,
+          amount: entry.amount,
+          paymentMethod: dto.payment_method,
+          paymentDate: dto.payment_date,
+          receiptNumber: dto.receipt_number ?? null,
+          remarks: dto.remarks ?? null,
+        });
+        payments.push(payment);
+      }
+
+      const total = dto.entries.reduce((sum, e) => sum + e.amount, 0);
+
+      await this.audit.record(tx, {
+        tenantId,
+        actorUserId,
+        entityTable: "fee_payments",
+        entityId: payments[0].id,
+        action: "create",
+        summary: `Recorded combined payment of ${total} paise across ${dto.entries.length} invoice(s)`,
+      });
+
+      return payments;
     });
   }
 

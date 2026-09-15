@@ -2,8 +2,8 @@ import { ForbiddenException } from "@nestjs/common";
 import type { Reflector } from "@nestjs/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PrismaService } from "../prisma/prisma.service.js";
 import { PermissionsGuard } from "./permissions.guard.js";
+import type { ScopedAccessService } from "./scoped-access.service.js";
 
 function makeContext(user: unknown) {
   return {
@@ -13,23 +13,21 @@ function makeContext(user: unknown) {
 }
 
 describe("PermissionsGuard", () => {
-  let prisma: { userRole: { findMany: ReturnType<typeof vi.fn> }; rolePermission: { findFirst: ReturnType<typeof vi.fn> } };
+  let scopedAccess: { hasPermission: ReturnType<typeof vi.fn> };
   let reflector: Reflector;
   let guard: PermissionsGuard;
 
   beforeEach(() => {
-    prisma = {
-      userRole: { findMany: vi.fn() },
-      rolePermission: { findFirst: vi.fn() },
-    };
+    scopedAccess = { hasPermission: vi.fn() };
     reflector = { get: vi.fn() } as unknown as Reflector;
-    guard = new PermissionsGuard(reflector, prisma as unknown as PrismaService);
+    guard = new PermissionsGuard(reflector, scopedAccess as unknown as ScopedAccessService);
   });
 
   it("allows the request through when the handler requires no permission", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     const result = await guard.canActivate(makeContext({ sub: "user-1" }));
     expect(result).toBe(true);
+    expect(scopedAccess.hasPermission).not.toHaveBeenCalled();
   });
 
   it("rejects an unauthenticated request when a permission is required", async () => {
@@ -37,40 +35,19 @@ describe("PermissionsGuard", () => {
     await expect(guard.canActivate(makeContext(undefined))).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("rejects a user with no roles", async () => {
-    (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
-    prisma.userRole.findMany.mockResolvedValueOnce([]);
-
-    await expect(guard.canActivate(makeContext({ sub: "user-1" }))).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
   it("rejects a user whose roles don't grant the required permission", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
-    prisma.userRole.findMany.mockResolvedValueOnce([{ roleId: "role-teacher" }]);
-    prisma.rolePermission.findFirst.mockResolvedValueOnce(null);
+    scopedAccess.hasPermission.mockResolvedValueOnce(false);
 
     await expect(guard.canActivate(makeContext({ sub: "user-1" }))).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("allows a user whose role grants the required permission", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
-    prisma.userRole.findMany.mockResolvedValueOnce([{ roleId: "role-admin" }]);
-    prisma.rolePermission.findFirst.mockResolvedValueOnce({ id: "grant-1" });
+    scopedAccess.hasPermission.mockResolvedValueOnce(true);
 
     const result = await guard.canActivate(makeContext({ sub: "user-1" }));
     expect(result).toBe(true);
-  });
-
-  it("queries fresh from the database rather than trusting a stale JWT roles claim", async () => {
-    (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
-    prisma.userRole.findMany.mockResolvedValueOnce([{ roleId: "role-admin" }]);
-    prisma.rolePermission.findFirst.mockResolvedValueOnce({ id: "grant-1" });
-
-    await guard.canActivate(makeContext({ sub: "user-1", roles: ["some-stale-role-name"] }));
-
-    expect(prisma.userRole.findMany).toHaveBeenCalledWith({
-      where: { userId: "user-1" },
-      select: { roleId: true },
-    });
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "users.manage");
   });
 });

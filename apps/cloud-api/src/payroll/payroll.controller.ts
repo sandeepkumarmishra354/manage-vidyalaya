@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { IsString } from "class-validator";
 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
@@ -61,6 +61,18 @@ export class PayrollRunsController {
   @RequirePermission("payroll.finalize")
   finalize(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.payrollService.finalizePayrollRun(user.tenant_id, user.sub, id);
+  }
+
+  @Delete(":id")
+  @RequirePermission("payroll.manage_runs")
+  remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.payrollService.deletePayrollRun(user.tenant_id, user.sub, id);
+  }
+
+  @Post(":id/reopen")
+  @RequirePermission("payroll.manage_runs")
+  reopen(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.payrollService.reopenPayrollRun(user.tenant_id, user.sub, id);
   }
 }
 

@@ -311,6 +311,7 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
   const [sectionId, setSectionId] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [sessionId, setSessionId] = useState("");
+  const [classTeacherError, setClassTeacherError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.listTeacherAssignments(staff.branch_id, staff.id).then(setAssignments);
@@ -347,8 +348,13 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
 
   const handleSetClassTeacher = async () => {
     if (!sectionId) return;
-    await api.setClassTeacher({ section_id: sectionId, staff_id: staff.id });
-    refresh();
+    setClassTeacherError(null);
+    try {
+      await api.setClassTeacher({ section_id: sectionId, staff_id: staff.id });
+      refresh();
+    } catch (err) {
+      setClassTeacherError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -390,6 +396,7 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
             {sectionId && (
               <Button variant="outline" onClick={handleSetClassTeacher}>Make class teacher of this section</Button>
             )}
+            {classTeacherError && <p className="w-full text-sm text-destructive">{classTeacherError}</p>}
           </CardContent>
         </Card>
       )}

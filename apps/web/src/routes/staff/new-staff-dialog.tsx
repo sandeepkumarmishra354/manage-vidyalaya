@@ -16,12 +16,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StaffCategorySelect } from "./staff-category-select";
 
 const emptyForm = {
   employeeCode: "",
   firstName: "",
   lastName: "",
   designation: "",
+  categoryId: "",
   department: "",
   employmentType: "full_time",
   dateOfJoining: new Date().toISOString().slice(0, 10),
@@ -70,6 +72,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
         first_name: form.firstName,
         last_name: form.lastName || null,
         designation: form.designation,
+        category_id: form.categoryId || null,
         department: form.department || null,
         employment_type: form.employmentType as NewStaffInput["employment_type"],
         date_of_joining: form.dateOfJoining,
@@ -146,6 +149,10 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 onChange={update("designation")}
                 required
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Category</Label>
+              <StaffCategorySelect value={form.categoryId} onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="department">Department</Label>

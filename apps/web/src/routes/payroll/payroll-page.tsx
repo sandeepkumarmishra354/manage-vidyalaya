@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type PayrollRun } from "@/lib/api";
@@ -124,6 +124,17 @@ export function PayrollPage() {
     refresh();
   }, [refresh]);
 
+  const canManageRuns = hasPermission("payroll.manage_runs");
+
+  const handleDelete = async (run: PayrollRun, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete the draft payroll run for ${MONTH_NAMES[run.period_month - 1]} ${run.period_year}?`)) {
+      return;
+    }
+    await api.deletePayrollRun(run.id);
+    refresh();
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -143,6 +154,7 @@ export function PayrollPage() {
               <TableHead>Period</TableHead>
               <TableHead>Generated</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -155,11 +167,18 @@ export function PayrollPage() {
                 <TableCell>
                   <Badge variant={statusVariant[run.status]}>{run.status}</Badge>
                 </TableCell>
+                <TableCell className="text-right">
+                  {canManageRuns && run.status === "draft" && (
+                    <Button variant="ghost" size="sm" onClick={(e) => handleDelete(run, e)}>
+                      <XIcon className="size-3.5" />
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
             {runs.length === 0 && (
               <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                   No payroll runs yet.
                 </TableCell>
               </TableRow>

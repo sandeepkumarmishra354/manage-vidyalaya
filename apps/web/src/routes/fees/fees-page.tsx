@@ -5,6 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import {
   api,
   FEE_TYPE_LABELS,
+  type FeeCategory,
   type FeeFrequency,
   type FeeInvoiceListItem,
   type FeeStructure,
@@ -29,7 +30,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FeeCategorySelect } from "./fee-category-select";
+import { RecordPaymentBatchDialog } from "./record-payment-batch-dialog";
 import { RecordPaymentDialog } from "./record-payment-dialog";
+
+const PAYABLE_STATUSES: InvoiceStatus[] = ["pending", "partial", "overdue"];
+
+function feeCategoryLabel(categories: FeeCategory[], key: string): string {
+  return categories.find((c) => c.key === key)?.name ?? FEE_TYPE_LABELS[key] ?? key;
+}
 
 function EditFeeStructureDialog({
   structure,
@@ -97,16 +106,7 @@ function EditFeeStructureDialog({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Fee type</Label>
-            <Select value={feeType} onValueChange={(v) => setFeeType(v as FeeType)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <FeeCategorySelect value={feeType} onChange={setFeeType} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Applies to</Label>
@@ -154,6 +154,7 @@ function StructuresTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const hasPermission = useAppStore((s) => s.hasPermission);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [categories, setCategories] = useState<FeeCategory[]>([]);
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -162,6 +163,7 @@ function StructuresTab() {
   const [classId, setClassId] = useState<string>("__all__");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -170,6 +172,7 @@ function StructuresTab() {
 
   useEffect(() => {
     if (selectedBranchId) api.listClasses(selectedBranchId).then(setClasses);
+    api.listFeeCategories().then(setCategories);
     refresh();
   }, [selectedBranchId, refresh]);
 
@@ -205,6 +208,20 @@ function StructuresTab() {
       setMessage(`Created ${count} new invoice(s).`);
     } finally {
       setGeneratingId(null);
+    }
+  };
+
+  const handleGenerateBulk = async () => {
+    if (!selectedBranchId) return;
+    const academicSessionId = await api.currentAcademicSessionId();
+    if (!academicSessionId) return;
+    setIsGeneratingBulk(true);
+    setMessage(null);
+    try {
+      const result = await api.generateInvoicesBulk(selectedBranchId, academicSessionId);
+      setMessage(`Created ${result.created} new invoice(s) across ${result.by_structure.length} fee type(s).`);
+    } finally {
+      setIsGeneratingBulk(false);
     }
   };
 
@@ -250,18 +267,9 @@ function StructuresTab() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Fee type</Label>
-              <Select value={feeType} onValueChange={(v) => setFeeType(v as FeeType)}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="w-40">
+                <FeeCategorySelect value={feeType} onChange={setFeeType} />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Applies to</Label>
@@ -288,7 +296,14 @@ function StructuresTab() {
       </Card>
       )}
 
-      {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      <div className="flex items-center justify-between">
+        {hasPermission("fees.generate_invoices") && structures.length > 0 && (
+          <Button variant="outline" size="sm" disabled={isGeneratingBulk} onClick={handleGenerateBulk}>
+            {isGeneratingBulk ? "Generating..." : "Generate invoices for all fee types"}
+          </Button>
+        )}
+        {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      </div>
 
       <div className="rounded-lg border">
         <Table>
@@ -307,7 +322,9 @@ function StructuresTab() {
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>
-                  <Badge variant={feeTypeVariant[s.fee_type]}>{FEE_TYPE_LABELS[s.fee_type]}</Badge>
+                  <Badge variant={feeTypeVariant[s.fee_type] ?? "outline"}>
+                    {feeCategoryLabel(categories, s.fee_type)}
+                  </Badge>
                 </TableCell>
                 <TableCell>{formatPaise(s.amount)}</TableCell>
                 <TableCell className="capitalize">{s.frequency.replace("_", " ")}</TableCell>
@@ -350,9 +367,12 @@ function InvoicesTab() {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const canRecordPayment = hasPermission("fees.record_payment");
   const [invoices, setInvoices] = useState<FeeInvoiceListItem[]>([]);
+  const [categories, setCategories] = useState<FeeCategory[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
   const [feeTypeFilter, setFeeTypeFilter] = useState<string>("__all__");
   const [activeInvoice, setActiveInvoice] = useState<FeeInvoiceListItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
 
   const refresh = useCallback(() => {
     if (!selectedBranchId) return;
@@ -366,12 +386,29 @@ function InvoicesTab() {
   }, [selectedBranchId, statusFilter, feeTypeFilter]);
 
   useEffect(() => {
+    api.listFeeCategories().then(setCategories);
+  }, []);
+
+  useEffect(() => {
     refresh();
   }, [refresh]);
 
+  const selectedStudentId = invoices.find((inv) => selectedIds.has(inv.id))?.student_id ?? null;
+  const selectedInvoices = invoices.filter((inv) => selectedIds.has(inv.id));
+
+  const toggleSelect = (inv: FeeInvoiceListItem, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(inv.id);
+      else next.delete(inv.id);
+      return next;
+    });
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-44">
             <SelectValue />
@@ -390,19 +427,26 @@ function InvoicesTab() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All fee types</SelectItem>
-            {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.key}>
+                {c.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        </div>
+        {canRecordPayment && selectedInvoices.length > 0 && (
+          <Button size="sm" onClick={() => setShowBatchDialog(true)}>
+            Pay {selectedInvoices.length} selected
+          </Button>
+        )}
       </div>
 
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
+              {canRecordPayment && <TableHead />}
               <TableHead>Student</TableHead>
               <TableHead>Fee</TableHead>
               <TableHead>Type</TableHead>
@@ -412,27 +456,50 @@ function InvoicesTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {invoices.map((inv) => (
-              <TableRow
-                key={inv.id}
-                className={canRecordPayment ? "cursor-pointer" : undefined}
-                onClick={canRecordPayment ? () => setActiveInvoice(inv) : undefined}
-              >
-                <TableCell className="font-medium">{inv.student_name}</TableCell>
-                <TableCell>{inv.fee_structure_name}</TableCell>
-                <TableCell>
-                  <Badge variant={feeTypeVariant[inv.fee_type]}>{FEE_TYPE_LABELS[inv.fee_type]}</Badge>
-                </TableCell>
-                <TableCell>{formatPaise(inv.amount_due)}</TableCell>
-                <TableCell>{formatPaise(inv.amount_paid)}</TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant[inv.status]}>{inv.status}</Badge>
-                </TableCell>
-              </TableRow>
-            ))}
+            {invoices.map((inv) => {
+              const isPayable = PAYABLE_STATUSES.includes(inv.status);
+              const isSelectable = isPayable && (!selectedStudentId || selectedStudentId === inv.student_id);
+              return (
+                <TableRow
+                  key={inv.id}
+                  className={canRecordPayment ? "cursor-pointer" : undefined}
+                  onClick={canRecordPayment ? () => setActiveInvoice(inv) : undefined}
+                >
+                  {canRecordPayment && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        disabled={!isSelectable}
+                        checked={selectedIds.has(inv.id)}
+                        onChange={(e) => toggleSelect(inv, e.target.checked)}
+                        title={
+                          !isPayable
+                            ? "Only pending/partial/overdue invoices can be paid"
+                            : !isSelectable
+                              ? "Combined payment is scoped to one student at a time"
+                              : undefined
+                        }
+                      />
+                    </TableCell>
+                  )}
+                  <TableCell className="font-medium">{inv.student_name}</TableCell>
+                  <TableCell>{inv.fee_structure_name}</TableCell>
+                  <TableCell>
+                    <Badge variant={feeTypeVariant[inv.fee_type] ?? "outline"}>
+                      {feeCategoryLabel(categories, inv.fee_type)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatPaise(inv.amount_due)}</TableCell>
+                  <TableCell>{formatPaise(inv.amount_paid)}</TableCell>
+                  <TableCell>
+                    <Badge variant={statusVariant[inv.status]}>{inv.status}</Badge>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {invoices.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={canRecordPayment ? 7 : 6} className="py-8 text-center text-muted-foreground">
                   No invoices yet -- create a fee structure and generate invoices.
                 </TableCell>
               </TableRow>
@@ -444,6 +511,17 @@ function InvoicesTab() {
       <RecordPaymentDialog
         invoice={activeInvoice}
         onOpenChange={(open) => !open && setActiveInvoice(null)}
+        onRecorded={refresh}
+      />
+
+      <RecordPaymentBatchDialog
+        invoices={showBatchDialog ? selectedInvoices : []}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowBatchDialog(false);
+            setSelectedIds(new Set());
+          }
+        }}
         onRecorded={refresh}
       />
     </div>

@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreateBackpaperDialog } from "./create-backpaper-dialog";
 import { MarksEntry } from "./marks-entry";
 import { ReportCardViewer } from "./report-card-viewer";
+import { SubmissionStatus } from "./submission-status";
 
 function EditSubjectDialog({ subject, onUpdated }: { subject: Subject; onUpdated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -216,7 +217,12 @@ function ExamsTab() {
   const [examDate, setExamDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
-  const [mode, setMode] = useState<"marks" | "report_card">("marks");
+  const [mode, setMode] = useState<"marks" | "submission_status" | "report_card">("marks");
+
+  const handleExamUpdated = (updated: Exam) => {
+    setSelectedExam(updated);
+    setExams((list) => list.map((e) => (e.id === updated.id ? updated : e)));
+  };
 
   const refresh = useCallback(() => {
     if (selectedBranchId) api.listExams(selectedBranchId).then(setExams);
@@ -316,6 +322,9 @@ function ExamsTab() {
                   {exam.exam_type !== "regular" && (
                     <Badge variant="outline" className="ml-2">{exam.exam_type.replace("_", " ")}</Badge>
                   )}
+                  {exam.results_published_at && (
+                    <Badge variant="success" className="ml-2">Published</Badge>
+                  )}
                 </TableCell>
                 <TableCell>{classes.find((c) => c.id === exam.class_id)?.name ?? "—"}</TableCell>
                 <TableCell>{exam.exam_date ?? "—"}</TableCell>
@@ -343,10 +352,14 @@ function ExamsTab() {
           <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
             <TabsList>
               <TabsTrigger value="marks">Enter marks</TabsTrigger>
+              <TabsTrigger value="submission_status">Submission status</TabsTrigger>
               <TabsTrigger value="report_card">Report card</TabsTrigger>
             </TabsList>
             <TabsContent value="marks">
               <MarksEntry exam={selectedExam} subjects={subjects} />
+            </TabsContent>
+            <TabsContent value="submission_status">
+              <SubmissionStatus exam={selectedExam} onExamUpdated={handleExamUpdated} />
             </TabsContent>
             <TabsContent value="report_card">
               <ReportCardViewer exam={selectedExam} />

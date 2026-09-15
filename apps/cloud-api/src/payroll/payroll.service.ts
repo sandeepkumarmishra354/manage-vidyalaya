@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -339,6 +339,95 @@ export class PayrollService {
         entityId: runId,
         action: "update",
         summary: "Finalized payroll run",
+      });
+    });
+  }
+
+  // Draft-only, mirroring adjustLineItem's existing draft-only precedent --
+  // a finalized run may already carry real payslip history, so it must go
+  // through reopenPayrollRun (which itself blocks on paid payslips) before
+  // it becomes eligible for delete.
+  async deletePayrollRun(tenantId: string, actorUserId: string, runId: string) {
+    const run = await this.prisma.payrollRun.findFirst({ where: { id: runId, tenantId, deletedAt: null } });
+    if (!run) {
+      throw new NotFoundException("payroll run not found");
+    }
+    if (run.status !== "draft") {
+      throw new BadRequestException("only draft payroll runs can be deleted");
+    }
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const payslips = await tx.payslip.findMany({
+        where: { payrollRunId: runId, deletedAt: null },
+        select: { id: true },
+      });
+
+      for (const payslip of payslips) {
+        await tx.payslipLineItem.updateMany({
+          where: { payslipId: payslip.id, deletedAt: null },
+          data: { deletedAt: now, updatedAt: now },
+        });
+      }
+      await tx.payslip.updateMany({
+        where: { payrollRunId: runId, deletedAt: null },
+        data: { deletedAt: now, updatedAt: now },
+      });
+      await tx.payrollRun.update({
+        where: { id: runId },
+        data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: run.branchId,
+        actorUserId,
+        entityTable: "payroll_runs",
+        entityId: runId,
+        action: "delete",
+        summary: `Deleted draft payroll run for ${run.periodYear}-${String(run.periodMonth).padStart(2, "0")}`,
+      });
+    });
+  }
+
+  // Finalized -> draft. Rejects if any payslip is already paid, so a real
+  // payment record is never silently undone.
+  async reopenPayrollRun(tenantId: string, actorUserId: string, runId: string) {
+    const run = await this.prisma.payrollRun.findFirst({ where: { id: runId, tenantId, deletedAt: null } });
+    if (!run) {
+      throw new NotFoundException("payroll run not found");
+    }
+    if (run.status !== "finalized") {
+      throw new BadRequestException("only finalized payroll runs can be reopened");
+    }
+
+    const paidCount = await this.prisma.payslip.count({
+      where: { payrollRunId: runId, status: "paid", deletedAt: null },
+    });
+    if (paidCount > 0) {
+      throw new BadRequestException("cannot reopen a run that has paid payslips");
+    }
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.payrollRun.update({
+        where: { id: runId },
+        data: { status: "draft", updatedAt: now, version: { increment: 1 } },
+      });
+      await tx.payslip.updateMany({
+        where: { payrollRunId: runId, deletedAt: null },
+        data: { status: "draft", updatedAt: now },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        actorUserId,
+        entityTable: "payroll_runs",
+        entityId: runId,
+        action: "update",
+        summary: "Reopened payroll run for editing",
       });
     });
   }

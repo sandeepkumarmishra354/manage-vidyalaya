@@ -41,6 +41,13 @@ export function PayrollRunDetailPage() {
     refresh();
   };
 
+  const handleReopen = async () => {
+    if (!runId) return;
+    if (!window.confirm("Reopen this run for editing? Its payslips will go back to draft.")) return;
+    await api.reopenPayrollRun(runId);
+    refresh();
+  };
+
   const handleMarkPaid = async (payslipId: string) => {
     await api.markPayslipPaid(payslipId, new Date().toISOString().slice(0, 10));
     refresh();
@@ -60,9 +67,16 @@ export function PayrollRunDetailPage() {
             </Badge>
           </p>
         </div>
-        {detail.run.status === "draft" && hasPermission("payroll.finalize") && (
-          <Button onClick={handleFinalize}>Finalize run</Button>
-        )}
+        <div className="flex gap-2">
+          {detail.run.status === "draft" && hasPermission("payroll.finalize") && (
+            <Button onClick={handleFinalize}>Finalize run</Button>
+          )}
+          {detail.run.status === "finalized" && hasPermission("payroll.manage_runs") && (
+            <Button variant="outline" onClick={handleReopen}>
+              Reopen run
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="rounded-lg border" data-no-print>

@@ -20,6 +20,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
+    "backfill:staff-categories": "tsx scripts/backfill-staff-categories.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
