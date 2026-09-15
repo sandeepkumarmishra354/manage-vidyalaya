@@ -34,7 +34,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SyncStatusBadge } from "@/components/sync-status-badge";
 
 interface NavItem {
   to: string;
@@ -173,7 +172,6 @@ export function AppShell() {
           </Select>
 
           <div className="flex items-center gap-4">
-            <SyncStatusBadge />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2 px-2">

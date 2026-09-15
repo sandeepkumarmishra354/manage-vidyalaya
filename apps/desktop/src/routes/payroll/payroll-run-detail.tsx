@@ -30,7 +30,7 @@ export function PayrollRunDetailPage() {
     refresh();
   }, [refresh]);
 
-  const branch = branches.find((b) => b.id === detail?.branch_id);
+  const branch = branches.find((b) => b.id === detail?.run.branch_id);
 
   if (!detail) return <p className="text-muted-foreground">Loading...</p>;
 
@@ -50,13 +50,13 @@ export function PayrollRunDetailPage() {
       <div className="flex items-center justify-between" data-no-print>
         <div>
           <h1 className="text-2xl font-semibold">
-            Payroll — {MONTH_NAMES[detail.period_month - 1]} {detail.period_year}
+            Payroll — {MONTH_NAMES[detail.run.period_month - 1]} {detail.run.period_year}
           </h1>
           <p className="text-muted-foreground">
-            {detail.payslips.length} payslip{detail.payslips.length === 1 ? "" : "s"} · <Badge variant="outline">{detail.status}</Badge>
+            {detail.payslips.length} payslip{detail.payslips.length === 1 ? "" : "s"} · <Badge variant="outline">{detail.run.status}</Badge>
           </p>
         </div>
-        {detail.status === "draft" && hasPermission("payroll.finalize") && (
+        {detail.run.status === "draft" && hasPermission("payroll.finalize") && (
           <Button onClick={handleFinalize}>Finalize run</Button>
         )}
       </div>
@@ -129,7 +129,7 @@ export function PayrollRunDetailPage() {
             <div className="mb-6 flex items-center justify-between border-b-2 pb-4">
               <div>
                 <p className="text-xl font-bold">{branch?.name ?? "Vidyalaya School"}</p>
-                <p className="text-sm text-slate-600">Payslip — {MONTH_NAMES[detail.period_month - 1]} {detail.period_year}</p>
+                <p className="text-sm text-slate-600">Payslip — {MONTH_NAMES[detail.run.period_month - 1]} {detail.run.period_year}</p>
               </div>
               <p className="font-medium">{selectedPayslip.staff_name}</p>
             </div>

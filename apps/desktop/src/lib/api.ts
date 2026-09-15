@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { http } from "@/lib/http";
 
 export interface Branch {
   id: string;
@@ -163,6 +163,31 @@ export interface UpdateGuardianInput {
   relation?: string | null;
   phone?: string | null;
   email?: string | null;
+}
+
+// ============================================================================
+// Auth / session
+// ============================================================================
+
+export interface CurrentUser {
+  id: string;
+  tenant_id: string;
+  branch_id?: string | null;
+  full_name: string;
+  email: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  refresh_token: string;
+  user: CurrentUser & { roles: string[] };
+}
+
+export interface MeResponse {
+  user: CurrentUser;
+  roles: string[];
+  permissions: string[];
+  branches: Branch[];
 }
 
 // ============================================================================
@@ -344,22 +369,6 @@ export interface TransportRosterEntry {
   first_name: string;
   last_name?: string | null;
   stop_name: string;
-}
-
-export interface Session {
-  user_id: string;
-  full_name: string;
-  email: string;
-  tenant_id: string;
-  roles: string[];
-  branch_ids: string[];
-  entitlement_expires_at: string;
-}
-
-export interface SyncStatus {
-  last_synced_at?: string | null;
-  pending_count: number;
-  is_online: boolean;
 }
 
 // ============================================================================
@@ -831,7 +840,8 @@ export interface Payslip {
   line_items: PayslipLineItem[];
 }
 
-export interface PayrollRunDetail extends PayrollRun {
+export interface PayrollRunDetail {
+  run: PayrollRun;
   payslips: Payslip[];
 }
 
@@ -949,81 +959,85 @@ export interface DashboardStats {
 
 export const api = {
   login: (email: string, password: string) =>
-    invoke<Session>("login", { email, password }),
-  getSession: () => invoke<Session | null>("get_session"),
-  logout: () => invoke<void>("logout"),
+    http.post<LoginResponse>("/auth/login", { email, password }, { skipAuth: true }),
+  me: () => http.get<MeResponse>("/auth/me"),
 
-  listBranches: () => invoke<Branch[]>("list_branches"),
-  listClasses: (branchId: string) => invoke<SchoolClass[]>("list_classes", { branchId }),
-  createClass: (input: NewClassInput) => invoke<SchoolClass>("create_class", { input }),
-  listSections: (classId: string) => invoke<Section[]>("list_sections", { classId }),
-  createSection: (input: NewSectionInput) => invoke<Section>("create_section", { input }),
-  listAcademicSessions: () => invoke<AcademicSession[]>("list_academic_sessions"),
+  listBranches: () => http.get<Branch[]>("/branches"),
+  listClasses: (branchId: string) => http.get<SchoolClass[]>("/classes", { branch_id: branchId }),
+  createClass: (input: NewClassInput) => http.post<SchoolClass>("/classes", input),
+  listSections: (classId: string) => http.get<Section[]>("/sections", { class_id: classId }),
+  createSection: (input: NewSectionInput) => http.post<Section>("/sections", input),
+  listAcademicSessions: () => http.get<AcademicSession[]>("/academic-sessions"),
   createAcademicSession: (input: NewAcademicSessionInput) =>
-    invoke<AcademicSession>("create_academic_session", { input }),
+    http.post<AcademicSession>("/academic-sessions", input),
   updateAcademicSession: (input: UpdateAcademicSessionInput) =>
-    invoke<void>("update_academic_session", { input }),
-  currentAcademicSessionId: () => invoke<string | null>("current_academic_session_id"),
-  updateClass: (input: UpdateClassInput) => invoke<void>("update_class", { input }),
-  deleteClass: (id: string) => invoke<void>("delete_class", { id }),
-  updateSection: (input: UpdateSectionInput) => invoke<void>("update_section", { input }),
-  deleteSection: (id: string) => invoke<void>("delete_section", { id }),
+    http.patch<void>(`/academic-sessions/${input.id}`, input),
+  currentAcademicSessionId: async () => {
+    const sessions = await http.get<AcademicSession[]>("/academic-sessions");
+    return sessions.find((s) => s.is_current)?.id ?? null;
+  },
+  updateClass: (input: UpdateClassInput) => http.patch<void>(`/classes/${input.id}`, input),
+  deleteClass: (id: string) => http.delete<void>(`/classes/${id}`),
+  updateSection: (input: UpdateSectionInput) => http.patch<void>(`/sections/${input.id}`, input),
+  deleteSection: (id: string) => http.delete<void>(`/sections/${id}`),
 
   listStudents: (branchId: string, search?: string) =>
-    invoke<StudentListItem[]>("list_students", { branchId, search }),
-  listStudentsInClass: (classId: string) =>
-    invoke<StudentListItem[]>("list_students_in_class", { classId }),
-  getStudent: (id: string) => invoke<StudentDetail>("get_student", { id }),
-  createAdmission: (input: NewAdmissionInput) =>
-    invoke<Admission>("create_admission", { input }),
+    http.get<StudentListItem[]>("/students", { branch_id: branchId, search }),
+  listStudentsInClass: (classId: string) => http.get<StudentListItem[]>(`/students/in-class/${classId}`),
+  getStudent: (id: string) => http.get<StudentDetail>(`/students/${id}`),
+  createAdmission: (input: NewAdmissionInput) => http.post<Admission>("/admissions", input),
   getAdmissionForStudent: (studentId: string) =>
-    invoke<Admission | null>("get_admission_for_student", { studentId }),
+    http.get<Admission | null>(`/admissions/student/${studentId}`),
   confirmAdmission: (admissionId: string) =>
-    invoke<ConfirmAdmissionResult>("confirm_admission", { admissionId }),
-  updateStudent: (input: UpdateStudentInput) => invoke<void>("update_student", { input }),
-  deleteStudent: (id: string) => invoke<void>("delete_student", { id }),
-  updateGuardian: (input: UpdateGuardianInput) => invoke<void>("update_guardian", { input }),
+    http.post<ConfirmAdmissionResult>(`/admissions/${admissionId}/confirm`),
+  updateStudent: (input: UpdateStudentInput) => http.patch<void>(`/students/${input.id}`, input),
+  deleteStudent: (id: string) => http.delete<void>(`/students/${id}`),
+  updateGuardian: (input: UpdateGuardianInput) => http.patch<void>(`/guardians/${input.id}`, input),
 
-  getModuleSettings: (branchId: string) => invoke<ModuleSetting[]>("get_module_settings", { branchId }),
+  getModuleSettings: (branchId: string) => http.get<ModuleSetting[]>("/module-settings", { branch_id: branchId }),
   setModuleEnabled: (branchId: string, moduleKey: ModuleKey, isEnabled: boolean) =>
-    invoke<ModuleSetting>("set_module_enabled", {
-      input: { branch_id: branchId, module_key: moduleKey, is_enabled: isEnabled },
+    http.post<ModuleSetting>("/module-settings", {
+      branch_id: branchId,
+      module_key: moduleKey,
+      is_enabled: isEnabled,
     }),
 
-  createHouse: (input: NewHouseInput) => invoke<House>("create_house", { input }),
-  updateHouse: (input: UpdateHouseInput) => invoke<void>("update_house", { input }),
-  listHouses: (branchId: string) => invoke<House[]>("list_houses", { branchId }),
+  createHouse: (input: NewHouseInput) => http.post<House>("/houses", input),
+  updateHouse: (input: UpdateHouseInput) => http.patch<void>(`/houses/${input.id}`, input),
+  listHouses: (branchId: string) => http.get<House[]>("/houses", { branch_id: branchId }),
   assignStudentHouse: (studentId: string, houseId: string) =>
-    invoke<void>("assign_student_house", { input: { student_id: studentId, house_id: houseId } }),
-  getStudentHouse: (studentId: string) => invoke<House | null>("get_student_house", { studentId }),
-  awardHousePoints: (input: NewHousePointEventInput) => invoke<void>("award_house_points", { input }),
+    http.post<void>("/houses/assign-student", { student_id: studentId, house_id: houseId }),
+  getStudentHouse: (studentId: string) => http.get<House | null>(`/houses/student/${studentId}`),
+  awardHousePoints: (input: NewHousePointEventInput) => http.post<void>("/houses/points-events", input),
   listHousePointEvents: (branchId: string) =>
-    invoke<HousePointEventListItem[]>("list_house_point_events", { branchId }),
+    http.get<HousePointEventListItem[]>("/houses/points-events", { branch_id: branchId }),
   getHouseLeaderboard: (branchId: string, academicSessionId?: string | null) =>
-    invoke<HouseLeaderboardRow[]>("get_house_leaderboard", { branchId, academicSessionId }),
-
-  createBook: (input: NewLibraryBookInput) => invoke<LibraryBook>("create_book", { input }),
-  updateBook: (input: UpdateLibraryBookInput) => invoke<void>("update_book", { input }),
-  listBooks: (branchId: string, search?: string) => invoke<LibraryBook[]>("list_books", { branchId, search }),
-  issueBook: (bookId: string, studentId: string, dueDate: string) =>
-    invoke<void>("issue_book", { input: { book_id: bookId, student_id: studentId, due_date: dueDate } }),
-  returnBook: (issueId: string) => invoke<void>("return_book", { issueId }),
-  listIssues: (branchId: string, status?: string | null) =>
-    invoke<LibraryIssueListItem[]>("list_issues", { branchId, status }),
-
-  createRoute: (input: NewTransportRouteInput) => invoke<TransportRoute>("create_route", { input }),
-  updateRoute: (input: UpdateTransportRouteInput) => invoke<void>("update_route", { input }),
-  listRoutes: (branchId: string) => invoke<TransportRoute[]>("list_routes", { branchId }),
-  createStop: (input: NewTransportStopInput) => invoke<TransportStop>("create_stop", { input }),
-  updateStop: (input: UpdateTransportStopInput) => invoke<void>("update_stop", { input }),
-  listStops: (routeId: string) => invoke<TransportStop[]>("list_stops", { routeId }),
-  assignStudentTransport: (studentId: string, routeId: string, stopId: string) =>
-    invoke<void>("assign_student_transport", {
-      input: { student_id: studentId, route_id: routeId, stop_id: stopId },
+    http.get<HouseLeaderboardRow[]>("/houses/leaderboard", {
+      branch_id: branchId,
+      academic_session_id: academicSessionId,
     }),
+
+  createBook: (input: NewLibraryBookInput) => http.post<LibraryBook>("/library/books", input),
+  updateBook: (input: UpdateLibraryBookInput) => http.patch<void>(`/library/books/${input.id}`, input),
+  listBooks: (branchId: string, search?: string) =>
+    http.get<LibraryBook[]>("/library/books", { branch_id: branchId, search }),
+  issueBook: (bookId: string, studentId: string, dueDate: string) =>
+    http.post<void>("/library/issues", { book_id: bookId, student_id: studentId, due_date: dueDate }),
+  returnBook: (issueId: string) => http.post<void>(`/library/issues/${issueId}/return`),
+  listIssues: (branchId: string, status?: string | null) =>
+    http.get<LibraryIssueListItem[]>("/library/issues", { branch_id: branchId, status }),
+
+  createRoute: (input: NewTransportRouteInput) => http.post<TransportRoute>("/transport/routes", input),
+  updateRoute: (input: UpdateTransportRouteInput) => http.patch<void>(`/transport/routes/${input.id}`, input),
+  listRoutes: (branchId: string) => http.get<TransportRoute[]>("/transport/routes", { branch_id: branchId }),
+  createStop: (input: NewTransportStopInput) => http.post<TransportStop>("/transport/stops", input),
+  updateStop: (input: UpdateTransportStopInput) => http.patch<void>(`/transport/stops/${input.id}`, input),
+  listStops: (routeId: string) => http.get<TransportStop[]>("/transport/stops", { route_id: routeId }),
+  assignStudentTransport: (studentId: string, routeId: string, stopId: string) =>
+    http.post<void>("/transport/assignments", { student_id: studentId, route_id: routeId, stop_id: stopId }),
   getStudentTransport: (studentId: string) =>
-    invoke<StudentTransportInfo | null>("get_student_transport", { studentId }),
-  listRouteRoster: (routeId: string) => invoke<TransportRosterEntry[]>("list_route_roster", { routeId }),
+    http.get<StudentTransportInfo | null>(`/transport/assignments/student/${studentId}`),
+  listRouteRoster: (routeId: string) => http.get<TransportRosterEntry[]>(`/transport/routes/${routeId}/roster`),
 
   getAttendanceRoster: (
     branchId: string,
@@ -1031,111 +1045,132 @@ export const api = {
     sectionId: string | null | undefined,
     attendanceDate: string,
   ) =>
-    invoke<AttendanceRosterEntry[]>("get_attendance_roster", {
-      branchId,
-      classId,
-      sectionId,
-      attendanceDate,
+    http.get<AttendanceRosterEntry[]>("/attendance/roster", {
+      branch_id: branchId,
+      class_id: classId,
+      section_id: sectionId,
+      attendance_date: attendanceDate,
     }),
-  markAttendance: (input: MarkAttendanceInput) => invoke<void>("mark_attendance", { input }),
+  markAttendance: (input: MarkAttendanceInput) => http.post<void>("/attendance", input),
   getStudentAttendanceHistory: (studentId: string) =>
-    invoke<AttendanceHistoryEntry[]>("get_student_attendance_history", { studentId }),
+    http.get<AttendanceHistoryEntry[]>(`/attendance/student/${studentId}/history`),
 
-  createFeeStructure: (input: NewFeeStructureInput) =>
-    invoke<FeeStructure>("create_fee_structure", { input }),
-  updateFeeStructure: (input: UpdateFeeStructureInput) => invoke<void>("update_fee_structure", { input }),
-  listFeeStructures: (branchId: string) => invoke<FeeStructure[]>("list_fee_structures", { branchId }),
-  generateInvoices: (feeStructureId: string) =>
-    invoke<number>("generate_invoices", { feeStructureId }),
-  voidInvoice: (input: VoidInvoiceInput) => invoke<void>("void_invoice", { input }),
+  createFeeStructure: (input: NewFeeStructureInput) => http.post<FeeStructure>("/fee-structures", input),
+  updateFeeStructure: (input: UpdateFeeStructureInput) =>
+    http.patch<void>(`/fee-structures/${input.id}`, input),
+  listFeeStructures: (branchId: string) => http.get<FeeStructure[]>("/fee-structures", { branch_id: branchId }),
+  generateInvoices: async (feeStructureId: string) => {
+    const { created } = await http.post<{ created: number }>(`/fee-structures/${feeStructureId}/generate-invoices`);
+    return created;
+  },
+  voidInvoice: (input: VoidInvoiceInput) => http.post<void>(`/fee-invoices/${input.invoice_id}/void`, input),
   listInvoices: (branchId: string, status?: InvoiceStatus | null) =>
-    invoke<FeeInvoiceListItem[]>("list_invoices", { branchId, status }),
+    http.get<FeeInvoiceListItem[]>("/fee-invoices", { branch_id: branchId, status }),
   getStudentFeeSummary: (studentId: string) =>
-    invoke<StudentFeeSummary>("get_student_fee_summary", { studentId }),
-  recordPayment: (input: RecordPaymentInput) => invoke<FeePayment>("record_payment", { input }),
-  reversePayment: (input: ReversePaymentInput) => invoke<void>("reverse_payment", { input }),
+    http.get<StudentFeeSummary>(`/fee-invoices/student/${studentId}/summary`),
+  recordPayment: (input: RecordPaymentInput) => http.post<FeePayment>("/fee-payments", input),
+  reversePayment: (input: ReversePaymentInput) => http.post<void>(`/fee-payments/${input.payment_id}/reverse`, input),
 
-  createSubject: (input: NewSubjectInput) => invoke<Subject>("create_subject", { input }),
-  updateSubject: (input: UpdateSubjectInput) => invoke<void>("update_subject", { input }),
-  listSubjects: (branchId: string) => invoke<Subject[]>("list_subjects", { branchId }),
-  createExam: (input: NewExamInput) => invoke<Exam>("create_exam", { input }),
-  updateExam: (input: UpdateExamInput) => invoke<void>("update_exam", { input }),
+  createSubject: (input: NewSubjectInput) => http.post<Subject>("/subjects", input),
+  updateSubject: (input: UpdateSubjectInput) => http.patch<void>(`/subjects/${input.id}`, input),
+  listSubjects: (branchId: string) => http.get<Subject[]>("/subjects", { branch_id: branchId }),
+  createExam: (input: NewExamInput) => http.post<Exam>("/exams", input),
+  updateExam: (input: UpdateExamInput) => http.patch<void>(`/exams/${input.id}`, input),
   listExams: (branchId: string, classId?: string | null) =>
-    invoke<Exam[]>("list_exams", { branchId, classId }),
+    http.get<Exam[]>("/exams", { branch_id: branchId, class_id: classId }),
   listStudentsPendingBackpaper: (examId: string, subjectId: string) =>
-    invoke<BackpaperCandidate[]>("list_students_pending_backpaper", { examId, subjectId }),
+    http.get<BackpaperCandidate[]>(`/exams/${examId}/subjects/${subjectId}/pending-backpaper`),
   getMarksRoster: (examId: string, subjectId: string) =>
-    invoke<MarksRosterEntry[]>("get_marks_roster", { examId, subjectId }),
-  saveMarks: (input: SaveMarksInput) => invoke<void>("save_marks", { input }),
+    http.get<MarksRosterEntry[]>(`/exams/${examId}/subjects/${subjectId}/marks-roster`),
+  saveMarks: (input: SaveMarksInput) => http.post<void>("/exams/marks", input),
   getReportCard: (studentId: string, examId: string) =>
-    invoke<ReportCard>("get_report_card", { studentId, examId }),
+    http.get<ReportCard>("/exams/report-card", { student_id: studentId, exam_id: examId }),
 
-  getDashboardStats: (branchId: string) => invoke<DashboardStats>("get_dashboard_stats", { branchId }),
-
-  syncNow: () => invoke<SyncStatus>("sync_now"),
-  getSyncStatus: () => invoke<SyncStatus>("get_sync_status"),
+  getDashboardStats: (branchId: string) => http.get<DashboardStats>("/dashboard/stats", { branch_id: branchId }),
 
   // RBAC: permissions, roles, users
-  listPermissionCatalog: () => invoke<string[]>("list_permission_catalog"),
-  listMyPermissions: () => invoke<string[]>("list_my_permissions"),
-  listRoles: () => invoke<Role[]>("list_roles"),
-  createRole: (input: NewRoleInput) => invoke<Role>("create_role", { input }),
-  updateRole: (id: string, name: string) => invoke<void>("update_role", { id, name }),
-  deleteRole: (id: string) => invoke<void>("delete_role", { id }),
-  listRolePermissions: (roleId: string) => invoke<string[]>("list_role_permissions", { roleId }),
-  setRolePermissions: (input: SetRolePermissionsInput) => invoke<void>("set_role_permissions", { input }),
-  listUsers: () => invoke<UserSummary[]>("list_users"),
-  assignUserRole: (userId: string, roleId: string) => invoke<void>("assign_user_role", { userId, roleId }),
-  removeUserRole: (userId: string, roleId: string) => invoke<void>("remove_user_role", { userId, roleId }),
+  listPermissionCatalog: () => http.get<string[]>("/permissions/catalog"),
+  listRoles: () => http.get<Role[]>("/roles"),
+  createRole: (input: NewRoleInput) => http.post<Role>("/roles", input),
+  updateRole: (id: string, name: string) => http.patch<void>(`/roles/${id}`, { name }),
+  deleteRole: (id: string) => http.delete<void>(`/roles/${id}`),
+  listRolePermissions: (roleId: string) => http.get<string[]>(`/roles/${roleId}/permissions`),
+  setRolePermissions: (input: SetRolePermissionsInput) =>
+    http.put<void>(`/roles/${input.role_id}/permissions`, { permission_keys: input.permission_keys }),
+  listUsers: () => http.get<UserSummary[]>("/users"),
+  assignUserRole: (userId: string, roleId: string) =>
+    http.post<void>(`/users/${userId}/roles`, { role_id: roleId }),
+  removeUserRole: (userId: string, roleId: string) => http.delete<void>(`/users/${userId}/roles/${roleId}`),
   setUserActive: (userId: string, isActive: boolean) =>
-    invoke<void>("set_user_active", { userId, isActive }),
-  createStaffLogin: (input: CreateStaffLoginInput) => invoke<string>("create_staff_login", { input }),
-  resetStaffPassword: (input: ResetStaffPasswordInput) => invoke<void>("reset_staff_password", { input }),
+    http.post<void>(`/users/${userId}/active`, { is_active: isActive }),
+  createStaffLogin: async (input: CreateStaffLoginInput) => {
+    const { id } = await http.post<{ id: string }>("/users/staff-login", input);
+    return id;
+  },
+  resetStaffPassword: (input: ResetStaffPasswordInput) =>
+    http.post<void>(`/users/${input.user_id}/reset-password`, { password: input.new_password }),
 
   // Staff / HR
   listStaff: (branchId: string, search?: string) =>
-    invoke<StaffListItem[]>("list_staff", { branchId, search }),
-  getStaff: (id: string) => invoke<Staff>("get_staff", { id }),
-  createStaff: (input: NewStaffInput) => invoke<Staff>("create_staff", { input }),
-  updateStaff: (input: UpdateStaffInput) => invoke<void>("update_staff", { input }),
-  setStaffStatus: (input: SetStaffStatusInput) => invoke<void>("set_staff_status", { input }),
+    http.get<StaffListItem[]>("/staff", { branch_id: branchId, search }),
+  getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
+  createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
+  updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
+  setStaffStatus: (input: SetStaffStatusInput) =>
+    http.post<void>(`/staff/${input.staff_id}/status`, input),
   listTeacherAssignments: (branchId: string, staffId?: string | null) =>
-    invoke<TeacherAssignment[]>("list_teacher_assignments", { branchId, staffId }),
+    http.get<TeacherAssignment[]>("/teacher-assignments", { branch_id: branchId, staff_id: staffId }),
   createTeacherAssignment: (input: NewTeacherAssignmentInput) =>
-    invoke<void>("create_teacher_assignment", { input }),
-  deleteTeacherAssignment: (id: string) => invoke<void>("delete_teacher_assignment", { id }),
-  setClassTeacher: (input: SetClassTeacherInput) => invoke<void>("set_class_teacher", { input }),
+    http.post<void>("/teacher-assignments", input),
+  deleteTeacherAssignment: (id: string) => http.delete<void>(`/teacher-assignments/${id}`),
+  setClassTeacher: (input: SetClassTeacherInput) =>
+    http.patch<void>(`/sections/${input.section_id}/class-teacher`, { staff_id: input.staff_id }),
 
   // Staff attendance
   getStaffAttendanceRoster: (branchId: string, attendanceDate: string) =>
-    invoke<StaffAttendanceRosterEntry[]>("get_staff_attendance_roster", { branchId, attendanceDate }),
-  markStaffAttendance: (input: MarkStaffAttendanceInput) => invoke<void>("mark_staff_attendance", { input }),
+    http.get<StaffAttendanceRosterEntry[]>("/staff-attendance/roster", {
+      branch_id: branchId,
+      attendance_date: attendanceDate,
+    }),
+  markStaffAttendance: (input: MarkStaffAttendanceInput) => http.post<void>("/staff-attendance", input),
   getStaffAttendanceHistory: (staffId: string) =>
-    invoke<StaffAttendanceHistoryEntry[]>("get_staff_attendance_history", { staffId }),
+    http.get<StaffAttendanceHistoryEntry[]>(`/staff-attendance/staff/${staffId}/history`),
 
   // Payroll
-  getSalaryStructure: (staffId: string) => invoke<SalaryStructure | null>("get_salary_structure", { staffId }),
-  setSalaryStructure: (input: SetSalaryStructureInput) => invoke<void>("set_salary_structure", { input }),
+  getSalaryStructure: (staffId: string) =>
+    http.get<SalaryStructure | null>(`/salary-structures/staff/${staffId}`),
+  setSalaryStructure: (input: SetSalaryStructureInput) => http.post<void>("/salary-structures", input),
   generatePayrollRun: (input: GeneratePayrollRunInput) =>
-    invoke<PayrollRunDetail>("generate_payroll_run", { input }),
-  listPayrollRuns: (branchId: string) => invoke<PayrollRun[]>("list_payroll_runs", { branchId }),
-  getPayrollRun: (runId: string) => invoke<PayrollRunDetail>("get_payroll_run", { runId }),
-  finalizePayrollRun: (runId: string) => invoke<void>("finalize_payroll_run", { runId }),
+    http.post<PayrollRunDetail>("/payroll-runs/generate", input),
+  listPayrollRuns: (branchId: string) => http.get<PayrollRun[]>("/payroll-runs", { branch_id: branchId }),
+  getPayrollRun: (runId: string) => http.get<PayrollRunDetail>(`/payroll-runs/${runId}`),
+  finalizePayrollRun: (runId: string) => http.post<void>(`/payroll-runs/${runId}/finalize`),
   markPayslipPaid: (payslipId: string, paidOn: string) =>
-    invoke<void>("mark_payslip_paid", { payslipId, paidOn }),
+    http.post<void>(`/payslips/${payslipId}/mark-paid`, { paid_on: paidOn }),
   adjustPayslipLineItem: (input: AdjustPayslipLineItemInput) =>
-    invoke<void>("adjust_payslip_line_item", { input }),
+    http.post<void>(`/payslips/${input.payslip_id}/line-items`, input),
 
   // Session promotion / rollover
   suggestClassMapping: (branchId: string, fromSessionId: string, toSessionId: string) =>
-    invoke<ClassMappingSuggestion[]>("suggest_class_mapping", { branchId, fromSessionId, toSessionId }),
+    http.get<ClassMappingSuggestion[]>("/promotion/suggest-class-mapping", {
+      branch_id: branchId,
+      from_session_id: fromSessionId,
+      to_session_id: toSessionId,
+    }),
   createPromotionBatch: (input: CreatePromotionBatchInput) =>
-    invoke<PromotionBatch>("create_promotion_batch", { input }),
-  getPromotionBatch: (batchId: string) => invoke<PromotionBatch>("get_promotion_batch", { batchId }),
+    http.post<PromotionBatch>("/promotion/batches", input),
+  getPromotionBatch: (batchId: string) => http.get<PromotionBatch>(`/promotion/batches/${batchId}`),
   setPromotionDecision: (input: SetPromotionDecisionInput) =>
-    invoke<void>("set_promotion_decision", { input }),
-  executePromotionBatch: (batchId: string) => invoke<void>("execute_promotion_batch", { batchId }),
+    http.patch<void>(`/promotion/batch-items/${input.batch_item_id}`, input),
+  executePromotionBatch: (batchId: string) => http.post<void>(`/promotion/batches/${batchId}/execute`),
 
   // Audit log
-  listAuditLog: (filter: AuditLogFilter) => invoke<AuditLogEntry[]>("list_audit_log", { filter }),
+  listAuditLog: (filter: AuditLogFilter) =>
+    http.get<AuditLogEntry[]>("/audit-log", {
+      entity_table: filter.entity_table,
+      actor_user_id: filter.actor_user_id,
+      from_date: filter.from_date,
+      to_date: filter.to_date,
+      page: filter.page,
+    }),
 };

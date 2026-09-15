@@ -1,9 +1,10 @@
 import { create } from "zustand";
 
-import { api, type Branch, type ModuleKey, type Session } from "@/lib/api";
+import { api, type Branch, type CurrentUser, type ModuleKey } from "@/lib/api";
+import { clearTokens, getAccessToken, setTokens, setUnauthorizedHandler } from "@/lib/http";
 
 interface AppStore {
-  session: Session | null;
+  session: CurrentUser | null;
   branches: Branch[];
   selectedBranchId: string | null;
   isBootstrapping: boolean;
@@ -14,7 +15,7 @@ interface AppStore {
 
   bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
   selectBranch: (branchId: string) => void;
   refreshModuleSettings: () => Promise<void>;
   isModuleEnabled: (key: ModuleKey) => boolean;
@@ -27,10 +28,14 @@ async function loadDisabledModules(branchId: string | null): Promise<Set<ModuleK
   return new Set(settings.filter((s) => !s.is_enabled).map((s) => s.module_key));
 }
 
-async function loadPermissions(session: Session | null): Promise<Set<string>> {
-  if (!session) return new Set();
-  const keys = await api.listMyPermissions();
-  return new Set(keys);
+function clearSessionState(set: (partial: Partial<AppStore>) => void) {
+  set({
+    session: null,
+    branches: [],
+    selectedBranchId: null,
+    permissions: new Set(),
+    disabledModules: new Set(),
+  });
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -42,32 +47,53 @@ export const useAppStore = create<AppStore>((set, get) => ({
   permissions: new Set(),
 
   bootstrap: async () => {
-    const [session, branches] = await Promise.all([
-      api.getSession(),
-      api.listBranches(),
-    ]);
-    const selectedBranchId = branches[0]?.id ?? null;
-    const [disabledModules, permissions] = await Promise.all([
-      loadDisabledModules(selectedBranchId),
-      loadPermissions(session),
-    ]);
-    set({ session, branches, selectedBranchId, disabledModules, permissions, isBootstrapping: false });
+    // Fires whenever a request can't be recovered by refreshing the access
+    // token (expired/invalid refresh token) -- drops back to a logged-out
+    // state so the router redirects to /login.
+    setUnauthorizedHandler(() => clearSessionState(set));
+
+    if (!getAccessToken()) {
+      set({ isBootstrapping: false });
+      return;
+    }
+
+    try {
+      const me = await api.me();
+      const selectedBranchId = me.branches[0]?.id ?? null;
+      const disabledModules = await loadDisabledModules(selectedBranchId);
+      set({
+        session: me.user,
+        branches: me.branches,
+        selectedBranchId,
+        permissions: new Set(me.permissions),
+        disabledModules,
+        isBootstrapping: false,
+      });
+    } catch {
+      clearTokens();
+      set({ isBootstrapping: false });
+    }
   },
 
   login: async (email, password) => {
-    const session = await api.login(email, password);
-    const branches = await api.listBranches();
-    const selectedBranchId = branches[0]?.id ?? null;
-    const [disabledModules, permissions] = await Promise.all([
-      loadDisabledModules(selectedBranchId),
-      loadPermissions(session),
-    ]);
-    set({ session, branches, selectedBranchId, disabledModules, permissions });
+    const result = await api.login(email, password);
+    setTokens(result.access_token, result.refresh_token);
+
+    const me = await api.me();
+    const selectedBranchId = me.branches[0]?.id ?? null;
+    const disabledModules = await loadDisabledModules(selectedBranchId);
+    set({
+      session: me.user,
+      branches: me.branches,
+      selectedBranchId,
+      permissions: new Set(me.permissions),
+      disabledModules,
+    });
   },
 
-  logout: async () => {
-    await api.logout();
-    set({ session: null, permissions: new Set() });
+  logout: () => {
+    clearTokens();
+    clearSessionState(set);
   },
 
   selectBranch: (branchId) => {

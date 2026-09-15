@@ -50,7 +50,7 @@ function GenerateRunDialog({ onGenerated }: { onGenerated: (runId: string) => vo
         period_year: Number(year),
       });
       setOpen(false);
-      onGenerated(run.id);
+      onGenerated(run.run.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
