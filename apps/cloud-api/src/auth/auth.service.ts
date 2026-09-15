@@ -32,6 +32,10 @@ export interface MeResult {
     full_name: string;
     email: string;
   };
+  tenant: {
+    id: string;
+    name: string;
+  };
   roles: string[];
   permissions: string[];
   branches: Branch[];
@@ -117,7 +121,7 @@ export class AuthService {
   async me(userId: string): Promise<MeResult> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null, isActive: true },
-      include: { userRoles: { include: { role: true } } },
+      include: { userRoles: { include: { role: true } }, tenant: true },
     });
     if (!user) {
       throw new UnauthorizedException("User not found");
@@ -150,6 +154,10 @@ export class AuthService {
         branch_id: user.branchId,
         full_name: user.fullName,
         email: user.email,
+      },
+      tenant: {
+        id: user.tenant.id,
+        name: user.tenant.name,
       },
       roles,
       permissions,

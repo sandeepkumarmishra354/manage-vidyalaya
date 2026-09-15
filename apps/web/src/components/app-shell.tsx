@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   BookOpenIcon,
@@ -109,8 +110,19 @@ const ACCENT_STYLES: Record<SectionAccent, { activeBg: string; activeText: strin
   admin: { activeBg: "bg-admin/20", activeText: "text-white", icon: "text-admin" },
 };
 
+/** Small branch logo with a graduation-cap fallback if there's no logo, or the URL fails to load. */
+function BranchLogo({ url }: { url: string | null | undefined }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (!url || url === failedUrl) {
+    return <GraduationCapIcon className="size-4.5 text-primary" />;
+  }
+  return <img src={url} alt="" className="size-full object-cover" onError={() => setFailedUrl(url)} />;
+}
+
 export function AppShell() {
   const session = useAppStore((s) => s.session);
+  const tenant = useAppStore((s) => s.tenant);
   const branches = useAppStore((s) => s.branches);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const selectBranch = useAppStore((s) => s.selectBranch);
@@ -118,6 +130,8 @@ export function AppShell() {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const logout = useAppStore((s) => s.logout);
   const navigate = useNavigate();
+
+  const currentBranch = branches.find((b) => b.id === selectedBranchId) ?? null;
 
   const initials = session?.full_name
     .split(" ")
@@ -177,22 +191,48 @@ export function AppShell() {
             );
           })}
         </nav>
+        <a
+          href="https://www.vsen.ai/"
+          target="_blank"
+          rel="noreferrer"
+          className="mx-3 mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70"
+        >
+          <img src="/vsen-logo.png" alt="" className="size-4 shrink-0 object-contain" />
+          <span>
+            Powered by <span className="font-semibold">VSEN</span>
+          </span>
+        </a>
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b bg-card px-6 py-3">
-          <Select value={selectedBranchId ?? undefined} onValueChange={selectBranch}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Select branch" />
-            </SelectTrigger>
-            <SelectContent>
-              {branches.map((branch) => (
-                <SelectItem key={branch.id} value={branch.id}>
-                  {branch.name} ({branch.code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+              <BranchLogo url={currentBranch?.logo_url} />
+            </div>
+            <div className="flex min-w-0 flex-col justify-center leading-tight">
+              <span className="truncate text-sm font-semibold">{tenant?.name ?? "Vidyalaya"}</span>
+              {branches.length > 1 ? (
+                <Select value={selectedBranchId ?? undefined} onValueChange={selectBranch}>
+                  <SelectTrigger
+                    size="sm"
+                    className="h-auto w-fit gap-1 border-none bg-transparent p-0 text-xs text-muted-foreground shadow-none hover:text-foreground focus-visible:ring-0 data-[size=sm]:h-auto"
+                  >
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name} ({branch.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                currentBranch && <span className="truncate text-xs text-muted-foreground">{currentBranch.name}</span>
+              )}
+            </div>
+          </div>
 
           <div className="flex items-center gap-4">
             <DropdownMenu>

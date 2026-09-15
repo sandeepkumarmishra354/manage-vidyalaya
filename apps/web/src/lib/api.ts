@@ -275,6 +275,11 @@ export interface CurrentUser {
   email: string;
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+}
+
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
@@ -283,6 +288,7 @@ export interface LoginResponse {
 
 export interface MeResponse {
   user: CurrentUser;
+  tenant: Tenant;
   roles: string[];
   permissions: string[];
   branches: Branch[];

@@ -1,10 +1,11 @@
 import { create } from "zustand";
 
-import { api, type Branch, type CurrentUser, type ModuleKey } from "@/lib/api";
+import { api, type Branch, type CurrentUser, type ModuleKey, type Tenant } from "@/lib/api";
 import { clearTokens, getAccessToken, setTokens, setUnauthorizedHandler } from "@/lib/http";
 
 interface AppStore {
   session: CurrentUser | null;
+  tenant: Tenant | null;
   branches: Branch[];
   selectedBranchId: string | null;
   isBootstrapping: boolean;
@@ -32,6 +33,7 @@ async function loadDisabledModules(branchId: string | null): Promise<Set<ModuleK
 function clearSessionState(set: (partial: Partial<AppStore>) => void) {
   set({
     session: null,
+    tenant: null,
     branches: [],
     selectedBranchId: null,
     permissions: new Set(),
@@ -41,6 +43,7 @@ function clearSessionState(set: (partial: Partial<AppStore>) => void) {
 
 export const useAppStore = create<AppStore>((set, get) => ({
   session: null,
+  tenant: null,
   branches: [],
   selectedBranchId: null,
   isBootstrapping: true,
@@ -64,6 +67,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const disabledModules = await loadDisabledModules(selectedBranchId);
       set({
         session: me.user,
+        tenant: me.tenant,
         branches: me.branches,
         selectedBranchId,
         permissions: new Set(me.permissions),
@@ -85,6 +89,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const disabledModules = await loadDisabledModules(selectedBranchId);
     set({
       session: me.user,
+      tenant: me.tenant,
       branches: me.branches,
       selectedBranchId,
       permissions: new Set(me.permissions),
