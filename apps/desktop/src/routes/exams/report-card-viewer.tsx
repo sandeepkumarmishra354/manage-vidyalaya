@@ -3,6 +3,7 @@ import { PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type ReportCard, type StudentListItem } from "@/lib/api";
+import { PrintLetterhead } from "@/components/print-letterhead";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -99,15 +100,11 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
 
       {reportCard && reportCard.rows.length > 0 && (
         <div data-print-area className="hidden p-8 print:block">
-          <div className="mb-6 flex items-center justify-between border-b-2 pb-4">
-            <div>
-              <p className="text-xl font-bold">{branch?.name ?? "Vidyalaya School"}</p>
-              <p className="text-sm text-slate-600">Report Card</p>
-            </div>
-            <div className="text-right text-sm text-slate-600">
-              <p className="font-medium text-slate-900">{reportCard.exam_name}</p>
-            </div>
-          </div>
+          <PrintLetterhead
+            branch={branch}
+            documentTitle="Report Card"
+            right={<p className="font-medium text-slate-900">{reportCard.exam_name}</p>}
+          />
 
           <div className="mb-6">
             <p className="text-lg font-semibold">{reportCard.student_name}</p>

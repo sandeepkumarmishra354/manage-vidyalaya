@@ -4,6 +4,7 @@ import { PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Payslip, type PayrollRunDetail as PayrollRunDetailType } from "@/lib/api";
+import { PrintLetterhead } from "@/components/print-letterhead";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -131,13 +132,11 @@ export function PayrollRunDetailPage() {
           </Card>
 
           <div data-print-area className="hidden p-8 print:block">
-            <div className="mb-6 flex items-center justify-between border-b-2 pb-4">
-              <div>
-                <p className="text-xl font-bold">{branch?.name ?? "Vidyalaya School"}</p>
-                <p className="text-sm text-slate-600">Payslip — {MONTH_NAMES[detail.run.period_month - 1]} {detail.run.period_year}</p>
-              </div>
-              <p className="font-medium">{selectedPayslip.staff_name}</p>
-            </div>
+            <PrintLetterhead
+              branch={branch}
+              documentTitle={`Payslip — ${MONTH_NAMES[detail.run.period_month - 1]} ${detail.run.period_year}`}
+              right={<p className="font-medium">{selectedPayslip.staff_name}</p>}
+            />
             <PayslipLines payslip={selectedPayslip} />
           </div>
         </>

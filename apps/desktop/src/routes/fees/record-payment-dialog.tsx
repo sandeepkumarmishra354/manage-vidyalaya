@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type FeeInvoiceListItem, type PaymentMethod } from "@/lib/api";
+import { api, type FeeInvoiceListItem, type FeePayment, type PaymentMethod } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatPaise } from "@/lib/money";
+import { PaymentReceipt } from "./payment-receipt";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -30,12 +31,16 @@ export function RecordPaymentDialog({
   onRecorded: () => void;
 }) {
   const hasPermission = useAppStore((s) => s.hasPermission);
+  const branches = useAppStore((s) => s.branches);
+  const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const branch = branches.find((b) => b.id === selectedBranchId);
   const balance = invoice ? invoice.amount_due - invoice.amount_paid : 0;
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [receiptNumber, setReceiptNumber] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recordedPayment, setRecordedPayment] = useState<FeePayment | null>(null);
 
   const handleVoid = async () => {
     if (!invoice) return;
@@ -56,6 +61,7 @@ export function RecordPaymentDialog({
     setMethod("cash");
     setReceiptNumber("");
     setError(null);
+    setRecordedPayment(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -69,15 +75,14 @@ export function RecordPaymentDialog({
     setIsSubmitting(true);
     setError(null);
     try {
-      await api.recordPayment({
+      const payment = await api.recordPayment({
         invoice_id: invoice.id,
         amount: amountPaise,
         payment_method: method,
         payment_date: todayIso(),
         receipt_number: receiptNumber || null,
       });
-      reset();
-      onOpenChange(false);
+      setRecordedPayment(payment);
       onRecorded();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -86,8 +91,29 @@ export function RecordPaymentDialog({
     }
   };
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) reset();
+    onOpenChange(open);
+  };
+
+  if (invoice && recordedPayment) {
+    return (
+      <Dialog open onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Payment recorded</DialogTitle>
+          </DialogHeader>
+          <PaymentReceipt payment={recordedPayment} invoice={invoice} branch={branch} />
+          <DialogFooter>
+            <Button onClick={() => handleOpenChange(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={!!invoice} onOpenChange={onOpenChange}>
+    <Dialog open={!!invoice} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Record payment</DialogTitle>

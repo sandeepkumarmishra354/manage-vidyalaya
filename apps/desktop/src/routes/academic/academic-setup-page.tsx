@@ -21,6 +21,129 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PromotionTab } from "./promotion-tab";
 
+function SchoolDetailsTab() {
+  const branches = useAppStore((s) => s.branches);
+  const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const refreshBranches = useAppStore((s) => s.refreshBranches);
+  const branch = branches.find((b) => b.id === selectedBranchId);
+
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    city: "",
+    state: "",
+    pincode: "",
+    phone: "",
+    email: "",
+    logo_url: "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (branch) {
+      setForm({
+        name: branch.name,
+        address: branch.address ?? "",
+        city: branch.city ?? "",
+        state: branch.state ?? "",
+        pincode: branch.pincode ?? "",
+        phone: branch.phone ?? "",
+        email: branch.email ?? "",
+        logo_url: branch.logo_url ?? "",
+      });
+    }
+  }, [branch]);
+
+  const update = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!branch) return;
+    setIsSubmitting(true);
+    setMessage(null);
+    try {
+      await api.updateBranch({
+        id: branch.id,
+        name: form.name,
+        address: form.address || null,
+        city: form.city || null,
+        state: form.state || null,
+        pincode: form.pincode || null,
+        phone: form.phone || null,
+        email: form.email || null,
+        logo_url: form.logo_url || null,
+      });
+      await refreshBranches();
+      setMessage("Saved.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!branch) {
+    return <p className="text-muted-foreground">Select a branch to edit its details.</p>;
+  }
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardTitle className="text-base">School details</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Shown on printed documents: attendance registers, report cards, payslips, and fee receipts.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="school-name">Name</Label>
+            <Input id="school-name" value={form.name} onChange={update("name")} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="school-address">Address</Label>
+            <Input id="school-address" value={form.address} onChange={update("address")} />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="school-city">City</Label>
+              <Input id="school-city" value={form.city} onChange={update("city")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="school-state">State</Label>
+              <Input id="school-state" value={form.state} onChange={update("state")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="school-pincode">Pincode</Label>
+              <Input id="school-pincode" value={form.pincode} onChange={update("pincode")} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="school-phone">Phone</Label>
+              <Input id="school-phone" value={form.phone} onChange={update("phone")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="school-email">Email</Label>
+              <Input id="school-email" type="email" value={form.email} onChange={update("email")} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="school-logo">Logo URL</Label>
+            <Input id="school-logo" placeholder="https://..." value={form.logo_url} onChange={update("logo_url")} />
+          </div>
+          {message && <p className="text-sm text-muted-foreground">{message}</p>}
+          <div>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function EditSessionDialog({ session, onUpdated }: { session: AcademicSession; onUpdated: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(session.name);
@@ -428,6 +551,7 @@ function ClassesAndSectionsTab() {
 
 export function AcademicSetupPage() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const hasPermission = useAppStore((s) => s.hasPermission);
 
   return (
     <div className="flex flex-col gap-4">
@@ -440,6 +564,7 @@ export function AcademicSetupPage() {
           <TabsTrigger value="classes">Classes &amp; Sections</TabsTrigger>
           <TabsTrigger value="sessions">Academic Sessions</TabsTrigger>
           <TabsTrigger value="promotion">Promotion</TabsTrigger>
+          {hasPermission("academic_setup.manage") && <TabsTrigger value="school">School Details</TabsTrigger>}
         </TabsList>
         <TabsContent value="classes">
           <ClassesAndSectionsTab key={refreshKey} />
@@ -450,6 +575,11 @@ export function AcademicSetupPage() {
         <TabsContent value="promotion">
           <PromotionTab />
         </TabsContent>
+        {hasPermission("academic_setup.manage") && (
+          <TabsContent value="school">
+            <SchoolDetailsTab />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   type SchoolClass,
   type Section,
 } from "@/lib/api";
+import { PrintLetterhead } from "@/components/print-letterhead";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -227,18 +228,18 @@ export function AttendancePage() {
 
       {roster.length > 0 && (
         <div data-print-area className="hidden p-6 print:block">
-          <div className="mb-4 flex items-center justify-between border-b pb-3">
-            <div>
-              <p className="text-lg font-bold">{branch?.name ?? "Vidyalaya School"}</p>
-              <p className="text-sm text-slate-600">Attendance Register</p>
-            </div>
-            <div className="text-right text-sm text-slate-600">
-              <p>
-                Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
-              </p>
-              <p>Date: {date}</p>
-            </div>
-          </div>
+          <PrintLetterhead
+            branch={branch}
+            documentTitle="Attendance Register"
+            right={
+              <>
+                <p>
+                  Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
+                </p>
+                <p>Date: {date}</p>
+              </>
+            }
+          />
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b-2">
