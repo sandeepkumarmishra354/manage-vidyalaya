@@ -53,7 +53,10 @@ export function PayrollRunDetailPage() {
             Payroll — {MONTH_NAMES[detail.run.period_month - 1]} {detail.run.period_year}
           </h1>
           <p className="text-muted-foreground">
-            {detail.payslips.length} payslip{detail.payslips.length === 1 ? "" : "s"} · <Badge variant="outline">{detail.run.status}</Badge>
+            {detail.payslips.length} payslip{detail.payslips.length === 1 ? "" : "s"} ·{" "}
+            <Badge variant={detail.run.status === "paid" ? "success" : detail.run.status === "finalized" ? "info" : "warning"}>
+              {detail.run.status}
+            </Badge>
           </p>
         </div>
         {detail.run.status === "draft" && hasPermission("payroll.finalize") && (
@@ -85,7 +88,9 @@ export function PayrollRunDetailPage() {
                 <TableCell>{formatPaise(p.total_deductions)}</TableCell>
                 <TableCell className="font-semibold">{formatPaise(p.net_pay)}</TableCell>
                 <TableCell>
-                  <Badge variant={p.status === "paid" ? "default" : "outline"}>{p.status}</Badge>
+                  <Badge variant={p.status === "paid" ? "success" : p.status === "finalized" ? "info" : "warning"}>
+                    {p.status}
+                  </Badge>
                 </TableCell>
                 <TableCell className="flex gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setSelectedPayslip(p)}>

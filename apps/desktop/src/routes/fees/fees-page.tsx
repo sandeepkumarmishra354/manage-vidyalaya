@@ -85,12 +85,12 @@ function EditFeeStructureDialog({ structure, onUpdated }: { structure: FeeStruct
   );
 }
 
-const statusVariant: Record<InvoiceStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  pending: "outline",
-  partial: "secondary",
-  paid: "default",
+const statusVariant: Record<InvoiceStatus, "info" | "warning" | "success" | "destructive" | "secondary"> = {
+  pending: "info",
+  partial: "warning",
+  paid: "success",
   overdue: "destructive",
-  waived: "outline",
+  waived: "secondary",
   voided: "destructive",
 };
 

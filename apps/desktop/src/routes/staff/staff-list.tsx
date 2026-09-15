@@ -11,10 +11,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NewStaffDialog } from "./new-staff-dialog";
 import { StaffAttendanceTab } from "./staff-attendance-tab";
 
-const statusVariant: Record<StaffStatus, "default" | "secondary" | "outline"> = {
-  active: "default",
-  on_leave: "secondary",
-  inactive: "outline",
+const statusVariant: Record<StaffStatus, "success" | "warning" | "secondary" | "outline"> = {
+  active: "success",
+  on_leave: "warning",
+  inactive: "secondary",
   terminated: "outline",
 };
 

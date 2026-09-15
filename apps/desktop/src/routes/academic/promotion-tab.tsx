@@ -162,7 +162,8 @@ export function PromotionTab() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">
-              {batch.items.length} students · <Badge variant={batch.status === "completed" ? "default" : "outline"}>{batch.status}</Badge>
+              {batch.items.length} students ·{" "}
+              <Badge variant={batch.status === "completed" ? "success" : "warning"}>{batch.status}</Badge>
             </CardTitle>
             {batch.status === "draft" && hasPermission("academic_setup.promote") && (
               <Button onClick={handleExecute} disabled={isWorking}>

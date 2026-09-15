@@ -23,10 +23,10 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-const statusVariant: Record<PayrollRun["status"], "default" | "secondary" | "outline"> = {
-  draft: "secondary",
-  finalized: "outline",
-  paid: "default",
+const statusVariant: Record<PayrollRun["status"], "warning" | "info" | "success"> = {
+  draft: "warning",
+  finalized: "info",
+  paid: "success",
 };
 
 function GenerateRunDialog({ onGenerated }: { onGenerated: (runId: string) => void }) {

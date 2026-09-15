@@ -49,11 +49,18 @@ function StatCard({
   accent: string;
 }) {
   return (
-    <Card className="overflow-hidden">
+    <Card className="relative overflow-hidden">
+      <div
+        className="absolute inset-x-0 top-0 h-1"
+        style={{ backgroundImage: `linear-gradient(90deg, ${accent}, color-mix(in oklch, ${accent} 40%, transparent))` }}
+      />
       <CardContent className="flex items-center gap-4 pt-6">
         <div
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl"
-          style={{ backgroundColor: `color-mix(in oklch, ${accent} 15%, transparent)`, color: accent }}
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-white shadow-md"
+          style={{
+            backgroundImage: `linear-gradient(135deg, ${accent}, color-mix(in oklch, ${accent} 70%, black))`,
+            boxShadow: `0 4px 14px color-mix(in oklch, ${accent} 35%, transparent)`,
+          }}
         >
           <Icon className="size-5" />
         </div>
@@ -113,7 +120,7 @@ export function DashboardPage() {
           label="Enrolled Students"
           value={String(stats.enrolled_count)}
           hint={`${stats.applied_count} pending admission`}
-          accent="var(--color-primary)"
+          accent="var(--color-academics)"
         />
         {isModuleEnabled("attendance") && (
           <StatCard
@@ -134,7 +141,7 @@ export function DashboardPage() {
             label="Fees Collected"
             value={formatPaise(stats.fee_collected_paise)}
             hint={`${formatPaise(stats.fee_pending_paise)} pending`}
-            accent="var(--color-warning)"
+            accent="var(--color-finance)"
           />
         )}
         {isModuleEnabled("library") && (
@@ -142,7 +149,7 @@ export function DashboardPage() {
             icon={BookOpenIcon}
             label="Overdue Books"
             value={String(stats.overdue_books_count)}
-            accent="var(--color-destructive)"
+            accent="var(--color-services)"
           />
         )}
       </div>
@@ -151,7 +158,7 @@ export function DashboardPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <UsersIcon className="size-4 text-primary" />
+              <UsersIcon className="size-4 text-academics" />
               Enrollment by class
             </CardTitle>
           </CardHeader>
@@ -170,7 +177,7 @@ export function DashboardPage() {
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="count" name="Students" fill="var(--color-primary)" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="count" name="Students" fill="var(--color-academics)" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -183,7 +190,7 @@ export function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <ReceiptIndianRupeeIcon className="size-4 text-warning" />
+                <ReceiptIndianRupeeIcon className="size-4 text-finance" />
                 Fee status
               </CardTitle>
             </CardHeader>
@@ -284,7 +291,7 @@ export function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <TrophyIcon className="size-4 text-primary" />
+                <TrophyIcon className="size-4 text-services" />
                 House leaderboard
               </CardTitle>
             </CardHeader>

@@ -44,15 +44,20 @@ interface NavItem {
   permission?: string;
 }
 
+/** Tailwind color-token name (e.g. "academics" -> bg-academics/text-academics) for this section's nav items. */
+type SectionAccent = "primary" | "academics" | "staff" | "finance" | "services" | "admin";
+
 interface NavSection {
   label: string;
+  accent: SectionAccent;
   items: NavItem[];
 }
 
 const navSections: NavSection[] = [
-  { label: "", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboardIcon, end: true }] },
+  { label: "", accent: "primary", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboardIcon, end: true }] },
   {
     label: "Academics",
+    accent: "academics",
     items: [
       { to: "/students", label: "Students & Admissions", icon: UsersIcon },
       { to: "/attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
@@ -62,6 +67,7 @@ const navSections: NavSection[] = [
   },
   {
     label: "Staff",
+    accent: "staff",
     items: [
       { to: "/staff", label: "Staff", icon: UserSquareIcon, permission: "staff.view" },
       { to: "/payroll", label: "Payroll", icon: WalletIcon, module: "payroll", permission: "payroll.view" },
@@ -69,10 +75,12 @@ const navSections: NavSection[] = [
   },
   {
     label: "Finance",
+    accent: "finance",
     items: [{ to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, module: "fees" }],
   },
   {
     label: "Services",
+    accent: "services",
     items: [
       { to: "/library", label: "Library", icon: BookOpenIcon, module: "library" },
       { to: "/transport", label: "Transport", icon: BusIcon, module: "transport" },
@@ -82,6 +90,7 @@ const navSections: NavSection[] = [
   },
   {
     label: "Admin",
+    accent: "admin",
     items: [
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
@@ -90,6 +99,15 @@ const navSections: NavSection[] = [
     ],
   },
 ];
+
+const ACCENT_STYLES: Record<SectionAccent, { activeBg: string; activeText: string; icon: string }> = {
+  primary: { activeBg: "bg-primary/20", activeText: "text-white", icon: "text-primary" },
+  academics: { activeBg: "bg-academics/20", activeText: "text-white", icon: "text-academics" },
+  staff: { activeBg: "bg-staff/20", activeText: "text-white", icon: "text-staff" },
+  finance: { activeBg: "bg-finance/20", activeText: "text-white", icon: "text-finance" },
+  services: { activeBg: "bg-services/20", activeText: "text-white", icon: "text-services" },
+  admin: { activeBg: "bg-admin/20", activeText: "text-white", icon: "text-admin" },
+};
 
 export function AppShell() {
   const session = useAppStore((s) => s.session);
@@ -125,6 +143,7 @@ export function AppShell() {
                 (!item.permission || hasPermission(item.permission)),
             );
             if (visibleItems.length === 0) return null;
+            const accent = ACCENT_STYLES[section.accent];
             return (
               <div key={section.label || "main"} className="flex flex-col gap-1">
                 {section.label && (
@@ -141,13 +160,17 @@ export function AppShell() {
                       cn(
                         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                          ? cn(accent.activeBg, accent.activeText, "shadow-sm")
                           : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                       )
                     }
                   >
-                    <item.icon className="size-4" />
-                    {item.label}
+                    {({ isActive }) => (
+                      <>
+                        <item.icon className={cn("size-4", isActive ? accent.icon : "")} />
+                        {item.label}
+                      </>
+                    )}
                   </NavLink>
                 ))}
               </div>

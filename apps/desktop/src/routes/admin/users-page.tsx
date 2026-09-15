@@ -84,7 +84,7 @@ export function UsersPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={user.is_active ? "default" : "outline"}>
+                  <Badge variant={user.is_active ? "success" : "secondary"}>
                     {user.is_active ? "Active" : "Deactivated"}
                   </Badge>
                 </TableCell>

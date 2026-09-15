@@ -37,6 +37,23 @@
   --sidebar-accent-foreground: oklch(0.98 0.01 260);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.62 0.19 262);
+
+  /* Per-module accents -- a distinct hue per nav section/domain, used for
+     sidebar icons/active states, dashboard stat tiles, and status badges
+     so the app reads as a colorful, modern school-ERP rather than a
+     single-hue admin panel. */
+  --academics: oklch(0.58 0.2 265);
+  --academics-foreground: oklch(0.98 0.01 265);
+  --finance: oklch(0.62 0.15 165);
+  --finance-foreground: oklch(0.98 0.02 165);
+  --exams: oklch(0.56 0.22 300);
+  --exams-foreground: oklch(0.98 0.02 300);
+  --staff: oklch(0.72 0.17 55);
+  --staff-foreground: oklch(0.24 0.05 55);
+  --services: oklch(0.64 0.21 20);
+  --services-foreground: oklch(0.98 0.01 20);
+  --admin: oklch(0.55 0.03 265);
+  --admin-foreground: oklch(0.98 0.01 265);
 }
 
 .dark {
@@ -72,6 +89,19 @@
   --sidebar-accent-foreground: oklch(0.96 0.01 260);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.68 0.18 262);
+
+  --academics: oklch(0.68 0.19 265);
+  --academics-foreground: oklch(0.16 0.03 265);
+  --finance: oklch(0.72 0.15 165);
+  --finance-foreground: oklch(0.16 0.03 165);
+  --exams: oklch(0.68 0.2 300);
+  --exams-foreground: oklch(0.16 0.03 300);
+  --staff: oklch(0.78 0.16 60);
+  --staff-foreground: oklch(0.2 0.05 60);
+  --services: oklch(0.7 0.19 20);
+  --services-foreground: oklch(0.18 0.03 20);
+  --admin: oklch(0.75 0.02 265);
+  --admin-foreground: oklch(0.18 0.02 265);
 }
 
 @theme inline {
@@ -107,6 +137,18 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-academics: var(--academics);
+  --color-academics-foreground: var(--academics-foreground);
+  --color-finance: var(--finance);
+  --color-finance-foreground: var(--finance-foreground);
+  --color-exams: var(--exams);
+  --color-exams-foreground: var(--exams-foreground);
+  --color-staff: var(--staff);
+  --color-staff-foreground: var(--staff-foreground);
+  --color-services: var(--services);
+  --color-services-foreground: var(--services-foreground);
+  --color-admin: var(--admin);
+  --color-admin-foreground: var(--admin-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

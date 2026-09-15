@@ -10,12 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NewAdmissionDialog } from "./new-admission-dialog";
 
-const statusVariant: Record<StudentStatus, "default" | "secondary" | "outline"> = {
+const statusVariant: Record<StudentStatus, "outline" | "info" | "success" | "secondary" | "warning"> = {
   enquiry: "outline",
-  applied: "secondary",
-  enrolled: "default",
-  alumni: "outline",
-  withdrawn: "outline",
+  applied: "info",
+  enrolled: "success",
+  alumni: "secondary",
+  withdrawn: "warning",
 };
 
 export function StudentListPage() {

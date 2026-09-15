@@ -182,7 +182,7 @@ function CatalogTab({ onChanged }: { onChanged: () => void }) {
                 <TableCell className="font-medium">{b.title}</TableCell>
                 <TableCell>{b.author ?? "—"}</TableCell>
                 <TableCell>
-                  <Badge variant={b.available_copies > 0 ? "secondary" : "outline"}>
+                  <Badge variant={b.available_copies > 0 ? "success" : "destructive"}>
                     {b.available_copies} / {b.total_copies}
                   </Badge>
                 </TableCell>

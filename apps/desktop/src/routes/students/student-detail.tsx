@@ -88,7 +88,7 @@ export function StudentDetailPage() {
           <h1 className="text-2xl font-semibold">
             {student.first_name} {student.last_name ?? ""}
           </h1>
-          <Badge variant={student.status === "enrolled" ? "default" : "secondary"}>{student.status}</Badge>
+          <Badge variant={student.status === "enrolled" ? "success" : "secondary"}>{student.status}</Badge>
         </div>
         {hasPermission("students.edit") && (
           <EditStudentDialog student={student} branchId={student.branch_id} onUpdated={refresh} />

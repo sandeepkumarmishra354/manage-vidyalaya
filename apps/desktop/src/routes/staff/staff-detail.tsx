@@ -67,7 +67,7 @@ export function StaffDetailPage() {
           <h1 className="text-2xl font-semibold">
             {staff.first_name} {staff.last_name ?? ""}
           </h1>
-          <Badge variant={staff.status === "active" ? "default" : "secondary"}>{staff.status}</Badge>
+          <Badge variant={staff.status === "active" ? "success" : "secondary"}>{staff.status}</Badge>
         </div>
         {hasPermission("staff.manage") && <EditStaffDialog staff={staff} onUpdated={refresh} />}
       </div>
