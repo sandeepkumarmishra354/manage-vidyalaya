@@ -5,23 +5,10 @@ build/
 *.log
 *.tsbuildinfo
 
-# Rust
-target/
-apps/desktop/src-tauri/target/
-
-# Tauri
-apps/desktop/src-tauri/gen/
-
 # Env
 .env
 .env.local
 .env.*.local
-
-# SQLite local dev data
-*.sqlite3
-*.sqlite3-wal
-*.sqlite3-shm
-apps/desktop/src-tauri/data/
 
 # Prisma
 apps/cloud-api/generated/

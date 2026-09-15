@@ -1,7 +1,7 @@
-// Thin HTTP client for cloud-api. Vidyalaya is online-only now: every read
-// and write goes straight to the REST API over fetch() from the webview
-// (cloud-api already allows any origin and tauri.conf.json's CSP is null,
-// so no Tauri HTTP plugin/Rust code is needed for this).
+// Thin HTTP client for cloud-api. Vidyalaya is online-only: every read and
+// write goes straight to the REST API over plain fetch() (cloud-api's
+// CORS currently allows any origin -- see docs/production-readiness.md
+// for tightening this before a real deploy).
 
 const DEFAULT_BASE_URL = "http://localhost:3001";
 
