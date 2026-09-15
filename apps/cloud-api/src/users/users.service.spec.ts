@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AuditService } from "../audit/audit.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 import { UsersService } from "./users.service.js";
 
@@ -14,13 +15,19 @@ function makePrismaMock() {
   } as unknown as PrismaService;
 }
 
+function makeAuditMock() {
+  return { record: vi.fn() } as unknown as AuditService;
+}
+
 describe("UsersService", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
+  let audit: ReturnType<typeof makeAuditMock>;
   let service: UsersService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
-    service = new UsersService(prisma);
+    audit = makeAuditMock();
+    service = new UsersService(prisma, audit);
   });
 
   describe("createUser", () => {
@@ -69,9 +76,9 @@ describe("UsersService", () => {
     it("throws NotFoundException for a user that doesn't exist", async () => {
       (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
-      await expect(service.resetPassword("tenant-a", "missing-user", "new-password")).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.resetPassword("tenant-a", "actor-1", "missing-user", "new-password"),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it("rejects resetting a password for another tenant's user", async () => {
@@ -80,9 +87,9 @@ describe("UsersService", () => {
         tenantId: "tenant-b",
       });
 
-      await expect(service.resetPassword("tenant-a", "user-1", "new-password")).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      await expect(
+        service.resetPassword("tenant-a", "actor-1", "user-1", "new-password"),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it("hashes the new password before storing it", async () => {
@@ -91,7 +98,7 @@ describe("UsersService", () => {
         tenantId: "tenant-a",
       });
 
-      await service.resetPassword("tenant-a", "user-1", "brand-new-password");
+      await service.resetPassword("tenant-a", "actor-1", "user-1", "brand-new-password");
 
       const updateCall = (prisma.user.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(updateCall.where).toEqual({ id: "user-1" });
