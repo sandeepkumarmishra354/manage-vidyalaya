@@ -4,9 +4,11 @@ import { PencilIcon, PlusIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
+  FEE_TYPE_LABELS,
   type FeeFrequency,
   type FeeInvoiceListItem,
   type FeeStructure,
+  type FeeType,
   type InvoiceStatus,
   type SchoolClass,
 } from "@/lib/api";
@@ -29,18 +31,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 
-function EditFeeStructureDialog({ structure, onUpdated }: { structure: FeeStructure; onUpdated: () => void }) {
+function EditFeeStructureDialog({
+  structure,
+  classes,
+  onUpdated,
+}: {
+  structure: FeeStructure;
+  classes: SchoolClass[];
+  onUpdated: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(structure.name);
   const [amount, setAmount] = useState(String(structure.amount / 100));
   const [frequency, setFrequency] = useState<FeeFrequency>(structure.frequency);
+  const [feeType, setFeeType] = useState<FeeType>(structure.fee_type);
+  const [classId, setClassId] = useState<string>(structure.class_id ?? "__all__");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await api.updateFeeStructure({ id: structure.id, name, amount: Math.round(Number(amount) * 100), frequency });
+      await api.updateFeeStructure({
+        id: structure.id,
+        name,
+        amount: Math.round(Number(amount) * 100),
+        frequency,
+        fee_type: feeType,
+        class_id: classId === "__all__" ? null : classId,
+      });
       setOpen(false);
       onUpdated();
     } finally {
@@ -76,6 +95,33 @@ function EditFeeStructureDialog({ structure, onUpdated }: { structure: FeeStruct
               </SelectContent>
             </Select>
           </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Fee type</Label>
+            <Select value={feeType} onValueChange={(v) => setFeeType(v as FeeType)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Applies to</Label>
+            <Select value={classId} onValueChange={setClassId}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All classes</SelectItem>
+                {classes.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
           </DialogFooter>
@@ -94,6 +140,16 @@ const statusVariant: Record<InvoiceStatus, "info" | "warning" | "success" | "des
   voided: "destructive",
 };
 
+const feeTypeVariant: Record<FeeType, "default" | "secondary" | "outline" | "info" | "success" | "warning"> = {
+  tuition: "default",
+  transport: "info",
+  library: "secondary",
+  exam: "warning",
+  hostel: "success",
+  admission: "outline",
+  other: "outline",
+};
+
 function StructuresTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -101,6 +157,7 @@ function StructuresTab() {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [frequency, setFrequency] = useState<FeeFrequency>("monthly");
+  const [feeType, setFeeType] = useState<FeeType>("tuition");
   const [classId, setClassId] = useState<string>("__all__");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -129,6 +186,7 @@ function StructuresTab() {
         name,
         amount: Math.round(Number(amount) * 100),
         frequency,
+        fee_type: feeType,
       });
       setName("");
       setAmount("");
@@ -189,6 +247,21 @@ function StructuresTab() {
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
+              <Label>Fee type</Label>
+              <Select value={feeType} onValueChange={(v) => setFeeType(v as FeeType)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <Label>Applies to</Label>
               <Select value={classId} onValueChange={setClassId}>
                 <SelectTrigger className="w-40">
@@ -219,6 +292,7 @@ function StructuresTab() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Applies to</TableHead>
@@ -229,13 +303,16 @@ function StructuresTab() {
             {structures.map((s) => (
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
+                <TableCell>
+                  <Badge variant={feeTypeVariant[s.fee_type]}>{FEE_TYPE_LABELS[s.fee_type]}</Badge>
+                </TableCell>
                 <TableCell>{formatPaise(s.amount)}</TableCell>
                 <TableCell className="capitalize">{s.frequency.replace("_", " ")}</TableCell>
                 <TableCell>
                   {classes.find((c) => c.id === s.class_id)?.name ?? "All classes"}
                 </TableCell>
                 <TableCell className="flex justify-end gap-2 text-right">
-                  <EditFeeStructureDialog structure={s} onUpdated={refresh} />
+                  <EditFeeStructureDialog structure={s} classes={classes} onUpdated={refresh} />
                   <Button
                     variant="outline"
                     size="sm"
@@ -249,7 +326,7 @@ function StructuresTab() {
             ))}
             {structures.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                   No fee structures yet.
                 </TableCell>
               </TableRow>
@@ -265,14 +342,19 @@ function InvoicesTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const [invoices, setInvoices] = useState<FeeInvoiceListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
+  const [feeTypeFilter, setFeeTypeFilter] = useState<string>("__all__");
   const [activeInvoice, setActiveInvoice] = useState<FeeInvoiceListItem | null>(null);
 
   const refresh = useCallback(() => {
     if (!selectedBranchId) return;
     api
-      .listInvoices(selectedBranchId, statusFilter === "__all__" ? null : (statusFilter as InvoiceStatus))
+      .listInvoices(
+        selectedBranchId,
+        statusFilter === "__all__" ? null : (statusFilter as InvoiceStatus),
+        feeTypeFilter === "__all__" ? null : (feeTypeFilter as FeeType),
+      )
       .then(setInvoices);
-  }, [selectedBranchId, statusFilter]);
+  }, [selectedBranchId, statusFilter, feeTypeFilter]);
 
   useEffect(() => {
     refresh();
@@ -280,7 +362,7 @@ function InvoicesTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-44">
             <SelectValue />
@@ -293,6 +375,19 @@ function InvoicesTab() {
             <SelectItem value="overdue">Overdue</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={feeTypeFilter} onValueChange={setFeeTypeFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All fee types</SelectItem>
+            {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="rounded-lg border">
@@ -301,6 +396,7 @@ function InvoicesTab() {
             <TableRow>
               <TableHead>Student</TableHead>
               <TableHead>Fee</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Due</TableHead>
               <TableHead>Paid</TableHead>
               <TableHead>Status</TableHead>
@@ -311,6 +407,9 @@ function InvoicesTab() {
               <TableRow key={inv.id} className="cursor-pointer" onClick={() => setActiveInvoice(inv)}>
                 <TableCell className="font-medium">{inv.student_name}</TableCell>
                 <TableCell>{inv.fee_structure_name}</TableCell>
+                <TableCell>
+                  <Badge variant={feeTypeVariant[inv.fee_type]}>{FEE_TYPE_LABELS[inv.fee_type]}</Badge>
+                </TableCell>
                 <TableCell>{formatPaise(inv.amount_due)}</TableCell>
                 <TableCell>{formatPaise(inv.amount_paid)}</TableCell>
                 <TableCell>
@@ -320,7 +419,7 @@ function InvoicesTab() {
             ))}
             {invoices.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                   No invoices yet -- create a fee structure and generate invoices.
                 </TableCell>
               </TableRow>
