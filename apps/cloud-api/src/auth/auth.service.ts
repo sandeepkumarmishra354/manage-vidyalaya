@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
+import type { Branch } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { JwtPayload } from "./jwt.strategy.js";
@@ -33,7 +34,7 @@ export interface MeResult {
   };
   roles: string[];
   permissions: string[];
-  branches: { id: string; name: string; code: string }[];
+  branches: Branch[];
 }
 
 // Sessions are online-only now: no offline grace period / EntitlementClaims
@@ -139,7 +140,6 @@ export class AuthService {
         deletedAt: null,
         ...(user.branchId ? { id: user.branchId } : {}),
       },
-      select: { id: true, name: true, code: true },
       orderBy: { name: "asc" },
     });
 

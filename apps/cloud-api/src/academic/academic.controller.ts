@@ -10,17 +10,27 @@ import { CreateAcademicSessionDto } from "./dto/create-academic-session.dto.js";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { CreateSectionDto } from "./dto/create-section.dto.js";
 import { UpdateAcademicSessionDto } from "./dto/update-academic-session.dto.js";
+import { UpdateBranchDto } from "./dto/update-branch.dto.js";
 import { UpdateClassDto } from "./dto/update-class.dto.js";
 import { UpdateSectionDto } from "./dto/update-section.dto.js";
 
+// PermissionsGuard no-ops when a handler has no @RequirePermission metadata
+// (see PermissionsGuard.canActivate), so GET stays open to any
+// authenticated user exactly as before -- only PATCH is gated.
 @Controller("branches")
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BranchesController {
   constructor(private readonly academicService: AcademicService) {}
 
   @Get()
   list(@CurrentUser() user: JwtPayload) {
     return this.academicService.listBranches(user.tenant_id);
+  }
+
+  @Patch(":id")
+  @RequirePermission("academic_setup.manage")
+  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBranchDto) {
+    return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto);
   }
 }
 

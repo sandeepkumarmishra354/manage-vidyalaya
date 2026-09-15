@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
@@ -9,6 +9,7 @@ import type { CreateAcademicSessionDto } from "./dto/create-academic-session.dto
 import type { CreateClassDto } from "./dto/create-class.dto.js";
 import type { CreateSectionDto } from "./dto/create-section.dto.js";
 import type { UpdateAcademicSessionDto } from "./dto/update-academic-session.dto.js";
+import type { UpdateBranchDto } from "./dto/update-branch.dto.js";
 import type { UpdateClassDto } from "./dto/update-class.dto.js";
 import type { UpdateSectionDto } from "./dto/update-section.dto.js";
 
@@ -23,6 +24,46 @@ export class AcademicService {
     return this.prisma.branch.findMany({
       where: { tenantId, deletedAt: null },
       orderBy: { name: "asc" },
+    });
+  }
+
+  async updateBranch(tenantId: string, actorUserId: string, id: string, dto: UpdateBranchDto) {
+    const existing = await this.prisma.branch.findFirst({ where: { id, tenantId, deletedAt: null } });
+    if (!existing) {
+      throw new NotFoundException("branch not found");
+    }
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.branch.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          address: dto.address ?? null,
+          city: dto.city ?? null,
+          state: dto.state ?? null,
+          pincode: dto.pincode ?? null,
+          phone: dto.phone ?? null,
+          email: dto.email ?? null,
+          logoUrl: dto.logo_url ?? null,
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: id,
+        actorUserId,
+        entityTable: "branches",
+        entityId: id,
+        action: "update",
+        summary: `Updated school details for branch '${dto.name}'`,
+      });
+
+      return updated;
     });
   }
 
