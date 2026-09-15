@@ -65,21 +65,49 @@ export class ExamsController {
     return this.examsService.listStudentsPendingBackpaper(examId, subjectId);
   }
 
+  // No @RequirePermission -- authorization is additive (exams.enter_marks
+  // OR being assigned to teach this class+subject+session), which
+  // PermissionsGuard's flat model can't express. ExamsService checks
+  // explicitly via resolveMarksEntryAccess instead.
   @Get(":examId/subjects/:subjectId/marks-roster")
-  @RequirePermission("exams.enter_marks")
-  marksRoster(@Param("examId") examId: string, @Param("subjectId") subjectId: string) {
-    return this.examsService.getMarksRoster(examId, subjectId);
+  marksRoster(@CurrentUser() user: JwtPayload, @Param("examId") examId: string, @Param("subjectId") subjectId: string) {
+    return this.examsService.getMarksRoster(user.tenant_id, user.sub, examId, subjectId);
   }
 
   @Post("marks")
-  @RequirePermission("exams.enter_marks")
   saveMarks(@CurrentUser() user: JwtPayload, @Body() dto: SaveMarksDto) {
     return this.examsService.saveMarks(user.tenant_id, user.sub, dto);
+  }
+
+  // Open to any authenticated user -- just returns the caller's own
+  // teaching assignments for this exam's class+session, so the frontend can
+  // restrict a non-broad-permission teacher's subject dropdown.
+  @Get(":examId/my-teaching-assignments")
+  myTeachingAssignments(@CurrentUser() user: JwtPayload, @Param("examId") examId: string) {
+    return this.examsService.getMyTeachingAssignments(user.tenant_id, user.sub, examId);
   }
 
   @Get("report-card")
   @RequirePermission("exams.view")
   reportCard(@Query("student_id") studentId: string, @Query("exam_id") examId: string) {
     return this.examsService.getReportCard(studentId, examId);
+  }
+
+  @Get(":id/submission-status")
+  @RequirePermission("exams.view")
+  submissionStatus(@Param("id") id: string) {
+    return this.examsService.getSubmissionStatus(id);
+  }
+
+  @Post(":id/publish-results")
+  @RequirePermission("exams.manage_exams")
+  publishResults(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.examsService.publishExamResults(user.tenant_id, user.sub, id);
+  }
+
+  @Post(":id/reopen-results")
+  @RequirePermission("exams.manage_exams")
+  reopenResults(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.examsService.reopenExamResults(user.tenant_id, user.sub, id);
   }
 }

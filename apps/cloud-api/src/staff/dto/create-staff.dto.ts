@@ -51,6 +51,10 @@ export class CreateStaffDto {
 
   @IsOptional()
   @IsString()
+  category_id?: string | null;
+
+  @IsOptional()
+  @IsString()
   department?: string | null;
 
   @IsString()

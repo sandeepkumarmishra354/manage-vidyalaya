@@ -103,7 +103,7 @@ export function RecordPaymentDialog({
           <DialogHeader>
             <DialogTitle>Payment recorded</DialogTitle>
           </DialogHeader>
-          <PaymentReceipt payment={recordedPayment} invoice={invoice} branch={branch} />
+          <PaymentReceipt entries={[{ payment: recordedPayment, invoice }]} branch={branch} />
           <DialogFooter>
             <Button onClick={() => handleOpenChange(false)}>Done</Button>
           </DialogFooter>

@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AttendanceCalendar } from "./attendance-calendar";
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
   { value: "present", label: "Present" },
@@ -31,8 +33,6 @@ function todayIso() {
 
 export function AttendancePage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
-  const hasPermission = useAppStore((s) => s.hasPermission);
-  const canMark = hasPermission("attendance.mark");
   const branches = useAppStore((s) => s.branches);
   const branch = branches.find((b) => b.id === selectedBranchId);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -43,6 +43,9 @@ export function AttendancePage() {
   const [roster, setRoster] = useState<AttendanceRosterEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [canMark, setCanMark] = useState(false);
+
+  const resolvedSectionId = sectionId === "__all__" ? null : sectionId;
 
   useEffect(() => {
     if (selectedBranchId) api.listClasses(selectedBranchId).then(setClasses);
@@ -57,15 +60,25 @@ export function AttendancePage() {
     setSectionId("__all__");
   }, [classId]);
 
+  // Additive authorization: broad attendance.mark holders can always mark;
+  // otherwise a class teacher can mark their own section. Checked server-side
+  // (via /attendance/can-mark) rather than a flat hasPermission() so class
+  // teachers without the broad permission still see the marking controls.
+  useEffect(() => {
+    if (!classId) {
+      setCanMark(false);
+      return;
+    }
+    api.canMarkAttendance(resolvedSectionId).then((r) => setCanMark(r.can_mark));
+  }, [classId, resolvedSectionId]);
+
   useEffect(() => {
     if (!selectedBranchId || !classId) {
       setRoster([]);
       return;
     }
-    api
-      .getAttendanceRoster(selectedBranchId, classId, sectionId === "__all__" ? null : sectionId, date)
-      .then(setRoster);
-  }, [selectedBranchId, classId, sectionId, date]);
+    api.getAttendanceRoster(selectedBranchId, classId, resolvedSectionId, date).then(setRoster);
+  }, [selectedBranchId, classId, resolvedSectionId, date]);
 
   const setStatus = (studentId: string, status: AttendanceStatus) => {
     setRoster((r) => r.map((entry) => (entry.student_id === studentId ? { ...entry, status } : entry)));
@@ -86,7 +99,7 @@ export function AttendancePage() {
       await api.markAttendance({
         branch_id: selectedBranchId,
         class_id: classId,
-        section_id: sectionId === "__all__" ? null : sectionId,
+        section_id: resolvedSectionId,
         attendance_date: date,
         entries,
       });
@@ -150,127 +163,150 @@ export function AttendancePage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="attendance-date">Date</Label>
-            <Input
-              id="attendance-date"
-              type="date"
-              className="w-40"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          {roster.length > 0 && canMark && (
-            <div className="ml-auto flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => markAll("present")}>
-                Mark all present
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => markAll("absent")}>
-                Mark all absent
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {classId && (
-        <div className="rounded-lg border" data-no-print>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Student</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roster.map((entry) => (
-                <TableRow key={entry.student_id}>
-                  <TableCell className="font-medium">
-                    {entry.first_name} {entry.last_name ?? ""}
-                  </TableCell>
-                  <TableCell>
-                    {canMark ? (
-                      <Select
-                        value={entry.status ?? undefined}
-                        onValueChange={(v) => setStatus(entry.student_id, v as AttendanceStatus)}
-                      >
-                        <SelectTrigger className="w-40">
-                          <SelectValue placeholder="Not marked" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-sm">
-                        {STATUS_OPTIONS.find((opt) => opt.value === entry.status)?.label ?? "Not marked"}
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {roster.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={2} className="py-8 text-center text-muted-foreground">
-                    No students in this class/section.
-                  </TableCell>
-                </TableRow>
+        <Tabs defaultValue="daily">
+          <TabsList data-no-print>
+            <TabsTrigger value="daily">Daily</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="daily" className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-4" data-no-print>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="attendance-date">Date</Label>
+                <Input
+                  id="attendance-date"
+                  type="date"
+                  className="w-40"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
+              {roster.length > 0 && canMark && (
+                <div className="ml-auto flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => markAll("present")}>
+                    Mark all present
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => markAll("absent")}>
+                    Mark all absent
+                  </Button>
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+            </div>
 
-      {classId && roster.length > 0 && canMark && (
-        <div className="flex items-center gap-3" data-no-print>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? "Saving..." : "Save attendance"}
-          </Button>
-          {savedMessage && <p className="text-sm text-muted-foreground">{savedMessage}</p>}
-        </div>
-      )}
+            <div className="rounded-lg border" data-no-print>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Student</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {roster.map((entry) => (
+                    <TableRow key={entry.student_id}>
+                      <TableCell className="font-medium">
+                        {entry.first_name} {entry.last_name ?? ""}
+                      </TableCell>
+                      <TableCell>
+                        {canMark ? (
+                          <Select
+                            value={entry.status ?? undefined}
+                            onValueChange={(v) => setStatus(entry.student_id, v as AttendanceStatus)}
+                          >
+                            <SelectTrigger className="w-40">
+                              <SelectValue placeholder="Not marked" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUS_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-sm">
+                            {STATUS_OPTIONS.find((opt) => opt.value === entry.status)?.label ?? "Not marked"}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {roster.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="py-8 text-center text-muted-foreground">
+                        No students in this class/section.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
 
-      {roster.length > 0 && (
-        <div data-print-area className="hidden p-6 print:block">
-          <PrintLetterhead
-            branch={branch}
-            documentTitle="Attendance Register"
-            right={
-              <>
-                <p>
-                  Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
-                </p>
-                <p>Date: {date}</p>
-              </>
-            }
-          />
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b-2">
-                <th className="py-1.5 text-left">#</th>
-                <th className="py-1.5 text-left">Student Name</th>
-                <th className="py-1.5 text-left">Status</th>
-                <th className="py-1.5 text-left">Signature</th>
-              </tr>
-            </thead>
-            <tbody>
-              {roster.map((entry, i) => (
-                <tr key={entry.student_id} className="border-b">
-                  <td className="py-1.5">{i + 1}</td>
-                  <td className="py-1.5">
-                    {entry.first_name} {entry.last_name ?? ""}
-                  </td>
-                  <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
-                  <td className="py-1.5"></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            {roster.length > 0 && canMark && (
+              <div className="flex items-center gap-3" data-no-print>
+                <Button onClick={handleSave} disabled={isSaving}>
+                  {isSaving ? "Saving..." : "Save attendance"}
+                </Button>
+                {savedMessage && <p className="text-sm text-muted-foreground">{savedMessage}</p>}
+              </div>
+            )}
+
+            {roster.length > 0 && (
+              <div data-print-area className="hidden p-6 print:block">
+                <PrintLetterhead
+                  branch={branch}
+                  documentTitle="Attendance Register"
+                  right={
+                    <>
+                      <p>
+                        Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
+                      </p>
+                      <p>Date: {date}</p>
+                    </>
+                  }
+                />
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b-2">
+                      <th className="py-1.5 text-left">#</th>
+                      <th className="py-1.5 text-left">Student Name</th>
+                      <th className="py-1.5 text-left">Status</th>
+                      <th className="py-1.5 text-left">Signature</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roster.map((entry, i) => (
+                      <tr key={entry.student_id} className="border-b">
+                        <td className="py-1.5">{i + 1}</td>
+                        <td className="py-1.5">
+                          {entry.first_name} {entry.last_name ?? ""}
+                        </td>
+                        <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
+                        <td className="py-1.5"></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="calendar" data-no-print>
+            {selectedBranchId && (
+              <AttendanceCalendar
+                branchId={selectedBranchId}
+                classId={classId}
+                sectionId={resolvedSectionId}
+                canMark={canMark}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import type { CreateAdmissionDto } from "./dto/create-admission.dto.js";
+import type { ElectSubjectDto } from "./dto/elect-subject.dto.js";
 import type { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import type { UpdateStudentDto } from "./dto/update-student.dto.js";
 
@@ -593,6 +594,96 @@ export class StudentsService {
       });
 
       return updated;
+    });
+  }
+
+  async listElectiveChoices(studentId: string, academicSessionId?: string) {
+    const choices = await this.prisma.studentElectiveChoice.findMany({
+      where: { studentId, deletedAt: null, ...(academicSessionId ? { academicSessionId } : {}) },
+      include: { subject: true, electiveGroup: true },
+      orderBy: { electiveGroup: { name: "asc" } },
+    });
+
+    return choices.map((c) => ({
+      id: c.id,
+      elective_group_id: c.electiveGroupId,
+      elective_group_name: c.electiveGroup.name,
+      subject_id: c.subjectId,
+      subject_name: c.subject.name,
+      academic_session_id: c.academicSessionId,
+    }));
+  }
+
+  // Elects (or re-elects, for the same group+session) a subject from an
+  // elective group -- the chosen subject must actually be a member of that
+  // group, and the group must belong to the student's current class.
+  async electSubject(tenantId: string, actorUserId: string, studentId: string, dto: ElectSubjectDto) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+
+    const group = await this.prisma.subjectElectiveGroup.findFirst({
+      where: { id: dto.elective_group_id, tenantId, deletedAt: null },
+    });
+    if (!group) {
+      throw new NotFoundException("elective group not found");
+    }
+    if (group.classId !== student.currentClassId) {
+      throw new ConflictException("this elective group does not belong to the student's current class");
+    }
+
+    const membership = await this.prisma.subjectElectiveGroupMember.findFirst({
+      where: {
+        electiveGroupId: dto.elective_group_id,
+        deletedAt: null,
+        classSubject: { subjectId: dto.subject_id, deletedAt: null },
+      },
+    });
+    if (!membership) {
+      throw new ConflictException("that subject is not offered in this elective group");
+    }
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const choice = await tx.studentElectiveChoice.upsert({
+        where: {
+          studentId_electiveGroupId_academicSessionId: {
+            studentId,
+            electiveGroupId: dto.elective_group_id,
+            academicSessionId: dto.academic_session_id,
+          },
+        },
+        create: {
+          id: randomUUID(),
+          tenantId,
+          studentId,
+          electiveGroupId: dto.elective_group_id,
+          subjectId: dto.subject_id,
+          academicSessionId: dto.academic_session_id,
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        update: {
+          subjectId: dto.subject_id,
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "student_elective_choices",
+        entityId: choice.id,
+        action: "update",
+        summary: "Recorded student elective choice",
+      });
+
+      return choice;
     });
   }
 }

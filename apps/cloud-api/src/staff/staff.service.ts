@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -47,6 +47,7 @@ export class StaffService {
       first_name: s.firstName,
       last_name: s.lastName,
       designation: s.designation,
+      category_id: s.categoryId,
       department: s.department,
       status: s.status,
       has_login: s.userId !== null,
@@ -79,6 +80,7 @@ export class StaffService {
           state: dto.state ?? null,
           pincode: dto.pincode ?? null,
           designation: dto.designation,
+          categoryId: dto.category_id ?? null,
           department: dto.department ?? null,
           employmentType: dto.employment_type,
           dateOfJoining: new Date(dto.date_of_joining),
@@ -133,6 +135,7 @@ export class StaffService {
           state: dto.state ?? null,
           pincode: dto.pincode ?? null,
           designation: dto.designation,
+          categoryId: dto.category_id ?? null,
           department: dto.department ?? null,
           employmentType: dto.employment_type,
           dateOfJoining: new Date(dto.date_of_joining),
@@ -279,6 +282,18 @@ export class StaffService {
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      if (dto.staff_id) {
+        const conflict = await tx.section.findFirst({
+          where: { classTeacherStaffId: dto.staff_id, deletedAt: null, id: { not: sectionId } },
+          include: { class: true },
+        });
+        if (conflict) {
+          throw new BadRequestException(
+            `This staff member is already class teacher of another section (${conflict.class.name} - ${conflict.name}).`,
+          );
+        }
+      }
+
       const updated = await tx.section.update({
         where: { id: sectionId },
         data: {

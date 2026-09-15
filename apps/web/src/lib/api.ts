@@ -503,6 +503,20 @@ export interface AttendanceHistoryEntry {
   remarks?: string | null;
 }
 
+export interface BulkMarkAttendanceInput {
+  branch_id: string;
+  class_id: string;
+  section_id?: string | null;
+  entries: { student_id: string; attendance_date: string; status: AttendanceStatus; remarks?: string | null }[];
+}
+
+export interface AttendanceRosterRangeEntry {
+  student_id: string;
+  first_name: string;
+  last_name?: string | null;
+  days: Record<string, { status: AttendanceStatus; remarks: string | null }>;
+}
+
 // ============================================================================
 // Fees & Billing
 // ============================================================================
@@ -510,9 +524,11 @@ export interface AttendanceHistoryEntry {
 export type FeeFrequency = "one_time" | "monthly" | "quarterly" | "annual";
 export type InvoiceStatus = "pending" | "partial" | "paid" | "overdue" | "waived" | "voided";
 export type PaymentMethod = "cash" | "cheque" | "upi" | "card" | "online" | "bank_transfer";
-export type FeeType = "tuition" | "transport" | "library" | "exam" | "hostel" | "admission" | "other";
+// Tenant-extensible (see FeeCategory below) -- these are just the seeded
+// defaults, kept as a fallback label/color lookup for them.
+export type FeeType = string;
 
-export const FEE_TYPE_LABELS: Record<FeeType, string> = {
+export const FEE_TYPE_LABELS: Record<string, string> = {
   tuition: "Tuition",
   transport: "Transport",
   library: "Library",
@@ -521,6 +537,13 @@ export const FEE_TYPE_LABELS: Record<FeeType, string> = {
   admission: "Admission / One-time",
   other: "Other",
 };
+
+export interface FeeCategory {
+  id: string;
+  name: string;
+  key: string;
+  is_system: boolean;
+}
 
 export interface FeeStructure {
   id: string;
@@ -593,6 +616,14 @@ export interface RecordPaymentInput {
   remarks?: string | null;
 }
 
+export interface RecordPaymentBatchInput {
+  entries: { invoice_id: string; amount: number }[];
+  payment_method: PaymentMethod;
+  payment_date: string;
+  receipt_number?: string | null;
+  remarks?: string | null;
+}
+
 export interface StudentFeeSummary {
   invoices: FeeInvoiceListItem[];
   payments: FeePayment[];
@@ -617,6 +648,41 @@ export interface NewSubjectInput {
   code?: string | null;
 }
 
+// ============================================================================
+// Class Subjects & Electives
+// ============================================================================
+
+export interface ClassSubject {
+  id: string;
+  class_id: string;
+  subject_id: string;
+  subject_name: string;
+  is_elective: boolean;
+}
+
+export interface ElectiveGroupMember {
+  id: string;
+  class_subject_id: string;
+  subject_id: string;
+  subject_name: string;
+}
+
+export interface ElectiveGroup {
+  id: string;
+  class_id: string;
+  name: string;
+  members: ElectiveGroupMember[];
+}
+
+export interface StudentElectiveChoice {
+  id: string;
+  elective_group_id: string;
+  elective_group_name: string;
+  subject_id: string;
+  subject_name: string;
+  academic_session_id: string;
+}
+
 export type ExamType = "regular" | "back_paper" | "supplementary" | "unit_test" | "term";
 
 export interface Exam {
@@ -629,6 +695,7 @@ export interface Exam {
   exam_type: ExamType;
   parent_exam_id?: string | null;
   passing_percentage: number;
+  results_published_at?: string | null;
 }
 
 export interface NewExamInput {
@@ -663,6 +730,8 @@ export interface BackpaperCandidate {
   max_marks: number;
 }
 
+export type ExamResult = "pass" | "fail" | "grace";
+
 export interface MarksRosterEntry {
   student_id: string;
   first_name: string;
@@ -670,6 +739,7 @@ export interface MarksRosterEntry {
   max_marks: number;
   marks_obtained?: number | null;
   is_absent: boolean;
+  result?: ExamResult | null;
 }
 
 export interface SaveMarksInput {
@@ -680,6 +750,7 @@ export interface SaveMarksInput {
     max_marks: number;
     marks_obtained?: number | null;
     is_absent: boolean;
+    override_result?: ExamResult | null;
   }[];
 }
 
@@ -688,6 +759,7 @@ export interface ReportCardSubjectRow {
   max_marks: number;
   marks_obtained?: number | null;
   is_absent: boolean;
+  result?: ExamResult | null;
   backpaper_marks_obtained?: number | null;
 }
 
@@ -699,6 +771,22 @@ export interface ReportCard {
   total_obtained: number;
   total_max: number;
   percentage: number;
+  overall_result: "pass" | "fail" | "pending";
+  results_published: boolean;
+}
+
+export interface MyTeachingAssignment {
+  subject_id: string;
+  subject_name: string;
+}
+
+export interface SubmissionStatusEntry {
+  subject_id: string;
+  subject_name: string;
+  expected_count: number;
+  entered_count: number;
+  is_complete: boolean;
+  teachers: string[];
 }
 
 // ============================================================================
@@ -754,12 +842,19 @@ export interface ResetStaffPasswordInput {
 export type StaffStatus = "active" | "inactive" | "on_leave" | "terminated";
 export type EmploymentType = "full_time" | "part_time" | "contract";
 
+export interface StaffCategory {
+  id: string;
+  name: string;
+  is_system: boolean;
+}
+
 export interface StaffListItem {
   id: string;
   employee_code: string;
   first_name: string;
   last_name?: string | null;
   designation: string;
+  category_id?: string | null;
   department?: string | null;
   status: StaffStatus;
   has_login: boolean;
@@ -781,6 +876,7 @@ export interface Staff {
   state?: string | null;
   pincode?: string | null;
   designation: string;
+  category_id?: string | null;
   department?: string | null;
   employment_type: EmploymentType;
   date_of_joining: string;
@@ -816,6 +912,7 @@ export interface NewStaffInput {
   state?: string | null;
   pincode?: string | null;
   designation: string;
+  category_id?: string | null;
   department?: string | null;
   employment_type: EmploymentType;
   date_of_joining: string;
@@ -1177,9 +1274,28 @@ export const api = {
       attendance_date: attendanceDate,
     }),
   markAttendance: (input: MarkAttendanceInput) => http.post<void>("/attendance", input),
+  getAttendanceRosterRange: (
+    branchId: string,
+    classId: string,
+    sectionId: string | null | undefined,
+    startDate: string,
+    endDate: string,
+  ) =>
+    http.get<AttendanceRosterRangeEntry[]>("/attendance/roster-range", {
+      branch_id: branchId,
+      class_id: classId,
+      section_id: sectionId,
+      start_date: startDate,
+      end_date: endDate,
+    }),
+  markAttendanceBulk: (input: BulkMarkAttendanceInput) => http.post<void>("/attendance/bulk", input),
+  canMarkAttendance: (sectionId: string | null | undefined) =>
+    http.get<{ can_mark: boolean }>("/attendance/can-mark", { section_id: sectionId }),
   getStudentAttendanceHistory: (studentId: string) =>
     http.get<AttendanceHistoryEntry[]>(`/attendance/student/${studentId}/history`),
 
+  listFeeCategories: () => http.get<FeeCategory[]>("/fee-categories"),
+  createFeeCategory: (name: string) => http.post<FeeCategory>("/fee-categories", { name }),
   createFeeStructure: (input: NewFeeStructureInput) => http.post<FeeStructure>("/fee-structures", input),
   updateFeeStructure: (input: UpdateFeeStructureInput) =>
     http.patch<void>(`/fee-structures/${input.id}`, input),
@@ -1189,12 +1305,18 @@ export const api = {
     const { created } = await http.post<{ created: number }>(`/fee-structures/${feeStructureId}/generate-invoices`);
     return created;
   },
+  generateInvoicesBulk: (branchId: string, academicSessionId: string, feeStructureIds?: string[]) =>
+    http.post<{ created: number; by_structure: { fee_structure_id: string; created: number }[] }>(
+      "/fee-structures/generate-invoices-bulk",
+      { branch_id: branchId, academic_session_id: academicSessionId, fee_structure_ids: feeStructureIds },
+    ),
   voidInvoice: (input: VoidInvoiceInput) => http.post<void>(`/fee-invoices/${input.invoice_id}/void`, input),
   listInvoices: (branchId: string, status?: InvoiceStatus | null, feeType?: FeeType | null, classId?: string | null) =>
     http.get<FeeInvoiceListItem[]>("/fee-invoices", { branch_id: branchId, status, fee_type: feeType, class_id: classId }),
   getStudentFeeSummary: (studentId: string) =>
     http.get<StudentFeeSummary>(`/fee-invoices/student/${studentId}/summary`),
   recordPayment: (input: RecordPaymentInput) => http.post<FeePayment>("/fee-payments", input),
+  recordPaymentBatch: (input: RecordPaymentBatchInput) => http.post<FeePayment[]>("/fee-payments/batch", input),
   reversePayment: (input: ReversePaymentInput) => http.post<void>(`/fee-payments/${input.payment_id}/reverse`, input),
 
   createSubject: (input: NewSubjectInput) => http.post<Subject>("/subjects", input),
@@ -1211,6 +1333,32 @@ export const api = {
   saveMarks: (input: SaveMarksInput) => http.post<void>("/exams/marks", input),
   getReportCard: (studentId: string, examId: string) =>
     http.get<ReportCard>("/exams/report-card", { student_id: studentId, exam_id: examId }),
+  getMyTeachingAssignments: (examId: string) =>
+    http.get<MyTeachingAssignment[]>(`/exams/${examId}/my-teaching-assignments`),
+  getSubmissionStatus: (examId: string) => http.get<SubmissionStatusEntry[]>(`/exams/${examId}/submission-status`),
+  publishExamResults: (examId: string) => http.post<Exam>(`/exams/${examId}/publish-results`),
+  reopenExamResults: (examId: string) => http.post<Exam>(`/exams/${examId}/reopen-results`),
+
+  listClassSubjects: (classId: string) => http.get<ClassSubject[]>(`/classes/${classId}/subjects`),
+  addClassSubject: (classId: string, subjectId: string, isElective: boolean) =>
+    http.post<ClassSubject>(`/classes/${classId}/subjects`, { subject_id: subjectId, is_elective: isElective }),
+  removeClassSubject: (id: string) => http.delete<void>(`/class-subjects/${id}`),
+  listElectiveGroups: (classId: string) => http.get<ElectiveGroup[]>(`/classes/${classId}/elective-groups`),
+  createElectiveGroup: (classId: string, name: string) =>
+    http.post<ElectiveGroup>(`/classes/${classId}/elective-groups`, { name }),
+  addElectiveGroupMember: (groupId: string, classSubjectId: string) =>
+    http.post<void>(`/elective-groups/${groupId}/members`, { class_subject_id: classSubjectId }),
+  removeElectiveGroupMember: (groupId: string, classSubjectId: string) =>
+    http.delete<void>(`/elective-groups/${groupId}/members/${classSubjectId}`),
+  deleteElectiveGroup: (groupId: string) => http.delete<void>(`/elective-groups/${groupId}`),
+  listStudentElectives: (studentId: string, academicSessionId?: string) =>
+    http.get<StudentElectiveChoice[]>(`/students/${studentId}/electives`, { academic_session_id: academicSessionId }),
+  electSubject: (studentId: string, electiveGroupId: string, subjectId: string, academicSessionId: string) =>
+    http.post<void>(`/students/${studentId}/electives`, {
+      elective_group_id: electiveGroupId,
+      subject_id: subjectId,
+      academic_session_id: academicSessionId,
+    }),
 
   getDashboardStats: (branchId: string) => http.get<DashboardStats>("/dashboard/stats", { branch_id: branchId }),
 
@@ -1242,6 +1390,8 @@ export const api = {
   getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
   createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
   updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
+  listStaffCategories: () => http.get<StaffCategory[]>("/staff-categories"),
+  createStaffCategory: (name: string) => http.post<StaffCategory>("/staff-categories", { name }),
   setStaffStatus: (input: SetStaffStatusInput) =>
     http.post<void>(`/staff/${input.staff_id}/status`, input),
   listTeacherAssignments: (branchId: string, staffId?: string | null) =>
@@ -1271,6 +1421,8 @@ export const api = {
   listPayrollRuns: (branchId: string) => http.get<PayrollRun[]>("/payroll-runs", { branch_id: branchId }),
   getPayrollRun: (runId: string) => http.get<PayrollRunDetail>(`/payroll-runs/${runId}`),
   finalizePayrollRun: (runId: string) => http.post<void>(`/payroll-runs/${runId}/finalize`),
+  deletePayrollRun: (runId: string) => http.delete<void>(`/payroll-runs/${runId}`),
+  reopenPayrollRun: (runId: string) => http.post<void>(`/payroll-runs/${runId}/reopen`),
   markPayslipPaid: (payslipId: string, paidOn: string) =>
     http.post<void>(`/payslips/${payslipId}/mark-paid`, { paid_on: paidOn }),
   adjustPayslipLineItem: (input: AdjustPayslipLineItemInput) =>

@@ -7,6 +7,7 @@ import { PrismaClient } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
+import { FEE_TYPES } from "../src/fees/fee-type.js";
 
 const DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const DEMO_BRANCH_ID = "00000000-0000-0000-0000-000000000002";
@@ -30,6 +31,29 @@ const DEFAULT_ROLES: { id: string; name: string; permissions: readonly string[] 
   { id: DEMO_ROLE_TEACHER_ID, name: "teacher", permissions: SYSTEM_ROLE_PERMISSIONS.teacher },
   { id: DEMO_ROLE_FRONT_DESK_ID, name: "front_desk", permissions: SYSTEM_ROLE_PERMISSIONS.front_desk },
 ];
+
+// Default StaffCategory rows seeded per tenant -- a broad classification,
+// additive alongside Staff.designation's free text. Tenant admins can add
+// more via the UI; these are just sensible defaults to start from.
+const DEFAULT_STAFF_CATEGORIES = [
+  "Teacher",
+  "Accountant",
+  "Librarian",
+  "Peon",
+  "Driver",
+  "Security Guard",
+  "Admin Staff",
+  "Nurse",
+  "Lab Assistant",
+  "Sports Coach",
+];
+
+// Default FeeCategory rows seeded per tenant, matching the existing
+// FEE_TYPES keys exactly so FeeStructure.feeType values keep resolving.
+const DEFAULT_FEE_CATEGORIES: { key: string; name: string }[] = FEE_TYPES.map((key) => ({
+  key,
+  name: key.charAt(0).toUpperCase() + key.slice(1),
+}));
 
 const prisma = new PrismaClient();
 
@@ -101,6 +125,22 @@ async function main() {
         });
       }
     }
+  }
+
+  for (const name of DEFAULT_STAFF_CATEGORIES) {
+    await prisma.staffCategory.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name } },
+      update: { deletedAt: null },
+      create: { id: randomUUID(), tenantId: tenant.id, name, isSystem: true, updatedAt: now },
+    });
+  }
+
+  for (const { key, name } of DEFAULT_FEE_CATEGORIES) {
+    await prisma.feeCategory.upsert({
+      where: { tenantId_key: { tenantId: tenant.id, key } },
+      update: { deletedAt: null },
+      create: { id: randomUUID(), tenantId: tenant.id, key, name, isSystem: true, updatedAt: now },
+    });
   }
 
   const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { id: DEMO_ROLE_SUPER_ADMIN_ID } });

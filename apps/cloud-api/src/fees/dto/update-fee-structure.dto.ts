@@ -1,6 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString } from "class-validator";
-
-import { FEE_TYPES, type FeeType } from "../fee-type.js";
+import { IsInt, IsOptional, IsString } from "class-validator";
 
 export class UpdateFeeStructureDto {
   @IsString()
@@ -12,8 +10,10 @@ export class UpdateFeeStructureDto {
   @IsString()
   frequency!: string;
 
-  @IsIn(FEE_TYPES)
-  fee_type!: FeeType;
+  // Validated against the tenant's FeeCategory list in FeesService, not a
+  // static enum -- fee categories are tenant-extensible.
+  @IsString()
+  fee_type!: string;
 
   @IsOptional()
   @IsString()
