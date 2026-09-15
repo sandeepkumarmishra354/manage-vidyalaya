@@ -1,12 +1,12 @@
-// Dev/demo seed script. Creates a tenant/branch/admin user using the same
-// fixed well-known ids as apps/desktop/src-tauri/src/seed.rs, so a local
-// cloud-api and a local desktop install can be used together to manually
-// verify the sync engine end to end. Production tenants come from the
+// Dev/demo seed script. Creates a tenant/branch/admin user with fixed,
+// well-known ids for local development. Production tenants come from the
 // (future) school signup/provisioning flow instead, with random UUIDs.
 import { randomUUID } from "node:crypto";
 
 import { PrismaClient } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
+
+import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
 
 const DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const DEMO_BRANCH_ID = "00000000-0000-0000-0000-000000000002";
@@ -22,59 +22,12 @@ const DEMO_ROLE_ACCOUNTANT_ID = "00000000-0000-0000-0000-000000000012";
 const DEMO_ROLE_TEACHER_ID = "00000000-0000-0000-0000-000000000013";
 const DEMO_ROLE_FRONT_DESK_ID = "00000000-0000-0000-0000-000000000014";
 
-// Mirrors apps/desktop/src-tauri/src/models.rs PERMISSION_CATALOG -- kept in
-// sync by hand across Rust/TS, same convention as SYNCABLE_TABLES.
-const PERMISSION_CATALOG = [
-  "students.view", "students.create", "students.edit", "students.delete",
-  "admissions.view", "admissions.create", "admissions.confirm",
-  "attendance.mark", "attendance.view",
-  "fees.view", "fees.manage", "fees.record_payment",
-  "exams.view", "exams.manage", "exams.enter_marks",
-  "houses.view", "houses.manage",
-  "library.view", "library.manage",
-  "transport.view", "transport.manage",
-  "staff.view", "staff.manage",
-  "staff_attendance.mark", "staff_attendance.view",
-  "payroll.view", "payroll.view_own", "payroll.generate", "payroll.finalize",
-  "academic_setup.view", "academic_setup.manage", "academic_setup.promote",
-  "roles.manage", "users.manage",
-  "audit.view",
-  "module_settings.manage",
-];
-
-const DEFAULT_ROLES: { id: string; name: string; permissions: string[] }[] = [
-  { id: DEMO_ROLE_SUPER_ADMIN_ID, name: "super_admin", permissions: PERMISSION_CATALOG },
-  {
-    id: DEMO_ROLE_BRANCH_ADMIN_ID,
-    name: "branch_admin",
-    permissions: PERMISSION_CATALOG.filter((k) => k !== "roles.manage"),
-  },
-  {
-    id: DEMO_ROLE_ACCOUNTANT_ID,
-    name: "accountant",
-    permissions: [
-      "fees.view", "fees.manage", "fees.record_payment",
-      "payroll.view", "payroll.generate", "payroll.finalize",
-      "students.view",
-    ],
-  },
-  {
-    id: DEMO_ROLE_TEACHER_ID,
-    name: "teacher",
-    permissions: [
-      "attendance.mark", "attendance.view", "exams.view", "exams.enter_marks",
-      "students.view", "staff_attendance.view", "payroll.view_own",
-    ],
-  },
-  {
-    id: DEMO_ROLE_FRONT_DESK_ID,
-    name: "front_desk",
-    permissions: [
-      "admissions.view", "admissions.create", "admissions.confirm",
-      "students.view", "students.create", "students.edit",
-      "library.view", "library.manage",
-    ],
-  },
+const DEFAULT_ROLES: { id: string; name: string; permissions: readonly string[] }[] = [
+  { id: DEMO_ROLE_SUPER_ADMIN_ID, name: "super_admin", permissions: SYSTEM_ROLE_PERMISSIONS.super_admin },
+  { id: DEMO_ROLE_BRANCH_ADMIN_ID, name: "branch_admin", permissions: SYSTEM_ROLE_PERMISSIONS.branch_admin },
+  { id: DEMO_ROLE_ACCOUNTANT_ID, name: "accountant", permissions: SYSTEM_ROLE_PERMISSIONS.accountant },
+  { id: DEMO_ROLE_TEACHER_ID, name: "teacher", permissions: SYSTEM_ROLE_PERMISSIONS.teacher },
+  { id: DEMO_ROLE_FRONT_DESK_ID, name: "front_desk", permissions: SYSTEM_ROLE_PERMISSIONS.front_desk },
 ];
 
 const prisma = new PrismaClient();
@@ -161,32 +114,6 @@ async function main() {
       updatedAt: now,
     },
   });
-
-  // So a fresh desktop install (one that didn't locally seed this branch
-  // itself) picks it up on its first pull.
-  const existingBranchLog = await prisma.syncLog.findFirst({
-    where: { tenantId: tenant.id, entityTable: "branches", entityId: branch.id },
-  });
-  if (!existingBranchLog) {
-    await prisma.syncLog.create({
-      data: {
-        tenantId: tenant.id,
-        entityTable: "branches",
-        entityId: branch.id,
-        op: "insert",
-        payload: {
-          id: branch.id,
-          tenant_id: tenant.id,
-          name: branch.name,
-          code: branch.code,
-          city: branch.city,
-          is_active: true,
-          updated_at: now.toISOString(),
-          version: 1,
-        },
-      },
-    });
-  }
 
   console.log("Seeded demo tenant:", tenant.id);
   console.log("Login with:", DEMO_ADMIN_EMAIL, "/", DEMO_ADMIN_PASSWORD);

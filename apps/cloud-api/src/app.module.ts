@@ -1,10 +1,12 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
+import { AcademicModule } from "./academic/academic.module.js";
 import { AppController } from "./app.controller.js";
+import { AuditModule } from "./audit/audit.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
-import { SyncModule } from "./sync/sync.module.js";
+import { StudentsModule } from "./students/students.module.js";
 import { UsersModule } from "./users/users.module.js";
 
 @Module({
@@ -12,8 +14,10 @@ import { UsersModule } from "./users/users.module.js";
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuthModule,
-    SyncModule,
+    AuditModule,
     UsersModule,
+    AcademicModule,
+    StudentsModule,
   ],
   controllers: [AppController],
 })

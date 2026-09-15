@@ -11,9 +11,6 @@ function makePrismaMock() {
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    syncLog: {
-      create: vi.fn(),
-    },
   } as unknown as PrismaService;
 }
 
@@ -52,21 +49,6 @@ describe("UsersService", () => {
       expect(createCall.data.passwordHash).toBeDefined();
       expect(createCall.data.passwordHash).not.toBe("correct-horse-battery-staple");
       expect(createCall.data.passwordHash.length).toBeGreaterThan(20);
-    });
-
-    it("writes a sync_log row with password_hash left null so it is never replicated to desktop", async () => {
-      (prisma.user.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "user-1" });
-
-      await service.createUser("tenant-a", {
-        tenant_id: "tenant-a",
-        full_name: "Jane Teacher",
-        email: "jane@example.com",
-        password: "correct-horse-battery-staple",
-      });
-
-      const syncLogCall = (prisma.syncLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(syncLogCall.data.entityTable).toBe("users");
-      expect(syncLogCall.data.payload.password_hash).toBeNull();
     });
 
     it("returns the new user's id", async () => {

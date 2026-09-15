@@ -1,0 +1,109 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+
+import { CurrentUser } from "../common/current-user.decorator.js";
+import { PermissionsGuard } from "../common/permissions.guard.js";
+import { RequirePermission } from "../common/require-permission.decorator.js";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
+import type { JwtPayload } from "../auth/jwt.strategy.js";
+import { AcademicService } from "./academic.service.js";
+import { CreateAcademicSessionDto } from "./dto/create-academic-session.dto.js";
+import { CreateClassDto } from "./dto/create-class.dto.js";
+import { CreateSectionDto } from "./dto/create-section.dto.js";
+import { UpdateAcademicSessionDto } from "./dto/update-academic-session.dto.js";
+import { UpdateClassDto } from "./dto/update-class.dto.js";
+import { UpdateSectionDto } from "./dto/update-section.dto.js";
+
+@Controller("branches")
+@UseGuards(JwtAuthGuard)
+export class BranchesController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get()
+  list(@CurrentUser() user: JwtPayload) {
+    return this.academicService.listBranches(user.tenant_id);
+  }
+}
+
+@Controller("academic-sessions")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+export class AcademicSessionsController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get()
+  @RequirePermission("academic_setup.view")
+  list(@CurrentUser() user: JwtPayload) {
+    return this.academicService.listAcademicSessions(user.tenant_id);
+  }
+
+  @Post()
+  @RequirePermission("academic_setup.manage")
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateAcademicSessionDto) {
+    return this.academicService.createAcademicSession(user.tenant_id, user.sub, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission("academic_setup.manage")
+  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateAcademicSessionDto) {
+    return this.academicService.updateAcademicSession(user.tenant_id, user.sub, id, dto);
+  }
+}
+
+@Controller("classes")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+export class ClassesController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get()
+  @RequirePermission("academic_setup.view")
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.academicService.listClasses(user.tenant_id, branchId);
+  }
+
+  @Post()
+  @RequirePermission("academic_setup.manage")
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateClassDto) {
+    return this.academicService.createClass(user.tenant_id, user.sub, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission("academic_setup.manage")
+  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateClassDto) {
+    return this.academicService.updateClass(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission("academic_setup.manage")
+  remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.academicService.deleteClass(user.tenant_id, user.sub, id);
+  }
+}
+
+@Controller("sections")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+export class SectionsController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get()
+  @RequirePermission("academic_setup.view")
+  list(@CurrentUser() user: JwtPayload, @Query("class_id") classId: string) {
+    return this.academicService.listSections(user.tenant_id, classId);
+  }
+
+  @Post()
+  @RequirePermission("academic_setup.manage")
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateSectionDto) {
+    return this.academicService.createSection(user.tenant_id, user.sub, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission("academic_setup.manage")
+  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateSectionDto) {
+    return this.academicService.updateSection(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission("academic_setup.manage")
+  remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.academicService.deleteSection(user.tenant_id, user.sub, id);
+  }
+}

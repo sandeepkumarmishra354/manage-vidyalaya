@@ -4,13 +4,7 @@ import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 
 import { PrismaService } from "../prisma/prisma.service.js";
-
-export interface EntitlementClaims {
-  tenant_id: string;
-  branch_ids: string[] | "all";
-  subscription_status: string;
-  expires_at: string;
-}
+import type { JwtPayload } from "./jwt.strategy.js";
 
 export interface LoginResult {
   access_token: string;
@@ -18,13 +12,32 @@ export interface LoginResult {
   user: {
     id: string;
     tenant_id: string;
+    branch_id: string | null;
     full_name: string;
     email: string;
     roles: string[];
   };
-  entitlement: EntitlementClaims;
 }
 
+export interface RefreshResult {
+  access_token: string;
+}
+
+export interface MeResult {
+  user: {
+    id: string;
+    tenant_id: string;
+    branch_id: string | null;
+    full_name: string;
+    email: string;
+  };
+  roles: string[];
+  permissions: string[];
+  branches: { id: string; name: string; code: string }[];
+}
+
+// Sessions are online-only now: no offline grace period / EntitlementClaims
+// concept. A logged-in client just needs a valid, refreshable access token.
 @Injectable()
 export class AuthService {
   constructor(
@@ -36,7 +49,7 @@ export class AuthService {
   async login(email: string, password: string): Promise<LoginResult> {
     const user = await this.prisma.user.findFirst({
       where: { email, deletedAt: null, isActive: true },
-      include: { userRoles: { include: { role: true } }, tenant: true },
+      include: { userRoles: { include: { role: true } } },
     });
 
     if (!user || !user.passwordHash) {
@@ -49,21 +62,7 @@ export class AuthService {
     }
 
     const roles = user.userRoles.map((ur) => ur.role.name);
-
-    const payload = { sub: user.id, tenant_id: user.tenantId, roles };
-    const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
-    const refreshTtl = this.config.get<string>("JWT_REFRESH_TOKEN_TTL", "30d");
-    const access_token = await this.jwt.signAsync(payload, {
-      expiresIn: accessTtl as JwtSignOptions["expiresIn"],
-    });
-    const refresh_token = await this.jwt.signAsync(payload, {
-      expiresIn: refreshTtl as JwtSignOptions["expiresIn"],
-    });
-
-    const graceDays = Number(this.config.get("ENTITLEMENT_OFFLINE_GRACE_DAYS", "14"));
-    const expiresAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
-
-    const branchIds = user.branchId ? [user.branchId] : "all";
+    const { access_token, refresh_token } = await this.issueTokenPair(user.id, user.tenantId, roles);
 
     return {
       access_token,
@@ -71,16 +70,106 @@ export class AuthService {
       user: {
         id: user.id,
         tenant_id: user.tenantId,
+        branch_id: user.branchId,
         full_name: user.fullName,
         email: user.email,
         roles,
       },
-      entitlement: {
-        tenant_id: user.tenantId,
-        branch_ids: branchIds,
-        subscription_status: user.tenant.subscriptionStatus,
-        expires_at: expiresAt.toISOString(),
-      },
     };
+  }
+
+  async refresh(refreshToken: string): Promise<RefreshResult> {
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.config.get<string>("JWT_SECRET", "dev-only-change-me"),
+      });
+    } catch {
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
+
+    if (payload.type !== "refresh") {
+      throw new UnauthorizedException("Not a refresh token");
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: payload.sub, deletedAt: null, isActive: true },
+      include: { userRoles: { include: { role: true } } },
+    });
+    if (!user) {
+      throw new UnauthorizedException("User no longer active");
+    }
+
+    // Re-derive roles from the database rather than trusting the refresh
+    // token's payload -- role assignments may have changed since it was
+    // issued.
+    const roles = user.userRoles.map((ur) => ur.role.name);
+    const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
+    const access_token = await this.jwt.signAsync(
+      { sub: user.id, tenant_id: user.tenantId, roles, type: "access" },
+      { expiresIn: accessTtl as JwtSignOptions["expiresIn"] },
+    );
+
+    return { access_token };
+  }
+
+  async me(userId: string): Promise<MeResult> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null, isActive: true },
+      include: { userRoles: { include: { role: true } } },
+    });
+    if (!user) {
+      throw new UnauthorizedException("User not found");
+    }
+
+    const roleIds = user.userRoles.map((ur) => ur.roleId);
+    const roles = user.userRoles.map((ur) => ur.role.name);
+
+    const grants = roleIds.length
+      ? await this.prisma.rolePermission.findMany({
+          where: { roleId: { in: roleIds }, deletedAt: null },
+          select: { permissionKey: true },
+        })
+      : [];
+    const permissions = [...new Set(grants.map((g) => g.permissionKey))];
+
+    const branches = await this.prisma.branch.findMany({
+      where: {
+        tenantId: user.tenantId,
+        deletedAt: null,
+        ...(user.branchId ? { id: user.branchId } : {}),
+      },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: "asc" },
+    });
+
+    return {
+      user: {
+        id: user.id,
+        tenant_id: user.tenantId,
+        branch_id: user.branchId,
+        full_name: user.fullName,
+        email: user.email,
+      },
+      roles,
+      permissions,
+      branches,
+    };
+  }
+
+  private async issueTokenPair(userId: string, tenantId: string, roles: string[]) {
+    const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
+    const refreshTtl = this.config.get<string>("JWT_REFRESH_TOKEN_TTL", "30d");
+
+    const access_token = await this.jwt.signAsync(
+      { sub: userId, tenant_id: tenantId, roles, type: "access" },
+      { expiresIn: accessTtl as JwtSignOptions["expiresIn"] },
+    );
+    const refresh_token = await this.jwt.signAsync(
+      { sub: userId, tenant_id: tenantId, roles, type: "refresh" },
+      { expiresIn: refreshTtl as JwtSignOptions["expiresIn"] },
+    );
+
+    return { access_token, refresh_token };
   }
 }

@@ -1,20 +1,20 @@
 // Prisma schema for the cloud-api Postgres database.
 //
-// Design note (v1 scope): Postgres does NOT keep a full relational mirror of
-// every synced entity (students, guardians, admissions, classes...). Instead
-// it keeps an append-only per-tenant change log (`sync_log`), and a new
-// device's first pull replays the entire log in order, which reconstructs
-// current state (later rows for the same entity id overwrite earlier ones
-// via the desktop's INSERT OR REPLACE). This proves the sync architecture
-// without maintaining two parallel relational schemas by hand. A queryable
-// relational mirror on the server (for a future web/reporting portal) is
-// intentionally deferred -- see plan doc's "future work" notes.
+// cloud-api is the sole system of record (online-only REST architecture --
+// see docs/architecture.md). Every domain entity from the original SQLite
+// schema (packages/db-schema/migrations/) is modeled here relationally, with
+// real Prisma `@relation`s for referential integrity and `include`-based
+// joins instead of the old bare-FK-id-as-string approach.
 //
-// tenants / branches / roles / users / user_roles / role_permissions ARE
-// modeled relationally here because cloud-api needs to query them directly
-// for auth, RBAC and billing, independent of any desktop client being
-// online. SyncService.mirrorRelationalTable upserts into these models
-// alongside the sync_log write for pushes to these specific tables.
+// Conventions carried over from the original schema, applied to every model:
+//   - money fields are integer paise (minor units), never floats
+//   - `updatedAt`/`updatedBy`/`deletedAt` (soft delete)/`version` on every
+//     mutable table
+//   - `tenantId` and `branchId` are kept as plain scoping columns (no
+//     Prisma relation) on domain tables -- they're multi-tenancy/branch
+//     filters applied on every query via the auth guard, not a join target.
+//     Tenant/Branch/Role/User/UserRole/RolePermission keep their existing
+//     relations since those are genuinely queried that way for auth/RBAC.
 
 generator client {
   provider = "prisma-client-js"
@@ -24,6 +24,10 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// ============================================================================
+// Tenancy, auth, RBAC
+// ============================================================================
 
 model Tenant {
   id                    String    @id
@@ -79,11 +83,6 @@ model Role {
   @@map("roles")
 }
 
-/// Relationally mirrored (unlike most domain tables, which live only in
-/// sync_log) because cloud-api's PermissionsGuard needs to query it directly
-/// when enforcing access on server-side endpoints (e.g. UsersModule),
-/// independent of any desktop client being online. Kept in sync by
-/// SyncService.mirrorRelationalTable on every push of a role_permissions row.
 model RolePermission {
   id            String    @id
   tenantId      String    @map("tenant_id")
@@ -117,6 +116,18 @@ model User {
   tenant    Tenant     @relation(fields: [tenantId], references: [id])
   userRoles UserRole[]
 
+  // Reverse relations from actor/owner foreign keys across domain modules.
+  staffAccounts            Staff[]
+  admissionsDecided        Admission[]
+  attendanceRecordsMarked  AttendanceRecord[]
+  feePaymentsRecorded      FeePayment[]
+  housePointEventsAwarded  HousePointEvent[]
+  libraryIssuesIssued      LibraryIssue[]
+  payrollRunsGenerated     PayrollRun[]
+  promotionBatchesExecuted PromotionBatch[]
+  staffAttendanceMarked    StaffAttendance[]
+  auditLogsActor           AuditLog[]
+
   @@unique([tenantId, email])
   @@map("users")
 }
@@ -136,17 +147,898 @@ model UserRole {
   @@map("user_roles")
 }
 
-/// Append-only change feed. Each accepted push writes one row here; pulls
-/// read forward from a client's cursor (`server_seq`). See design note above.
-model SyncLog {
-  serverSeq   BigInt   @id @default(autoincrement()) @map("server_seq")
+// ============================================================================
+// Academic structure
+// ============================================================================
+
+model AcademicSession {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  name      String
+  startDate DateTime  @map("start_date")
+  endDate   DateTime  @map("end_date")
+  isCurrent Boolean   @default(false) @map("is_current")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  classes              Class[]
+  exams                Exam[]
+  admissions           Admission[]
+  teacherAssignments   TeacherSubjectAssignment[]
+  housePointEvents     HousePointEvent[]
+  studentEnrollments   StudentEnrollment[]
+  feeStructures        FeeStructure[]
+  feeInvoices          FeeInvoice[]
+  promotionBatchesFrom PromotionBatch[]           @relation("PromotionBatchFromSession")
+  promotionBatchesTo   PromotionBatch[]           @relation("PromotionBatchToSession")
+
+  @@map("academic_sessions")
+}
+
+model Class {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  name              String
+  sortOrder         Int       @default(0) @map("sort_order")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+
+  sections           Section[]
+  studentsCurrent    Student[]
+  feeStructures      FeeStructure[]
+  exams              Exam[]
+  teacherAssignments TeacherSubjectAssignment[]
+  admissionsApplied  Admission[]
+  studentEnrollments StudentEnrollment[]
+  attendanceRecords  AttendanceRecord[]
+  promotionItemsFrom PromotionBatchItem[]       @relation("PromotionItemFromClass")
+  promotionItemsTo   PromotionBatchItem[]       @relation("PromotionItemToClass")
+
+  @@index([branchId, academicSessionId])
+  @@map("classes")
+}
+
+model Section {
+  id                  String    @id
+  tenantId            String    @map("tenant_id")
+  classId             String    @map("class_id")
+  name                String
+  classTeacherStaffId String?   @map("class_teacher_staff_id")
+  capacity            Int?
+  updatedAt           DateTime  @map("updated_at")
+  updatedBy           String?   @map("updated_by")
+  deletedAt           DateTime? @map("deleted_at")
+  version             Int       @default(1)
+
+  class             Class  @relation(fields: [classId], references: [id])
+  classTeacherStaff Staff? @relation(fields: [classTeacherStaffId], references: [id])
+
+  studentsCurrent    Student[]
+  attendanceRecords  AttendanceRecord[]
+  teacherAssignments TeacherSubjectAssignment[]
+  studentEnrollments StudentEnrollment[]
+  promotionItemsFrom PromotionBatchItem[]       @relation("PromotionItemFromSection")
+  promotionItemsTo   PromotionBatchItem[]       @relation("PromotionItemToSection")
+
+  @@index([classId])
+  @@map("sections")
+}
+
+// ============================================================================
+// Students, guardians, admissions
+// ============================================================================
+
+model Student {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  branchId         String    @map("branch_id")
+  admissionNumber  String?   @map("admission_number")
+  firstName        String    @map("first_name")
+  lastName         String?   @map("last_name")
+  dateOfBirth      DateTime? @map("date_of_birth")
+  gender           String?
+  bloodGroup       String?   @map("blood_group")
+  photoPath        String?   @map("photo_path")
+  currentClassId   String?   @map("current_class_id")
+  currentSectionId String?   @map("current_section_id")
+  status           String    @default("enquiry")
+  address          String?
+  city             String?
+  state            String?
+  pincode          String?
+  notes            String?
+  updatedAt        DateTime  @map("updated_at")
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at")
+  version          Int       @default(1)
+
+  currentClass   Class?   @relation(fields: [currentClassId], references: [id])
+  currentSection Section? @relation(fields: [currentSectionId], references: [id])
+
+  studentGuardians    StudentGuardian[]
+  admissions          Admission[]
+  attendanceRecords   AttendanceRecord[]
+  feeInvoices         FeeInvoice[]
+  examMarks           ExamMark[]
+  studentHouse        StudentHouse?
+  housePointEvents    HousePointEvent[]
+  libraryIssues       LibraryIssue[]
+  studentTransport    StudentTransport?
+  studentEnrollments  StudentEnrollment[]
+  promotionBatchItems PromotionBatchItem[]
+
+  @@unique([tenantId, admissionNumber])
+  @@index([tenantId, branchId])
+  @@index([currentClassId, currentSectionId])
+  @@map("students")
+}
+
+model Guardian {
+  id         String    @id
+  tenantId   String    @map("tenant_id")
+  fullName   String    @map("full_name")
+  relation   String?
+  phone      String?
+  altPhone   String?   @map("alt_phone")
+  email      String?
+  occupation String?
+  address    String?
+  updatedAt  DateTime  @map("updated_at")
+  updatedBy  String?   @map("updated_by")
+  deletedAt  DateTime? @map("deleted_at")
+  version    Int       @default(1)
+
+  studentGuardians StudentGuardian[]
+
+  @@map("guardians")
+}
+
+model StudentGuardian {
+  id               String   @id
+  tenantId         String   @map("tenant_id")
+  studentId        String   @map("student_id")
+  guardianId       String   @map("guardian_id")
+  relation         String
+  isPrimaryContact Boolean  @default(false) @map("is_primary_contact")
+  updatedAt        DateTime @map("updated_at")
+  version          Int      @default(1)
+
+  student  Student  @relation(fields: [studentId], references: [id])
+  guardian Guardian @relation(fields: [guardianId], references: [id])
+
+  @@unique([studentId, guardianId])
+  @@index([studentId])
+  @@map("student_guardians")
+}
+
+model Admission {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  studentId         String    @map("student_id")
+  appliedClassId    String?   @map("applied_class_id")
+  academicSessionId String    @map("academic_session_id")
+  stage             String    @default("enquiry")
+  appliedAt         DateTime  @map("applied_at")
+  decidedAt         DateTime? @map("decided_at")
+  decidedBy         String?   @map("decided_by")
+  remarks           String?
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  student         Student         @relation(fields: [studentId], references: [id])
+  appliedClass    Class?          @relation(fields: [appliedClassId], references: [id])
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  decidedByUser   User?           @relation(fields: [decidedBy], references: [id])
+
+  @@index([branchId, stage])
+  @@map("admissions")
+}
+
+// ============================================================================
+// Attendance
+// ============================================================================
+
+model AttendanceRecord {
+  id             String    @id
+  tenantId       String    @map("tenant_id")
+  branchId       String    @map("branch_id")
+  studentId      String    @map("student_id")
+  classId        String?   @map("class_id")
+  sectionId      String?   @map("section_id")
+  attendanceDate DateTime  @map("attendance_date")
+  status         String
+  markedBy       String?   @map("marked_by")
+  remarks        String?
+  updatedAt      DateTime  @map("updated_at")
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at")
+  version        Int       @default(1)
+
+  student      Student  @relation(fields: [studentId], references: [id])
+  class        Class?   @relation(fields: [classId], references: [id])
+  section      Section? @relation(fields: [sectionId], references: [id])
+  markedByUser User?    @relation(fields: [markedBy], references: [id])
+
+  @@unique([tenantId, studentId, attendanceDate])
+  @@index([branchId, attendanceDate])
+  @@index([classId, sectionId, attendanceDate])
+  @@map("attendance_records")
+}
+
+// ============================================================================
+// Fees & billing
+// ============================================================================
+
+model FeeStructure {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  classId           String?   @map("class_id")
+  name              String
+  amount            Int
+  frequency         String    @default("one_time")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  class           Class?          @relation(fields: [classId], references: [id])
+  feeInvoices     FeeInvoice[]
+
+  @@index([branchId, academicSessionId])
+  @@map("fee_structures")
+}
+
+model FeeInvoice {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  studentId         String    @map("student_id")
+  feeStructureId    String    @map("fee_structure_id")
+  academicSessionId String    @map("academic_session_id")
+  amountDue         Int       @map("amount_due")
+  amountPaid        Int       @default(0) @map("amount_paid")
+  dueDate           DateTime? @map("due_date")
+  status            String    @default("pending")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  student         Student         @relation(fields: [studentId], references: [id])
+  feeStructure    FeeStructure    @relation(fields: [feeStructureId], references: [id])
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  feePayments     FeePayment[]
+
+  @@index([studentId])
+  @@index([branchId, status])
+  @@map("fee_invoices")
+}
+
+model FeePayment {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  invoiceId     String    @map("invoice_id")
+  amount        Int
+  paymentMethod String    @default("cash") @map("payment_method")
+  paymentDate   DateTime  @map("payment_date")
+  receiptNumber String?   @map("receipt_number")
+  recordedBy    String?   @map("recorded_by")
+  remarks       String?
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  invoice        FeeInvoice @relation(fields: [invoiceId], references: [id])
+  recordedByUser User?      @relation(fields: [recordedBy], references: [id])
+
+  @@index([invoiceId])
+  @@map("fee_payments")
+}
+
+// ============================================================================
+// Exams & report cards
+// ============================================================================
+
+model Subject {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  branchId  String    @map("branch_id")
+  name      String
+  code      String?
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  examMarks          ExamMark[]
+  teacherAssignments TeacherSubjectAssignment[]
+
+  @@index([branchId])
+  @@map("subjects")
+}
+
+model Exam {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  classId           String    @map("class_id")
+  name              String
+  examDate          DateTime? @map("exam_date")
+  examType          String    @default("regular") @map("exam_type")
+  parentExamId      String?   @map("parent_exam_id")
+  passingPercentage Float     @default(33.0) @map("passing_percentage")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  class           Class           @relation(fields: [classId], references: [id])
+  parentExam      Exam?           @relation("ExamBackPaper", fields: [parentExamId], references: [id])
+  backPapers      Exam[]          @relation("ExamBackPaper")
+  examMarks       ExamMark[]
+
+  @@index([branchId, classId, academicSessionId])
+  @@map("exams")
+}
+
+model ExamMark {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  examId        String    @map("exam_id")
+  subjectId     String    @map("subject_id")
+  studentId     String    @map("student_id")
+  maxMarks      Int       @default(100) @map("max_marks")
+  marksObtained Float?    @map("marks_obtained")
+  isAbsent      Boolean   @default(false) @map("is_absent")
+  remarks       String?
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  exam    Exam    @relation(fields: [examId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, subjectId, studentId])
+  @@index([examId])
+  @@index([studentId])
+  @@map("exam_marks")
+}
+
+// ============================================================================
+// Module settings (per-branch feature toggles)
+// ============================================================================
+
+model ModuleSetting {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  branchId  String    @map("branch_id")
+  moduleKey String    @map("module_key")
+  isEnabled Boolean   @default(true) @map("is_enabled")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  @@unique([branchId, moduleKey])
+  @@index([branchId])
+  @@map("module_settings")
+}
+
+// ============================================================================
+// Houses
+// ============================================================================
+
+model House {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  branchId  String    @map("branch_id")
+  name      String
+  color     String?
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  studentHouses    StudentHouse[]
+  housePointEvents HousePointEvent[]
+
+  @@unique([branchId, name])
+  @@index([branchId])
+  @@map("houses")
+}
+
+model StudentHouse {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  studentId String    @unique @map("student_id")
+  houseId   String    @map("house_id")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  student Student @relation(fields: [studentId], references: [id])
+  house   House   @relation(fields: [houseId], references: [id])
+
+  @@index([houseId])
+  @@map("student_houses")
+}
+
+model HousePointEvent {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  houseId           String    @map("house_id")
+  studentId         String?   @map("student_id")
+  academicSessionId String?   @map("academic_session_id")
+  points            Int
+  reason            String
+  eventDate         DateTime  @map("event_date")
+  awardedBy         String?   @map("awarded_by")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  house           House            @relation(fields: [houseId], references: [id])
+  student         Student?         @relation(fields: [studentId], references: [id])
+  academicSession AcademicSession? @relation(fields: [academicSessionId], references: [id])
+  awardedByUser   User?            @relation(fields: [awardedBy], references: [id])
+
+  @@index([houseId])
+  @@index([academicSessionId])
+  @@map("house_point_events")
+}
+
+// ============================================================================
+// Library
+// ============================================================================
+
+model LibraryBook {
+  id              String    @id
+  tenantId        String    @map("tenant_id")
+  branchId        String    @map("branch_id")
+  title           String
+  author          String?
+  isbn            String?
+  category        String?
+  totalCopies     Int       @default(1) @map("total_copies")
+  availableCopies Int       @default(1) @map("available_copies")
+  updatedAt       DateTime  @map("updated_at")
+  updatedBy       String?   @map("updated_by")
+  deletedAt       DateTime? @map("deleted_at")
+  version         Int       @default(1)
+
+  libraryIssues LibraryIssue[]
+
+  @@index([branchId])
+  @@map("library_books")
+}
+
+model LibraryIssue {
+  id           String    @id
+  tenantId     String    @map("tenant_id")
+  branchId     String    @map("branch_id")
+  bookId       String    @map("book_id")
+  studentId    String    @map("student_id")
+  issuedDate   DateTime  @map("issued_date")
+  dueDate      DateTime  @map("due_date")
+  returnedDate DateTime? @map("returned_date")
+  status       String    @default("issued")
+  issuedBy     String?   @map("issued_by")
+  updatedAt    DateTime  @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  deletedAt    DateTime? @map("deleted_at")
+  version      Int       @default(1)
+
+  book         LibraryBook @relation(fields: [bookId], references: [id])
+  student      Student     @relation(fields: [studentId], references: [id])
+  issuedByUser User?       @relation(fields: [issuedBy], references: [id])
+
+  @@index([bookId])
+  @@index([studentId])
+  @@index([branchId, status])
+  @@map("library_issues")
+}
+
+// ============================================================================
+// Transport
+// ============================================================================
+
+model TransportRoute {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  branchId      String    @map("branch_id")
+  name          String
+  vehicleNumber String?   @map("vehicle_number")
+  driverName    String?   @map("driver_name")
+  driverPhone   String?   @map("driver_phone")
+  capacity      Int?
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  stops             TransportStop[]
+  studentTransports StudentTransport[]
+
+  @@index([branchId])
+  @@map("transport_routes")
+}
+
+model TransportStop {
+  id         String    @id
+  tenantId   String    @map("tenant_id")
+  routeId    String    @map("route_id")
+  name       String
+  sequence   Int       @default(0)
+  pickupTime String?   @map("pickup_time")
+  updatedAt  DateTime  @map("updated_at")
+  updatedBy  String?   @map("updated_by")
+  deletedAt  DateTime? @map("deleted_at")
+  version    Int       @default(1)
+
+  route             TransportRoute     @relation(fields: [routeId], references: [id])
+  studentTransports StudentTransport[]
+
+  @@index([routeId])
+  @@map("transport_stops")
+}
+
+model StudentTransport {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  studentId String    @unique @map("student_id")
+  routeId   String    @map("route_id")
+  stopId    String    @map("stop_id")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  student Student        @relation(fields: [studentId], references: [id])
+  route   TransportRoute @relation(fields: [routeId], references: [id])
+  stop    TransportStop  @relation(fields: [stopId], references: [id])
+
+  @@index([routeId])
+  @@map("student_transport")
+}
+
+// ============================================================================
+// Staff / HR
+// ============================================================================
+
+model Staff {
+  id                    String    @id
+  tenantId              String    @map("tenant_id")
+  branchId              String    @map("branch_id")
+  userId                String?   @map("user_id")
+  employeeCode          String    @map("employee_code")
+  firstName             String    @map("first_name")
+  lastName              String?   @map("last_name")
+  dateOfBirth           DateTime? @map("date_of_birth")
+  gender                String?
+  phone                 String?
+  personalEmail         String?   @map("personal_email")
+  address               String?
+  city                  String?
+  state                 String?
+  pincode               String?
+  designation           String
+  department            String?
+  employmentType        String    @default("full_time") @map("employment_type")
+  dateOfJoining         DateTime  @map("date_of_joining")
+  dateOfLeaving         DateTime? @map("date_of_leaving")
+  status                String    @default("active")
+  qualification         String?
+  bloodGroup            String?   @map("blood_group")
+  photoPath             String?   @map("photo_path")
+  panNumber             String?   @map("pan_number")
+  aadhaarNumber         String?   @map("aadhaar_number")
+  bankAccountNumber     String?   @map("bank_account_number")
+  bankIfsc              String?   @map("bank_ifsc")
+  bankName              String?   @map("bank_name")
+  pfNumber              String?   @map("pf_number")
+  esiNumber             String?   @map("esi_number")
+  uanNumber             String?   @map("uan_number")
+  emergencyContactName  String?   @map("emergency_contact_name")
+  emergencyContactPhone String?   @map("emergency_contact_phone")
+  notes                 String?
+  updatedAt             DateTime  @map("updated_at")
+  updatedBy             String?   @map("updated_by")
+  deletedAt             DateTime? @map("deleted_at")
+  version               Int       @default(1)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  sectionsAsClassTeacher Section[]
+  teacherAssignments     TeacherSubjectAssignment[]
+  staffAttendance        StaffAttendance[]
+  salaryStructures       SalaryStructure[]
+  payslips               Payslip[]
+
+  @@unique([tenantId, employeeCode])
+  @@index([branchId])
+  @@index([userId])
+  @@map("staff")
+}
+
+model TeacherSubjectAssignment {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  staffId           String    @map("staff_id")
+  classId           String    @map("class_id")
+  sectionId         String?   @map("section_id")
+  subjectId         String    @map("subject_id")
+  academicSessionId String    @map("academic_session_id")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  staff           Staff           @relation(fields: [staffId], references: [id])
+  class           Class           @relation(fields: [classId], references: [id])
+  section         Section?        @relation(fields: [sectionId], references: [id])
+  subject         Subject         @relation(fields: [subjectId], references: [id])
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+
+  @@unique([staffId, classId, sectionId, subjectId, academicSessionId])
+  @@index([staffId])
+  @@index([classId, sectionId])
+  @@map("teacher_subject_assignments")
+}
+
+model StaffAttendance {
+  id             String    @id
+  tenantId       String    @map("tenant_id")
+  branchId       String    @map("branch_id")
+  staffId        String    @map("staff_id")
+  attendanceDate DateTime  @map("attendance_date")
+  status         String
+  checkInTime    String?   @map("check_in_time")
+  checkOutTime   String?   @map("check_out_time")
+  markedBy       String?   @map("marked_by")
+  remarks        String?
+  updatedAt      DateTime  @map("updated_at")
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at")
+  version        Int       @default(1)
+
+  staff        Staff @relation(fields: [staffId], references: [id])
+  markedByUser User? @relation(fields: [markedBy], references: [id])
+
+  @@unique([tenantId, staffId, attendanceDate])
+  @@index([staffId, attendanceDate])
+  @@index([branchId, attendanceDate])
+  @@map("staff_attendance")
+}
+
+// ============================================================================
+// Payroll
+// ============================================================================
+
+model SalaryStructure {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  branchId      String    @map("branch_id")
+  staffId       String    @map("staff_id")
+  effectiveFrom DateTime  @map("effective_from")
+  basicAmount   Int       @map("basic_amount")
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  staff            Staff             @relation(fields: [staffId], references: [id])
+  salaryComponents SalaryComponent[]
+
+  @@index([staffId, effectiveFrom])
+  @@map("salary_structures")
+}
+
+model SalaryComponent {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  salaryStructureId String    @map("salary_structure_id")
+  componentName     String    @map("component_name")
+  componentType     String    @map("component_type")
+  calculationType   String    @map("calculation_type")
+  amount            Int?
+  percent           Float?
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+
+  @@index([salaryStructureId])
+  @@map("salary_components")
+}
+
+model PayrollRun {
+  id          String    @id
+  tenantId    String    @map("tenant_id")
+  branchId    String    @map("branch_id")
+  periodMonth Int       @map("period_month")
+  periodYear  Int       @map("period_year")
+  status      String    @default("draft")
+  generatedAt DateTime  @map("generated_at")
+  generatedBy String?   @map("generated_by")
+  updatedAt   DateTime  @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at")
+  version     Int       @default(1)
+
+  generatedByUser User?     @relation(fields: [generatedBy], references: [id])
+  payslips        Payslip[]
+
+  @@unique([branchId, periodMonth, periodYear])
+  @@index([branchId, periodYear, periodMonth])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id              String    @id
+  tenantId        String    @map("tenant_id")
+  payrollRunId    String    @map("payroll_run_id")
+  staffId         String    @map("staff_id")
+  daysInMonth     Int       @map("days_in_month")
+  daysPresent     Float     @map("days_present")
+  daysLop         Float     @default(0) @map("days_lop")
+  grossEarnings   Int       @map("gross_earnings")
+  totalDeductions Int       @map("total_deductions")
+  netPay          Int       @map("net_pay")
+  status          String    @default("draft")
+  paidOn          DateTime? @map("paid_on")
+  remarks         String?
+  updatedAt       DateTime  @map("updated_at")
+  updatedBy       String?   @map("updated_by")
+  deletedAt       DateTime? @map("deleted_at")
+  version         Int       @default(1)
+
+  payrollRun PayrollRun        @relation(fields: [payrollRunId], references: [id])
+  staff      Staff             @relation(fields: [staffId], references: [id])
+  lineItems  PayslipLineItem[]
+
+  @@unique([payrollRunId, staffId])
+  @@index([payrollRunId])
+  @@index([staffId])
+  @@map("payslips")
+}
+
+model PayslipLineItem {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  payslipId     String    @map("payslip_id")
+  componentName String    @map("component_name")
+  componentType String    @map("component_type")
+  amount        Int
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  payslip Payslip @relation(fields: [payslipId], references: [id])
+
+  @@index([payslipId])
+  @@map("payslip_line_items")
+}
+
+// ============================================================================
+// Promotion (session rollover)
+// ============================================================================
+
+model StudentEnrollment {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  studentId         String    @map("student_id")
+  academicSessionId String    @map("academic_session_id")
+  classId           String    @map("class_id")
+  sectionId         String?   @map("section_id")
+  rollNumber        String?   @map("roll_number")
+  status            String    @default("promoted")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  student         Student         @relation(fields: [studentId], references: [id])
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  class           Class           @relation(fields: [classId], references: [id])
+  section         Section?        @relation(fields: [sectionId], references: [id])
+
+  @@unique([studentId, academicSessionId])
+  @@index([academicSessionId])
+  @@map("student_enrollments")
+}
+
+model PromotionBatch {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  branchId         String    @map("branch_id")
+  fromSessionId    String    @map("from_session_id")
+  toSessionId      String    @map("to_session_id")
+  classMappingJson Json      @map("class_mapping_json")
+  status           String    @default("draft")
+  executedAt       DateTime? @map("executed_at")
+  executedBy       String?   @map("executed_by")
+  createdAt        DateTime  @map("created_at")
+
+  fromSession    AcademicSession      @relation("PromotionBatchFromSession", fields: [fromSessionId], references: [id])
+  toSession      AcademicSession      @relation("PromotionBatchToSession", fields: [toSessionId], references: [id])
+  executedByUser User?                @relation(fields: [executedBy], references: [id])
+  items          PromotionBatchItem[]
+
+  @@index([branchId])
+  @@map("promotion_batches")
+}
+
+model PromotionBatchItem {
+  id               String  @id
+  tenantId         String  @map("tenant_id")
+  promotionBatchId String  @map("promotion_batch_id")
+  studentId        String  @map("student_id")
+  fromClassId      String? @map("from_class_id")
+  fromSectionId    String? @map("from_section_id")
+  toClassId        String? @map("to_class_id")
+  toSectionId      String? @map("to_section_id")
+  decision         String  @default("promote")
+  remarks          String?
+
+  batch       PromotionBatch @relation(fields: [promotionBatchId], references: [id])
+  student     Student        @relation(fields: [studentId], references: [id])
+  fromClass   Class?         @relation("PromotionItemFromClass", fields: [fromClassId], references: [id])
+  toClass     Class?         @relation("PromotionItemToClass", fields: [toClassId], references: [id])
+  fromSection Section?       @relation("PromotionItemFromSection", fields: [fromSectionId], references: [id])
+  toSection   Section?       @relation("PromotionItemToSection", fields: [toSectionId], references: [id])
+
+  @@unique([promotionBatchId, studentId])
+  @@index([promotionBatchId])
+  @@map("promotion_batch_items")
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+model AuditLog {
+  id          String   @id
   tenantId    String   @map("tenant_id")
+  branchId    String?  @map("branch_id")
+  actorUserId String?  @map("actor_user_id")
   entityTable String   @map("entity_table")
   entityId    String   @map("entity_id")
-  op          String
-  payload     Json
-  createdAt   DateTime @default(now()) @map("created_at")
+  action      String
+  summary     String
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  createdAt   DateTime @map("created_at")
 
-  @@index([tenantId, serverSeq])
-  @@map("sync_log")
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([entityTable, entityId])
+  @@map("audit_log")
 }
