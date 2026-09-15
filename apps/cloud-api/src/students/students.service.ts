@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import type { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import type { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import type { UpdateStudentDto } from "./dto/update-student.dto.js";
@@ -89,10 +90,24 @@ export class StudentsService {
       last_name: student.lastName,
       date_of_birth: student.dateOfBirth,
       gender: student.gender,
+      blood_group: student.bloodGroup,
       current_class_id: student.currentClassId,
       current_section_id: student.currentSectionId,
       status: student.status,
       address: student.address,
+      city: student.city,
+      state: student.state,
+      pincode: student.pincode,
+      notes: student.notes,
+      category: student.category,
+      religion: student.religion,
+      nationality: student.nationality,
+      mother_tongue: student.motherTongue,
+      aadhaar_number: student.aadhaarNumber,
+      previous_school_name: student.previousSchoolName,
+      medical_notes: student.medicalNotes,
+      emergency_contact_name: student.emergencyContactName,
+      emergency_contact_phone: student.emergencyContactPhone,
       updated_at: student.updatedAt,
       version: student.version,
       guardians: student.studentGuardians
@@ -102,9 +117,172 @@ export class StudentsService {
           full_name: sg.guardian.fullName,
           relation: sg.guardian.relation,
           phone: sg.guardian.phone,
+          alt_phone: sg.guardian.altPhone,
           email: sg.guardian.email,
+          occupation: sg.guardian.occupation,
+          address: sg.guardian.address,
+          aadhaar_number: sg.guardian.aadhaarNumber,
+          annual_income: sg.guardian.annualIncome,
+          is_primary_contact: sg.isPrimaryContact,
         })),
     };
+  }
+
+  // Other enrolled students who share at least one guardian with this
+  // student -- de-duplicated since two students can share more than one
+  // guardian (e.g. both a father and mother in common).
+  async getSiblings(studentId: string) {
+    const links = await this.prisma.studentGuardian.findMany({ where: { studentId } });
+    const guardianIds = links.map((l) => l.guardianId);
+    if (guardianIds.length === 0) {
+      return [];
+    }
+
+    const siblingLinks = await this.prisma.studentGuardian.findMany({
+      where: {
+        guardianId: { in: guardianIds },
+        studentId: { not: studentId },
+        student: { deletedAt: null, status: "enrolled" },
+      },
+      include: { student: { include: { currentClass: true, currentSection: true } } },
+    });
+
+    const byStudentId = new Map<string, (typeof siblingLinks)[number]["student"]>();
+    for (const link of siblingLinks) {
+      byStudentId.set(link.student.id, link.student);
+    }
+
+    return Array.from(byStudentId.values()).map((s) => ({
+      id: s.id,
+      first_name: s.firstName,
+      last_name: s.lastName,
+      admission_number: s.admissionNumber,
+      class_name: s.currentClass?.name ?? null,
+      section_name: s.currentSection?.name ?? null,
+    }));
+  }
+
+  // Search existing guardians by phone/name within the tenant, so a
+  // second admission for a sibling can link the same guardian instead of
+  // creating a duplicate. Each result includes the students already
+  // linked to it, so the UI can show "already parent of X" before linking.
+  async searchGuardians(tenantId: string, search: string) {
+    const term = (search ?? "").trim();
+    if (term.length < 2) {
+      return [];
+    }
+
+    const guardians = await this.prisma.guardian.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ phone: { contains: term } }, { fullName: { contains: term, mode: "insensitive" } }],
+      },
+      include: {
+        studentGuardians: {
+          include: { student: { include: { currentClass: true } } },
+        },
+      },
+      take: 20,
+    });
+
+    return guardians.map((g) => ({
+      id: g.id,
+      full_name: g.fullName,
+      relation: g.relation,
+      phone: g.phone,
+      alt_phone: g.altPhone,
+      email: g.email,
+      occupation: g.occupation,
+      address: g.address,
+      aadhaar_number: g.aadhaarNumber,
+      annual_income: g.annualIncome,
+      linked_students: g.studentGuardians
+        .filter((sg) => sg.student.deletedAt === null)
+        .map((sg) => ({
+          id: sg.student.id,
+          name: [sg.student.firstName, sg.student.lastName].filter(Boolean).join(" "),
+          class_name: sg.student.currentClass?.name ?? null,
+        })),
+    }));
+  }
+
+  // Links an existing guardian to a student, or creates a new one and
+  // links it -- the mechanism siblings share a guardian through.
+  async addGuardianToStudent(tenantId: string, actorUserId: string, studentId: string, dto: AddGuardianDto) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      let guardianId: string;
+
+      if (dto.guardian_id) {
+        const guardian = await tx.guardian.findFirst({
+          where: { id: dto.guardian_id, tenantId, deletedAt: null },
+        });
+        if (!guardian) {
+          throw new NotFoundException("guardian not found");
+        }
+        guardianId = guardian.id;
+
+        const existingLink = await tx.studentGuardian.findFirst({ where: { studentId, guardianId } });
+        if (existingLink) {
+          throw new ConflictException("this guardian is already linked to this student");
+        }
+      } else {
+        guardianId = randomUUID();
+        await tx.guardian.create({
+          data: {
+            id: guardianId,
+            tenantId,
+            fullName: dto.full_name!,
+            relation: dto.relation,
+            phone: dto.phone ?? null,
+            altPhone: dto.alt_phone ?? null,
+            email: dto.email ?? null,
+            occupation: dto.occupation ?? null,
+            address: dto.address ?? null,
+            aadhaarNumber: dto.aadhaar_number ?? null,
+            annualIncome: dto.annual_income ?? null,
+            updatedAt: now,
+            updatedBy: actorUserId,
+          },
+        });
+      }
+
+      if (dto.is_primary_contact) {
+        await tx.studentGuardian.updateMany({ where: { studentId }, data: { isPrimaryContact: false } });
+      }
+
+      const studentGuardianId = randomUUID();
+      await tx.studentGuardian.create({
+        data: {
+          id: studentGuardianId,
+          tenantId,
+          studentId,
+          guardianId,
+          relation: dto.relation,
+          isPrimaryContact: dto.is_primary_contact ?? false,
+          updatedAt: now,
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "student_guardians",
+        entityId: studentGuardianId,
+        action: "create",
+        summary: dto.guardian_id ? "Linked existing guardian to student" : "Added new guardian to student",
+      });
+
+      return { guardian_id: guardianId, student_guardian_id: studentGuardianId };
+    });
   }
 
   // Creates a student + guardian + student_guardian + admission record in
@@ -114,7 +292,6 @@ export class StudentsService {
   async createAdmission(tenantId: string, actorUserId: string, dto: CreateAdmissionDto) {
     const now = new Date();
     const studentId = randomUUID();
-    const guardianId = randomUUID();
     const studentGuardianId = randomUUID();
     const admissionId = randomUUID();
 
@@ -131,21 +308,47 @@ export class StudentsService {
           currentClassId: dto.applied_class_id ?? null,
           status: "applied",
           address: dto.address ?? null,
+          category: dto.category ?? null,
+          religion: dto.religion ?? null,
+          nationality: dto.nationality ?? null,
+          motherTongue: dto.mother_tongue ?? null,
+          aadhaarNumber: dto.aadhaar_number ?? null,
+          previousSchoolName: dto.previous_school_name ?? null,
+          medicalNotes: dto.medical_notes ?? null,
+          emergencyContactName: dto.emergency_contact_name ?? null,
+          emergencyContactPhone: dto.emergency_contact_phone ?? null,
           updatedAt: now,
         },
       });
 
-      await tx.guardian.create({
-        data: {
-          id: guardianId,
-          tenantId,
-          fullName: dto.guardian_name,
-          relation: dto.guardian_relation,
-          phone: dto.guardian_phone ?? null,
-          email: dto.guardian_email ?? null,
-          updatedAt: now,
-        },
-      });
+      let guardianId: string;
+      if (dto.guardian_id) {
+        const guardian = await tx.guardian.findFirst({
+          where: { id: dto.guardian_id, tenantId, deletedAt: null },
+        });
+        if (!guardian) {
+          throw new NotFoundException("guardian not found");
+        }
+        guardianId = guardian.id;
+      } else {
+        guardianId = randomUUID();
+        await tx.guardian.create({
+          data: {
+            id: guardianId,
+            tenantId,
+            fullName: dto.guardian_name!,
+            relation: dto.guardian_relation,
+            phone: dto.guardian_phone ?? null,
+            altPhone: dto.guardian_alt_phone ?? null,
+            email: dto.guardian_email ?? null,
+            occupation: dto.guardian_occupation ?? null,
+            address: dto.guardian_address ?? null,
+            aadhaarNumber: dto.guardian_aadhaar_number ?? null,
+            annualIncome: dto.guardian_annual_income ?? null,
+            updatedAt: now,
+          },
+        });
+      }
 
       await tx.studentGuardian.create({
         data: {
@@ -305,6 +508,15 @@ export class StudentsService {
           state: dto.state ?? null,
           pincode: dto.pincode ?? null,
           notes: dto.notes ?? null,
+          category: dto.category ?? null,
+          religion: dto.religion ?? null,
+          nationality: dto.nationality ?? null,
+          motherTongue: dto.mother_tongue ?? null,
+          aadhaarNumber: dto.aadhaar_number ?? null,
+          previousSchoolName: dto.previous_school_name ?? null,
+          medicalNotes: dto.medical_notes ?? null,
+          emergencyContactName: dto.emergency_contact_name ?? null,
+          emergencyContactPhone: dto.emergency_contact_phone ?? null,
           updatedAt: now,
           updatedBy: actorUserId,
           version: { increment: 1 },
@@ -359,7 +571,12 @@ export class StudentsService {
           fullName: dto.full_name,
           relation: dto.relation ?? null,
           phone: dto.phone ?? null,
+          altPhone: dto.alt_phone ?? null,
           email: dto.email ?? null,
+          occupation: dto.occupation ?? null,
+          address: dto.address ?? null,
+          aadhaarNumber: dto.aadhaar_number ?? null,
+          annualIncome: dto.annual_income ?? null,
           updatedAt: now,
           updatedBy: actorUserId,
           version: { increment: 1 },

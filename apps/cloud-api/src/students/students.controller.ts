@@ -5,6 +5,7 @@ import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
+import { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import { UpdateStudentDto } from "./dto/update-student.dto.js";
@@ -44,12 +45,30 @@ export class StudentsController {
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.studentsService.deleteStudent(user.tenant_id, user.sub, id);
   }
+
+  @Get(":id/siblings")
+  @RequirePermission("students.view")
+  siblings(@Param("id") id: string) {
+    return this.studentsService.getSiblings(id);
+  }
+
+  @Post(":id/guardians")
+  @RequirePermission("students.edit")
+  addGuardian(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AddGuardianDto) {
+    return this.studentsService.addGuardianToStudent(user.tenant_id, user.sub, id, dto);
+  }
 }
 
 @Controller("guardians")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class GuardiansController {
   constructor(private readonly studentsService: StudentsService) {}
+
+  @Get()
+  @RequirePermission("students.view")
+  search(@CurrentUser() user: JwtPayload, @Query("search") search: string) {
+    return this.studentsService.searchGuardians(user.tenant_id, search);
+  }
 
   @Patch(":id")
   @RequirePermission("students.edit")

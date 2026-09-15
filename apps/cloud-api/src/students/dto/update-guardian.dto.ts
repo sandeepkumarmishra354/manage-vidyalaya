@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsInt, IsOptional, IsString } from "class-validator";
 
 export class UpdateGuardianDto {
   @IsString()
@@ -14,5 +14,25 @@ export class UpdateGuardianDto {
 
   @IsOptional()
   @IsString()
+  alt_phone?: string | null;
+
+  @IsOptional()
+  @IsString()
   email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  occupation?: string | null;
+
+  @IsOptional()
+  @IsString()
+  address?: string | null;
+
+  @IsOptional()
+  @IsString()
+  aadhaar_number?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  annual_income?: number | null;
 }

@@ -47,4 +47,40 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsString()
   notes?: string | null;
+
+  @IsOptional()
+  @IsString()
+  category?: string | null;
+
+  @IsOptional()
+  @IsString()
+  religion?: string | null;
+
+  @IsOptional()
+  @IsString()
+  nationality?: string | null;
+
+  @IsOptional()
+  @IsString()
+  mother_tongue?: string | null;
+
+  @IsOptional()
+  @IsString()
+  aadhaar_number?: string | null;
+
+  @IsOptional()
+  @IsString()
+  previous_school_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  medical_notes?: string | null;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_phone?: string | null;
 }

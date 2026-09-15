@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
 
 export class CreateAdmissionDto {
   @IsString()
@@ -30,8 +30,53 @@ export class CreateAdmissionDto {
   @IsString()
   address?: string | null;
 
+  @IsOptional()
   @IsString()
-  guardian_name!: string;
+  category?: string | null;
+
+  @IsOptional()
+  @IsString()
+  religion?: string | null;
+
+  @IsOptional()
+  @IsString()
+  nationality?: string | null;
+
+  @IsOptional()
+  @IsString()
+  mother_tongue?: string | null;
+
+  @IsOptional()
+  @IsString()
+  aadhaar_number?: string | null;
+
+  @IsOptional()
+  @IsString()
+  previous_school_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  medical_notes?: string | null;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  emergency_contact_phone?: string | null;
+
+  // Guardian: either link an existing guardian (guardian_id) or supply
+  // guardian_name + the optional fields below to create a new one.
+  // guardian_relation is always required -- it's the StudentGuardian's
+  // relation to THIS student, independent of the guardian's other links.
+  @IsOptional()
+  @IsString()
+  guardian_id?: string | null;
+
+  @ValidateIf((o: CreateAdmissionDto) => !o.guardian_id)
+  @IsString()
+  guardian_name?: string;
 
   @IsString()
   guardian_relation!: string;
@@ -43,4 +88,24 @@ export class CreateAdmissionDto {
   @IsOptional()
   @IsString()
   guardian_email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  guardian_alt_phone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  guardian_occupation?: string | null;
+
+  @IsOptional()
+  @IsString()
+  guardian_address?: string | null;
+
+  @IsOptional()
+  @IsString()
+  guardian_aadhaar_number?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  guardian_annual_income?: number | null;
 }
