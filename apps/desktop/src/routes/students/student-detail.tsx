@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { CheckCircle2Icon, PencilIcon } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { CheckCircle2Icon, PencilIcon, UsersIcon } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
-  type Guardian,
   type House,
+  type StudentGuardianLink,
   type StudentTransportInfo,
   type TransportRoute,
   type TransportStop,
@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
 
 const attendanceBadgeVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -55,10 +56,16 @@ export function StudentDetailPage() {
     queryFn: () => api.getStudentAttendanceHistory(id!),
     enabled: !!id,
   });
+  const { data: siblings = [] } = useQuery({
+    queryKey: ["student-siblings", id],
+    queryFn: () => api.getSiblings(id!),
+    enabled: !!id,
+  });
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["student", id] });
     queryClient.invalidateQueries({ queryKey: ["student-attendance-history", id] });
+    queryClient.invalidateQueries({ queryKey: ["student-siblings", id] });
   };
 
   const handleConfirm = async () => {
@@ -122,13 +129,37 @@ export function StudentDetailPage() {
           <Field label="Admission number" value={student.admission_number ?? "Not yet assigned"} />
           <Field label="Date of birth" value={student.date_of_birth ?? "—"} />
           <Field label="Gender" value={student.gender ?? "—"} />
+          <Field label="Blood group" value={student.blood_group ?? "—"} />
           <Field label="Address" value={student.address ?? "—"} />
+          <Field
+            label="City / State / Pincode"
+            value={[student.city, student.state, student.pincode].filter(Boolean).join(", ") || "—"}
+          />
+          <Field label="Category" value={student.category ?? "—"} />
+          <Field label="Religion" value={student.religion ?? "—"} />
+          <Field label="Nationality" value={student.nationality ?? "—"} />
+          <Field label="Mother tongue" value={student.mother_tongue ?? "—"} />
+          <Field label="Aadhaar number" value={student.aadhaar_number ?? "—"} />
+          <Field label="Previous school" value={student.previous_school_name ?? "—"} />
+          <Field label="Emergency contact" value={student.emergency_contact_name ?? "—"} />
+          <Field label="Emergency contact phone" value={student.emergency_contact_phone ?? "—"} />
+          {student.medical_notes && (
+            <div className="col-span-2">
+              <Field label="Medical notes" value={student.medical_notes} />
+            </div>
+          )}
+          {student.notes && (
+            <div className="col-span-2">
+              <Field label="Notes" value={student.notes} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Guardians</CardTitle>
+          {hasPermission("students.edit") && <AddGuardianDialog studentId={student.id} onAdded={refresh} />}
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {student.guardians.length === 0 && (
@@ -140,17 +171,49 @@ export function StudentDetailPage() {
               <div className="flex items-center justify-between">
                 <p className="font-medium">{g.full_name}</p>
                 <div className="flex items-center gap-2">
+                  {g.is_primary_contact && <Badge variant="success">Primary</Badge>}
                   <Badge variant="outline">{g.relation}</Badge>
                   {hasPermission("students.edit") && <EditGuardianDialog guardian={g} onUpdated={refresh} />}
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                {g.phone ?? "—"} {g.email ? `· ${g.email}` : ""}
+                {g.phone ?? "—"}
+                {g.alt_phone ? ` · alt: ${g.alt_phone}` : ""}
+                {g.email ? ` · ${g.email}` : ""}
+                {g.occupation ? ` · ${g.occupation}` : ""}
               </p>
+              {g.address && <p className="text-sm text-muted-foreground">{g.address}</p>}
             </div>
           ))}
         </CardContent>
       </Card>
+
+      {siblings.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UsersIcon className="size-4 text-academics" />
+              Siblings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {siblings.map((s) => (
+              <Link
+                key={s.id}
+                to={`/students/${s.id}`}
+                className="flex items-center justify-between rounded-md p-2 text-sm hover:bg-accent"
+              >
+                <span className="font-medium">
+                  {s.first_name} {s.last_name ?? ""}
+                </span>
+                <span className="text-muted-foreground">
+                  {[s.class_name, s.section_name].filter(Boolean).join(" · ") || s.admission_number || "—"}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {student.status === "enrolled" && isModuleEnabled("houses") && (
         <HouseCard studentId={student.id} branchId={student.branch_id} />
@@ -280,7 +343,7 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
   );
 }
 
-function EditGuardianDialog({ guardian, onUpdated }: { guardian: Guardian; onUpdated: () => void }) {
+function EditGuardianDialog({ guardian, onUpdated }: { guardian: StudentGuardianLink; onUpdated: () => void }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(guardian);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -298,7 +361,12 @@ function EditGuardianDialog({ guardian, onUpdated }: { guardian: Guardian; onUpd
         full_name: form.full_name,
         relation: form.relation,
         phone: form.phone,
+        alt_phone: form.alt_phone,
         email: form.email,
+        occupation: form.occupation,
+        address: form.address,
+        aadhaar_number: form.aadhaar_number,
+        annual_income: form.annual_income,
       });
       setOpen(false);
       onUpdated();
@@ -315,28 +383,54 @@ function EditGuardianDialog({ guardian, onUpdated }: { guardian: Guardian; onUpd
       <DialogContent>
         <DialogHeader><DialogTitle>Edit guardian</DialogTitle></DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="flex flex-col gap-1.5">
-            <Label>Full name</Label>
-            <Input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} required />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Relation</Label>
-            <Select value={form.relation ?? undefined} onValueChange={(v) => setForm((f) => ({ ...f, relation: v }))}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="father">Father</SelectItem>
-                <SelectItem value="mother">Mother</SelectItem>
-                <SelectItem value="guardian">Guardian</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Phone</Label>
-            <Input value={form.phone ?? ""} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Email</Label>
-            <Input value={form.email ?? ""} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label>Full name</Label>
+              <Input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Relation</Label>
+              <Select value={form.relation ?? undefined} onValueChange={(v) => setForm((f) => ({ ...f, relation: v }))}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="father">Father</SelectItem>
+                  <SelectItem value="mother">Mother</SelectItem>
+                  <SelectItem value="guardian">Guardian</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Occupation</Label>
+              <Input value={form.occupation ?? ""} onChange={(e) => setForm((f) => ({ ...f, occupation: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Phone</Label>
+              <Input value={form.phone ?? ""} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Alternate phone</Label>
+              <Input value={form.alt_phone ?? ""} onChange={(e) => setForm((f) => ({ ...f, alt_phone: e.target.value }))} />
+            </div>
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label>Email</Label>
+              <Input value={form.email ?? ""} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label>Address</Label>
+              <Input value={form.address ?? ""} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Aadhaar number</Label>
+              <Input value={form.aadhaar_number ?? ""} onChange={(e) => setForm((f) => ({ ...f, aadhaar_number: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Annual income (₹)</Label>
+              <Input
+                type="number"
+                value={form.annual_income ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, annual_income: e.target.value ? Number(e.target.value) : null }))}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>

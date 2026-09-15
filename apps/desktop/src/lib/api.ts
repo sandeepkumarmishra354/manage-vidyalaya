@@ -5,8 +5,26 @@ export interface Branch {
   tenant_id: string;
   name: string;
   code: string;
+  address?: string | null;
   city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  logo_url?: string | null;
   is_active: boolean;
+}
+
+export interface UpdateBranchInput {
+  id: string;
+  name: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  logo_url?: string | null;
 }
 
 export interface SchoolClass {
@@ -90,7 +108,44 @@ export interface Guardian {
   full_name: string;
   relation?: string | null;
   phone?: string | null;
+  alt_phone?: string | null;
   email?: string | null;
+  occupation?: string | null;
+  address?: string | null;
+  aadhaar_number?: string | null;
+  /** rupees, NOT paise -- informational/eligibility field. */
+  annual_income?: number | null;
+}
+
+export interface StudentGuardianLink extends Guardian {
+  is_primary_contact: boolean;
+}
+
+export interface GuardianSearchResult extends Guardian {
+  linked_students: { id: string; name: string; class_name?: string | null }[];
+}
+
+export interface Sibling {
+  id: string;
+  first_name: string;
+  last_name?: string | null;
+  admission_number?: string | null;
+  class_name?: string | null;
+  section_name?: string | null;
+}
+
+export interface AddGuardianInput {
+  guardian_id?: string | null;
+  relation: string;
+  is_primary_contact?: boolean;
+  full_name?: string;
+  phone?: string | null;
+  alt_phone?: string | null;
+  email?: string | null;
+  occupation?: string | null;
+  address?: string | null;
+  aadhaar_number?: string | null;
+  annual_income?: number | null;
 }
 
 export interface StudentDetail {
@@ -102,13 +157,27 @@ export interface StudentDetail {
   last_name?: string | null;
   date_of_birth?: string | null;
   gender?: string | null;
+  blood_group?: string | null;
   current_class_id?: string | null;
   current_section_id?: string | null;
   status: StudentStatus;
   address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  notes?: string | null;
+  category?: string | null;
+  religion?: string | null;
+  nationality?: string | null;
+  mother_tongue?: string | null;
+  aadhaar_number?: string | null;
+  previous_school_name?: string | null;
+  medical_notes?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
   updated_at: string;
   version: number;
-  guardians: Guardian[];
+  guardians: StudentGuardianLink[];
 }
 
 export interface NewAdmissionInput {
@@ -120,10 +189,25 @@ export interface NewAdmissionInput {
   date_of_birth?: string | null;
   gender?: string | null;
   address?: string | null;
-  guardian_name: string;
+  category?: string | null;
+  religion?: string | null;
+  nationality?: string | null;
+  mother_tongue?: string | null;
+  aadhaar_number?: string | null;
+  previous_school_name?: string | null;
+  medical_notes?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  guardian_id?: string | null;
+  guardian_name?: string;
   guardian_relation: string;
   guardian_phone?: string | null;
+  guardian_alt_phone?: string | null;
   guardian_email?: string | null;
+  guardian_occupation?: string | null;
+  guardian_address?: string | null;
+  guardian_aadhaar_number?: string | null;
+  guardian_annual_income?: number | null;
 }
 
 export interface Admission {
@@ -155,6 +239,15 @@ export interface UpdateStudentInput {
   state?: string | null;
   pincode?: string | null;
   notes?: string | null;
+  category?: string | null;
+  religion?: string | null;
+  nationality?: string | null;
+  mother_tongue?: string | null;
+  aadhaar_number?: string | null;
+  previous_school_name?: string | null;
+  medical_notes?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
 }
 
 export interface UpdateGuardianInput {
@@ -162,7 +255,12 @@ export interface UpdateGuardianInput {
   full_name: string;
   relation?: string | null;
   phone?: string | null;
+  alt_phone?: string | null;
   email?: string | null;
+  occupation?: string | null;
+  address?: string | null;
+  aadhaar_number?: string | null;
+  annual_income?: number | null;
 }
 
 // ============================================================================
@@ -406,6 +504,17 @@ export interface AttendanceHistoryEntry {
 export type FeeFrequency = "one_time" | "monthly" | "quarterly" | "annual";
 export type InvoiceStatus = "pending" | "partial" | "paid" | "overdue" | "waived" | "voided";
 export type PaymentMethod = "cash" | "cheque" | "upi" | "card" | "online" | "bank_transfer";
+export type FeeType = "tuition" | "transport" | "library" | "exam" | "hostel" | "admission" | "other";
+
+export const FEE_TYPE_LABELS: Record<FeeType, string> = {
+  tuition: "Tuition",
+  transport: "Transport",
+  library: "Library",
+  exam: "Exam",
+  hostel: "Hostel",
+  admission: "Admission / One-time",
+  other: "Other",
+};
 
 export interface FeeStructure {
   id: string;
@@ -416,6 +525,7 @@ export interface FeeStructure {
   /** minor units (paise) */
   amount: number;
   frequency: FeeFrequency;
+  fee_type: FeeType;
 }
 
 export interface NewFeeStructureInput {
@@ -425,6 +535,7 @@ export interface NewFeeStructureInput {
   name: string;
   amount: number;
   frequency: FeeFrequency;
+  fee_type?: FeeType;
 }
 
 export interface UpdateFeeStructureInput {
@@ -432,6 +543,8 @@ export interface UpdateFeeStructureInput {
   name: string;
   amount: number;
   frequency: FeeFrequency;
+  fee_type: FeeType;
+  class_id?: string | null;
 }
 
 export interface VoidInvoiceInput {
@@ -449,6 +562,7 @@ export interface FeeInvoiceListItem {
   student_id: string;
   student_name: string;
   fee_structure_name: string;
+  fee_type: FeeType;
   amount_due: number;
   amount_paid: number;
   due_date?: string | null;
@@ -963,6 +1077,7 @@ export const api = {
   me: () => http.get<MeResponse>("/auth/me"),
 
   listBranches: () => http.get<Branch[]>("/branches"),
+  updateBranch: (input: UpdateBranchInput) => http.patch<Branch>(`/branches/${input.id}`, input),
   listClasses: (branchId: string) => http.get<SchoolClass[]>("/classes", { branch_id: branchId }),
   createClass: (input: NewClassInput) => http.post<SchoolClass>("/classes", input),
   listSections: (classId: string) => http.get<Section[]>("/sections", { class_id: classId }),
@@ -993,6 +1108,10 @@ export const api = {
   updateStudent: (input: UpdateStudentInput) => http.patch<void>(`/students/${input.id}`, input),
   deleteStudent: (id: string) => http.delete<void>(`/students/${id}`),
   updateGuardian: (input: UpdateGuardianInput) => http.patch<void>(`/guardians/${input.id}`, input),
+  searchGuardians: (search: string) => http.get<GuardianSearchResult[]>("/guardians", { search }),
+  addGuardianToStudent: (studentId: string, input: AddGuardianInput) =>
+    http.post<{ guardian_id: string; student_guardian_id: string }>(`/students/${studentId}/guardians`, input),
+  getSiblings: (studentId: string) => http.get<Sibling[]>(`/students/${studentId}/siblings`),
 
   getModuleSettings: (branchId: string) => http.get<ModuleSetting[]>("/module-settings", { branch_id: branchId }),
   setModuleEnabled: (branchId: string, moduleKey: ModuleKey, isEnabled: boolean) =>
@@ -1058,14 +1177,15 @@ export const api = {
   createFeeStructure: (input: NewFeeStructureInput) => http.post<FeeStructure>("/fee-structures", input),
   updateFeeStructure: (input: UpdateFeeStructureInput) =>
     http.patch<void>(`/fee-structures/${input.id}`, input),
-  listFeeStructures: (branchId: string) => http.get<FeeStructure[]>("/fee-structures", { branch_id: branchId }),
+  listFeeStructures: (branchId: string, feeType?: FeeType | null, classId?: string | null) =>
+    http.get<FeeStructure[]>("/fee-structures", { branch_id: branchId, fee_type: feeType, class_id: classId }),
   generateInvoices: async (feeStructureId: string) => {
     const { created } = await http.post<{ created: number }>(`/fee-structures/${feeStructureId}/generate-invoices`);
     return created;
   },
   voidInvoice: (input: VoidInvoiceInput) => http.post<void>(`/fee-invoices/${input.invoice_id}/void`, input),
-  listInvoices: (branchId: string, status?: InvoiceStatus | null) =>
-    http.get<FeeInvoiceListItem[]>("/fee-invoices", { branch_id: branchId, status }),
+  listInvoices: (branchId: string, status?: InvoiceStatus | null, feeType?: FeeType | null, classId?: string | null) =>
+    http.get<FeeInvoiceListItem[]>("/fee-invoices", { branch_id: branchId, status, fee_type: feeType, class_id: classId }),
   getStudentFeeSummary: (studentId: string) =>
     http.get<StudentFeeSummary>(`/fee-invoices/student/${studentId}/summary`),
   recordPayment: (input: RecordPaymentInput) => http.post<FeePayment>("/fee-payments", input),
