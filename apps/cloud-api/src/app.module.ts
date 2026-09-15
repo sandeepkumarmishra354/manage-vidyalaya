@@ -11,6 +11,7 @@ import { FeesModule } from "./fees/fees.module.js";
 import { HousesModule } from "./houses/houses.module.js";
 import { LibraryModule } from "./library/library.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { StaffModule } from "./staff/staff.module.js";
 import { StudentsModule } from "./students/students.module.js";
 import { TransportModule } from "./transport/transport.module.js";
 import { UsersModule } from "./users/users.module.js";
@@ -30,6 +31,7 @@ import { UsersModule } from "./users/users.module.js";
     HousesModule,
     LibraryModule,
     TransportModule,
+    StaffModule,
   ],
   controllers: [AppController],
 })
