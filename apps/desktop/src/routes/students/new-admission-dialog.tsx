@@ -102,10 +102,7 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>New Admission</DialogTitle>
-          <DialogDescription>
-            Works fully offline — this is saved locally right away and syncs to the
-            cloud automatically once connectivity is available.
-          </DialogDescription>
+          <DialogDescription>Enter the applicant's and guardian's details to start an admission.</DialogDescription>
         </DialogHeader>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>

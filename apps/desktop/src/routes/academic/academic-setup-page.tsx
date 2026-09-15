@@ -433,10 +433,7 @@ export function AcademicSetupPage() {
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-semibold">Academic Setup</h1>
-        <p className="text-muted-foreground">
-          Academic sessions, classes, and sections -- shared across all branches and synced like
-          everything else.
-        </p>
+        <p className="text-muted-foreground">Academic sessions, classes, and sections for this branch.</p>
       </div>
       <Tabs defaultValue="classes">
         <TabsList>

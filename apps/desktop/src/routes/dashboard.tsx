@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   BookOpenIcon,
   CalendarCheckIcon,
@@ -21,9 +20,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type DashboardStats, type HouseLeaderboardRow } from "@/lib/api";
+import { api } from "@/lib/api";
 import { formatPaise } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -71,16 +71,18 @@ export function DashboardPage() {
   const session = useAppStore((s) => s.session);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [leaderboard, setLeaderboard] = useState<HouseLeaderboardRow[]>([]);
+  const housesEnabled = isModuleEnabled("houses");
 
-  useEffect(() => {
-    if (!selectedBranchId) return;
-    api.getDashboardStats(selectedBranchId).then(setStats);
-    if (isModuleEnabled("houses")) {
-      api.getHouseLeaderboard(selectedBranchId).then(setLeaderboard);
-    }
-  }, [selectedBranchId, isModuleEnabled]);
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats", selectedBranchId],
+    queryFn: () => api.getDashboardStats(selectedBranchId!),
+    enabled: !!selectedBranchId,
+  });
+  const { data: leaderboard = [] } = useQuery({
+    queryKey: ["house-leaderboard", selectedBranchId],
+    queryFn: () => api.getHouseLeaderboard(selectedBranchId!),
+    enabled: !!selectedBranchId && housesEnabled,
+  });
 
   if (!stats) {
     return <p className="text-muted-foreground">Loading dashboard...</p>;

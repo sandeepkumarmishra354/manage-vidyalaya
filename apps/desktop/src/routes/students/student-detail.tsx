@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle2Icon, PencilIcon } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
-  type AttendanceHistoryEntry,
   type Guardian,
   type House,
-  type StudentDetail,
   type StudentTransportInfo,
   type TransportRoute,
   type TransportStop,
@@ -42,21 +41,25 @@ export function StudentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
   const hasPermission = useAppStore((s) => s.hasPermission);
-  const [student, setStudent] = useState<StudentDetail | null>(null);
-  const [attendance, setAttendance] = useState<AttendanceHistoryEntry[]>([]);
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const refresh = useCallback(() => {
-    if (id) {
-      api.getStudent(id).then(setStudent);
-      api.getStudentAttendanceHistory(id).then(setAttendance);
-    }
-  }, [id]);
+  const { data: student } = useQuery({
+    queryKey: ["student", id],
+    queryFn: () => api.getStudent(id!),
+    enabled: !!id,
+  });
+  const { data: attendance = [] } = useQuery({
+    queryKey: ["student-attendance-history", id],
+    queryFn: () => api.getStudentAttendanceHistory(id!),
+    enabled: !!id,
+  });
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["student", id] });
+    queryClient.invalidateQueries({ queryKey: ["student-attendance-history", id] });
+  };
 
   const handleConfirm = async () => {
     if (!id) return;

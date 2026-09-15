@@ -67,8 +67,7 @@ export function LoginPage() {
               {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Requires an internet connection the first time. After that, Vidyalaya
-              keeps working fully offline.
+              Requires an internet connection to sign in and while you use Vidyalaya.
             </p>
           </form>
         </CardContent>

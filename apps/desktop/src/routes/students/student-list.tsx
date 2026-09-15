@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SearchIcon } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type StudentListItem, type StudentStatus } from "@/lib/api";
+import { api, type StudentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,18 +20,17 @@ const statusVariant: Record<StudentStatus, "default" | "secondary" | "outline"> 
 
 export function StudentListPage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
-  const [students, setStudents] = useState<StudentListItem[]>([]);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const refresh = useCallback(() => {
-    if (!selectedBranchId) return;
-    api.listStudents(selectedBranchId, search).then(setStudents);
-  }, [selectedBranchId, search]);
+  const { data: students = [] } = useQuery({
+    queryKey: ["students", selectedBranchId, search],
+    queryFn: () => api.listStudents(selectedBranchId!, search),
+    enabled: !!selectedBranchId,
+  });
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["students", selectedBranchId] });
 
   return (
     <div className="flex flex-col gap-4">

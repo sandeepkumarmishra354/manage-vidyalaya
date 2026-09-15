@@ -101,7 +101,7 @@ export function AttendancePage() {
       <div className="flex items-center justify-between" data-no-print>
         <div>
           <h1 className="text-2xl font-semibold">Attendance</h1>
-          <p className="text-muted-foreground">Mark daily attendance for a class -- works fully offline.</p>
+          <p className="text-muted-foreground">Mark daily attendance for a class.</p>
         </div>
         {roster.length > 0 && (
           <Button variant="outline" onClick={() => window.print()}>
