@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PencilIcon } from "lucide-react";
 
 import { api, type SchoolClass, type Section, type StudentDetail } from "@/lib/api";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -125,12 +126,20 @@ export function EditStudentDialog({
                 <Input id="edit-dob" type="date" value={form.date_of_birth ?? ""} onChange={update("date_of_birth")} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-gender">Gender</Label>
-                <Input id="edit-gender" value={form.gender ?? ""} onChange={update("gender")} />
+                <Label>Gender</Label>
+                <MasterDataSelect
+                  type="gender"
+                  value={form.gender ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, gender: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-bloodGroup">Blood group</Label>
-                <Input id="edit-bloodGroup" value={form.blood_group ?? ""} onChange={update("blood_group")} />
+                <Label>Blood group</Label>
+                <MasterDataSelect
+                  type="blood_group"
+                  value={form.blood_group ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, blood_group: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Class</Label>
@@ -176,30 +185,35 @@ export function EditStudentDialog({
             <TabsContent value="additional" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label>Category</Label>
-                <Select value={form.category ?? undefined} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="General">General</SelectItem>
-                    <SelectItem value="OBC">OBC</SelectItem>
-                    <SelectItem value="SC">SC</SelectItem>
-                    <SelectItem value="ST">ST</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterDataSelect
+                  type="student_category"
+                  value={form.category ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-religion">Religion</Label>
-                <Input id="edit-religion" value={form.religion ?? ""} onChange={update("religion")} />
+                <Label>Religion</Label>
+                <MasterDataSelect
+                  type="religion"
+                  value={form.religion ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, religion: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-nationality">Nationality</Label>
-                <Input id="edit-nationality" value={form.nationality ?? ""} onChange={update("nationality")} />
+                <Label>Nationality</Label>
+                <MasterDataSelect
+                  type="nationality"
+                  value={form.nationality ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, nationality: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-motherTongue">Mother tongue</Label>
-                <Input id="edit-motherTongue" value={form.mother_tongue ?? ""} onChange={update("mother_tongue")} />
+                <Label>Mother tongue</Label>
+                <MasterDataSelect
+                  type="mother_tongue"
+                  value={form.mother_tongue ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, mother_tongue: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-aadhaarNumber">Aadhaar number</Label>

@@ -55,6 +55,16 @@ const DEFAULT_FEE_CATEGORIES: { key: string; name: string }[] = FEE_TYPES.map((k
   name: key.charAt(0).toUpperCase() + key.slice(1),
 }));
 
+// Default MasterDataItem rows seeded per tenant -- these exactly preserve
+// the option lists that used to be hardcoded directly in the admission/
+// guardian dialogs, so switching those dialogs over to the Master Data
+// admin page doesn't change what a school sees on day one.
+const DEFAULT_MASTER_DATA_ITEMS: { type: string; name: string }[] = [
+  ...["General", "OBC", "SC", "ST", "Other"].map((name) => ({ type: "student_category", name })),
+  ...["Male", "Female", "Other"].map((name) => ({ type: "gender", name })),
+  ...["Father", "Mother", "Guardian"].map((name) => ({ type: "guardian_relation", name })),
+];
+
 const prisma = new PrismaClient();
 
 async function main() {
@@ -140,6 +150,14 @@ async function main() {
       where: { tenantId_key: { tenantId: tenant.id, key } },
       update: { deletedAt: null },
       create: { id: randomUUID(), tenantId: tenant.id, key, name, isSystem: true, updatedAt: now },
+    });
+  }
+
+  for (const { type, name } of DEFAULT_MASTER_DATA_ITEMS) {
+    await prisma.masterDataItem.upsert({
+      where: { tenantId_type_name: { tenantId: tenant.id, type, name } },
+      update: { deletedAt: null },
+      create: { id: randomUUID(), tenantId: tenant.id, type, name, isSystem: true, updatedAt: now },
     });
   }
 

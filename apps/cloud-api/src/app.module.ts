@@ -15,6 +15,7 @@ import { FeeCategoriesModule } from "./fee-categories/fee-categories.module.js";
 import { FeesModule } from "./fees/fees.module.js";
 import { HousesModule } from "./houses/houses.module.js";
 import { LibraryModule } from "./library/library.module.js";
+import { MasterDataModule } from "./master-data/master-data.module.js";
 import { ModuleSettingsModule } from "./module-settings/module-settings.module.js";
 import { PayrollModule } from "./payroll/payroll.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
@@ -48,6 +49,7 @@ import { UsersModule } from "./users/users.module.js";
     TransportModule,
     StaffModule,
     StaffCategoriesModule,
+    MasterDataModule,
     PayrollModule,
     PromotionModule,
     RolesModule,

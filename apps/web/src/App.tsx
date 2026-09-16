@@ -12,6 +12,7 @@ import { AttendancePage } from "@/routes/attendance/attendance-page";
 import { FeesPage } from "@/routes/fees/fees-page";
 import { ExamsPage } from "@/routes/exams/exams-page";
 import { AcademicSetupPage } from "@/routes/academic/academic-setup-page";
+import { MasterDataPage } from "@/routes/admin/master-data-page";
 import { HousesPage } from "@/routes/houses/houses-page";
 import { LibraryPage } from "@/routes/library/library-page";
 import { TransportPage } from "@/routes/transport/transport-page";
@@ -202,6 +203,14 @@ export default function App() {
                 <PayrollRunDetailPage />
               </RequirePermission>
             </RequireModule>
+          }
+        />
+        <Route
+          path="admin/master-data"
+          element={
+            <RequirePermission permission="master_data.view">
+              <MasterDataPage />
+            </RequirePermission>
           }
         />
         <Route

@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { DetailSection } from "@/components/detail-section";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
@@ -625,14 +626,11 @@ function EditGuardianDialog({ guardian, onUpdated }: { guardian: StudentGuardian
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Relation</Label>
-              <Select value={form.relation ?? undefined} onValueChange={(v) => setForm((f) => ({ ...f, relation: v }))}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="father">Father</SelectItem>
-                  <SelectItem value="mother">Mother</SelectItem>
-                  <SelectItem value="guardian">Guardian</SelectItem>
-                </SelectContent>
-              </Select>
+              <MasterDataSelect
+                type="guardian_relation"
+                value={form.relation ?? ""}
+                onChange={(v) => setForm((f) => ({ ...f, relation: v }))}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Occupation</Label>

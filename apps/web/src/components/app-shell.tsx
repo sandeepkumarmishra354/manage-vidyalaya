@@ -5,6 +5,7 @@ import {
   BusIcon,
   CalendarCheckIcon,
   ClipboardListIcon,
+  DatabaseIcon,
   GraduationCapIcon,
   IdCardIcon,
   LayersIcon,
@@ -106,6 +107,7 @@ const navSections: NavSection[] = [
     accent: "admin",
     items: [
       { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon, permission: "academic_setup.view" },
+      { to: "/admin/master-data", label: "Master Data", icon: DatabaseIcon, permission: "master_data.view" },
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
       { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },

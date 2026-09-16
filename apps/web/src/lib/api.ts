@@ -935,6 +935,38 @@ export interface StaffCategory {
   is_system: boolean;
 }
 
+// Generic tenant-customizable lookup list item (student category, religion,
+// nationality, mother tongue, blood group, gender, guardian relation) --
+// see Master Data admin page. `type` is one of MASTER_DATA_TYPES below.
+export interface MasterDataItem {
+  id: string;
+  type: string;
+  name: string;
+  is_system: boolean;
+}
+
+export const MASTER_DATA_TYPES = [
+  "gender",
+  "blood_group",
+  "religion",
+  "nationality",
+  "mother_tongue",
+  "student_category",
+  "guardian_relation",
+] as const;
+
+export type MasterDataType = (typeof MASTER_DATA_TYPES)[number];
+
+export const MASTER_DATA_TYPE_LABELS: Record<MasterDataType, string> = {
+  gender: "Gender",
+  blood_group: "Blood Group",
+  religion: "Religion",
+  nationality: "Nationality",
+  mother_tongue: "Mother Tongue",
+  student_category: "Student Category",
+  guardian_relation: "Guardian Relation",
+};
+
 export interface StaffListItem {
   id: string;
   employee_code: string;
@@ -1446,6 +1478,8 @@ export const api = {
 
   listFeeCategories: () => http.get<FeeCategory[]>("/fee-categories"),
   createFeeCategory: (name: string) => http.post<FeeCategory>("/fee-categories", { name }),
+  updateFeeCategory: (id: string, name: string) => http.patch<FeeCategory>(`/fee-categories/${id}`, { name }),
+  deleteFeeCategory: (id: string) => http.delete<void>(`/fee-categories/${id}`),
   createFeeStructure: (input: NewFeeStructureInput) => http.post<FeeStructure>("/fee-structures", input),
   updateFeeStructure: (input: UpdateFeeStructureInput) =>
     http.patch<void>(`/fee-structures/${input.id}`, input),
@@ -1542,6 +1576,13 @@ export const api = {
   updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
   listStaffCategories: () => http.get<StaffCategory[]>("/staff-categories"),
   createStaffCategory: (name: string) => http.post<StaffCategory>("/staff-categories", { name }),
+  updateStaffCategory: (id: string, name: string) => http.patch<StaffCategory>(`/staff-categories/${id}`, { name }),
+  deleteStaffCategory: (id: string) => http.delete<void>(`/staff-categories/${id}`),
+  listMasterDataItems: (type: MasterDataType) => http.get<MasterDataItem[]>("/master-data", { type }),
+  createMasterDataItem: (type: MasterDataType, name: string) =>
+    http.post<MasterDataItem>("/master-data", { type, name }),
+  updateMasterDataItem: (id: string, name: string) => http.patch<MasterDataItem>(`/master-data/${id}`, { name }),
+  deleteMasterDataItem: (id: string) => http.delete<void>(`/master-data/${id}`),
   setStaffStatus: (input: SetStaffStatusInput) =>
     http.post<void>(`/staff/${input.staff_id}/status`, input),
   listTeacherAssignments: (branchId: string, staffId?: string | null) =>
