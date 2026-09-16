@@ -4,7 +4,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
+import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import type { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
 
@@ -198,10 +198,7 @@ export class StaffAttendanceService {
     });
 
     const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, branchId, startDate, endDate);
-    const workingDays = Object.values(dayTypes).reduce(
-      (sum, t) => sum + (t === "holiday" ? 0 : t === "half_day" ? 0.5 : 1),
-      0,
-    );
+    const workingDays = Object.values(dayTypes).reduce((sum, t) => sum + dayWeight(t), 0);
 
     const countsByStaff = new Map<string, Record<string, number>>();
     for (const record of records) {

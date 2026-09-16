@@ -83,6 +83,12 @@ export class GuardiansController {
     return this.studentsService.searchGuardians(user.tenant_id, search);
   }
 
+  @Get(":id")
+  @RequirePermission("students.view")
+  get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getGuardian(user.tenant_id, id);
+  }
+
   @Patch(":id")
   @RequirePermission("students.edit")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateGuardianDto) {

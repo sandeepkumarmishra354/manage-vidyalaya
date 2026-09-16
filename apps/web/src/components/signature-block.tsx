@@ -13,17 +13,25 @@ import type { PrintTemplate } from "@/components/print-templates";
  */
 export function SignatureBlock({
   branch,
+  signatureUrl,
   label = "Authorized signatory",
   template = "classic",
   accent = "var(--color-primary)",
   className,
 }: {
   branch?: Branch;
+  /** A specific person's signature (class teacher, principal) -- takes
+   * precedence over branch.signature_url when provided. Omit while still
+   * resolving one asynchronously so the branch signature shows in the
+   * meantime rather than nothing. */
+  signatureUrl?: string | null;
   label?: string;
   template?: PrintTemplate;
   accent?: string;
   className?: string;
 }) {
+  const resolvedUrl = signatureUrl ?? branch?.signature_url;
+
   if (template === "bordered") {
     return (
       <div
@@ -32,8 +40,8 @@ export function SignatureBlock({
           className,
         )}
       >
-        {branch?.signature_url ? (
-          <img src={branch.signature_url} alt="" className="h-12 object-contain" />
+        {resolvedUrl ? (
+          <img src={resolvedUrl} alt="" className="h-12 object-contain" />
         ) : (
           <div className="h-12" />
         )}
@@ -49,7 +57,7 @@ export function SignatureBlock({
           className="flex size-16 items-center justify-center rounded-full border-2 border-dashed p-1"
           style={{ borderColor: accent }}
         >
-          {branch?.signature_url && <img src={branch.signature_url} alt="" className="h-full w-full object-contain" />}
+          {resolvedUrl && <img src={resolvedUrl} alt="" className="h-full w-full object-contain" />}
         </div>
         <div className="w-40 border-t pt-1 text-slate-600">{label}</div>
       </div>
@@ -59,7 +67,7 @@ export function SignatureBlock({
   if (template === "compact") {
     return (
       <div className={cn("flex flex-col items-center gap-0.5 text-center text-[10px] text-slate-600", className)}>
-        {branch?.signature_url && <img src={branch.signature_url} alt="" className="h-8 object-contain" />}
+        {resolvedUrl && <img src={resolvedUrl} alt="" className="h-8 object-contain" />}
         <div className="w-28 border-t pt-0.5">{label}</div>
       </div>
     );
@@ -68,7 +76,7 @@ export function SignatureBlock({
   // classic / tricolor (plain line)
   return (
     <div className={cn("flex flex-col items-center gap-1 text-center text-xs text-slate-600", className)}>
-      {branch?.signature_url && <img src={branch.signature_url} alt="" className="h-12 object-contain" />}
+      {resolvedUrl && <img src={resolvedUrl} alt="" className="h-12 object-contain" />}
       <div className="w-40 border-t pt-1">{label}</div>
     </div>
   );

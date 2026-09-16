@@ -982,6 +982,8 @@ model Staff {
   qualification         String?
   bloodGroup            String?   @map("blood_group")
   photoPath             String?   @map("photo_path")
+  signatureUrl          String?   @map("signature_url")
+  isPrincipal           Boolean   @default(false) @map("is_principal")
   panNumber             String?   @map("pan_number")
   aadhaarNumber         String?   @map("aadhaar_number")
   bankAccountNumber     String?   @map("bank_account_number")

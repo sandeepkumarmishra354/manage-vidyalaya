@@ -8,11 +8,20 @@ import type { CreateHolidayDto } from "./dto/create-holiday.dto.js";
 import type { SetWeeklyRuleDto } from "./dto/set-weekly-rule.dto.js";
 import type { UpdateHolidayDto } from "./dto/update-holiday.dto.js";
 
-// "holiday" = no attendance/payroll impact at all. "half_day" = counts as
-// half a working day for everyone (school-wide, e.g. every Saturday) --
-// distinct from a staff member's own attendance status of the same name,
-// which means "this one person left early that day."
+// "holiday" = no attendance/payroll impact at all. "half_day" = a
+// school-defined shortened day (school-wide, e.g. every Saturday) -- still
+// counts as a FULL working day for attendance/payroll purposes, since the
+// school itself decided to run it. Distinct from a staff member's own
+// attendance status of the same name, which means "this one person left
+// early that day" and is handled separately.
 export type DayType = "holiday" | "half_day" | "working";
+
+// Weight of a calendar day toward working-days/payroll/attendance totals.
+// Only an actual holiday reduces the total -- a school-defined half-day
+// still counts as a full day.
+export function dayWeight(type: DayType): number {
+  return type === "holiday" ? 0 : 1;
+}
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);

@@ -215,6 +215,48 @@ export class StudentsService {
     }));
   }
 
+  // One guardian's full profile plus every student linked to them -- backs
+  // the Guardian detail page. Unlike getSiblings (student-centric, only
+  // returns enrolled siblings of one student), this is guardian-centric
+  // and returns every linked child regardless of enrollment status, since
+  // a guardian's own page should show their full family, not just who's
+  // currently enrolled.
+  async getGuardian(tenantId: string, guardianId: string) {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { id: guardianId, tenantId, deletedAt: null },
+    });
+    if (!guardian) {
+      throw new NotFoundException("guardian not found");
+    }
+
+    const links = await this.prisma.studentGuardian.findMany({
+      where: { guardianId, student: { deletedAt: null } },
+      include: { student: { include: { currentClass: true, currentSection: true } } },
+    });
+
+    return {
+      id: guardian.id,
+      full_name: guardian.fullName,
+      relation: guardian.relation,
+      phone: guardian.phone,
+      alt_phone: guardian.altPhone,
+      email: guardian.email,
+      occupation: guardian.occupation,
+      address: guardian.address,
+      aadhaar_number: guardian.aadhaarNumber,
+      annual_income: guardian.annualIncome,
+      children: links.map((l) => ({
+        id: l.student.id,
+        first_name: l.student.firstName,
+        last_name: l.student.lastName,
+        admission_number: l.student.admissionNumber,
+        class_name: l.student.currentClass?.name ?? null,
+        section_name: l.student.currentSection?.name ?? null,
+        status: l.student.status,
+      })),
+    };
+  }
+
   // Links an existing guardian to a student, or creates a new one and
   // links it -- the mechanism siblings share a guardian through.
   async addGuardianToStudent(tenantId: string, actorUserId: string, studentId: string, dto: AddGuardianDto) {

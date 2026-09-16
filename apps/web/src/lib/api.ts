@@ -174,6 +174,20 @@ export interface GuardianSearchResult extends Guardian {
   linked_students: { id: string; name: string; class_name?: string | null }[];
 }
 
+export interface GuardianChild {
+  id: string;
+  first_name: string;
+  last_name?: string | null;
+  admission_number?: string | null;
+  class_name?: string | null;
+  section_name?: string | null;
+  status: string;
+}
+
+export interface GuardianDetail extends Guardian {
+  children: GuardianChild[];
+}
+
 export interface Sibling {
   id: string;
   first_name: string;
@@ -1004,6 +1018,8 @@ export interface Staff {
   qualification?: string | null;
   blood_group?: string | null;
   photo_path?: string | null;
+  signature_url?: string | null;
+  is_principal: boolean;
   pan_number?: string | null;
   aadhaar_number?: string | null;
   bank_account_number?: string | null;
@@ -1019,7 +1035,8 @@ export interface Staff {
 
 export interface NewStaffInput {
   branch_id: string;
-  employee_code: string;
+  /** Leave blank to auto-generate "{branch code}-{sequence}". */
+  employee_code?: string;
   first_name: string;
   last_name?: string | null;
   date_of_birth?: string | null;
@@ -1052,6 +1069,8 @@ export interface NewStaffInput {
 
 export interface UpdateStaffInput extends NewStaffInput {
   id: string;
+  signature_url?: string | null;
+  is_principal?: boolean;
 }
 
 export interface SetStaffStatusInput {
@@ -1386,6 +1405,7 @@ export const api = {
   deleteStudent: (id: string) => http.delete<void>(`/students/${id}`),
   updateGuardian: (input: UpdateGuardianInput) => http.patch<void>(`/guardians/${input.id}`, input),
   searchGuardians: (search: string) => http.get<GuardianSearchResult[]>("/guardians", { search }),
+  getGuardian: (id: string) => http.get<GuardianDetail>(`/guardians/${id}`),
   addGuardianToStudent: (studentId: string, input: AddGuardianInput) =>
     http.post<{ guardian_id: string; student_guardian_id: string }>(`/students/${studentId}/guardians`, input),
   getSiblings: (studentId: string) => http.get<Sibling[]>(`/students/${studentId}/siblings`),
@@ -1574,6 +1594,9 @@ export const api = {
   getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
   createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
   updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
+  getStaffSignature: (id: string) => http.get<{ signature_url: string | null }>(`/staff/${id}/signature`),
+  getPrincipalSignature: (branchId: string) =>
+    http.get<{ signature_url: string | null }>("/staff/principal", { branch_id: branchId }),
   listStaffCategories: () => http.get<StaffCategory[]>("/staff-categories"),
   createStaffCategory: (name: string) => http.post<StaffCategory>("/staff-categories", { name }),
   updateStaffCategory: (id: string, name: string) => http.patch<StaffCategory>(`/staff-categories/${id}`, { name }),

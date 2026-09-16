@@ -25,6 +25,8 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [studentId, setStudentId] = useState("");
   const [reportCard, setReportCard] = useState<ReportCard | null>(null);
+  const [classTeacherSignatureUrl, setClassTeacherSignatureUrl] = useState<string | null | undefined>(undefined);
+  const [principalSignatureUrl, setPrincipalSignatureUrl] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     api.listStudentsInClass(exam.class_id).then(setStudents);
@@ -37,6 +39,41 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
       setReportCard(null);
     }
   }, [studentId, exam.id]);
+
+  // Resolve the printed student's own section's class teacher signature --
+  // not necessarily the same for every student in the exam's class.
+  useEffect(() => {
+    if (!studentId) {
+      setClassTeacherSignatureUrl(undefined);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const student = await api.getStudent(studentId);
+      const sectionId = student.current_section_id;
+      if (!sectionId) {
+        if (!cancelled) setClassTeacherSignatureUrl(undefined);
+        return;
+      }
+      const sections = await api.listSections(exam.class_id);
+      const staffId = sections.find((s) => s.id === sectionId)?.class_teacher_staff_id;
+      if (!staffId) {
+        if (!cancelled) setClassTeacherSignatureUrl(undefined);
+        return;
+      }
+      const { signature_url } = await api.getStaffSignature(staffId);
+      if (!cancelled) setClassTeacherSignatureUrl(signature_url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, exam.class_id]);
+
+  useEffect(() => {
+    if (selectedBranchId) {
+      api.getPrincipalSignature(selectedBranchId).then((r) => setPrincipalSignatureUrl(r.signature_url));
+    }
+  }, [selectedBranchId]);
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-4">
@@ -193,8 +230,20 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
             </table>
 
             <div className="mt-16 flex justify-between text-sm text-slate-600">
-              <div className="border-t border-slate-400 pt-1">Class Teacher</div>
-              <SignatureBlock branch={branch} label="Principal" template={template} accent="var(--color-exams)" />
+              <SignatureBlock
+                branch={branch}
+                signatureUrl={classTeacherSignatureUrl}
+                label="Class Teacher"
+                template={template}
+                accent="var(--color-exams)"
+              />
+              <SignatureBlock
+                branch={branch}
+                signatureUrl={principalSignatureUrl}
+                label="Principal"
+                template={template}
+                accent="var(--color-exams)"
+              />
             </div>
           </PrintFrame>
         </div>

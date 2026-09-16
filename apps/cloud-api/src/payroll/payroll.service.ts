@@ -4,7 +4,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 
 import { AuditService, type AuditableClient } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
+import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
 import type { GeneratePayrollRunDto } from "./dto/generate-payroll-run.dto.js";
 import type { SetSalaryStructureDto } from "./dto/set-salary-structure.dto.js";
@@ -151,9 +151,11 @@ export class PayrollService {
   // Generates one payroll run for a branch/month, with one payslip per
   // active staff member who has a salary structure. Working days and
   // loss-of-pay days are both derived from the school calendar (section A):
-  // a holiday never counts, a school half-day counts as half a working day
-  // for everyone, and staff_attendance status is only consulted on days
-  // that aren't a full holiday -- present = full paid day, half_day = half
+  // a holiday never counts, a school-defined half-day still counts as a
+  // full working day for everyone (the school itself decided to run it),
+  // and staff_attendance status is only consulted on days that aren't a
+  // full holiday -- present = full paid day, half_day (the staff member's
+  // own attendance status, distinct from a calendar half-day) = half
   // paid/half LOP, absent = full LOP, leave = paid (not counted). Days with
   // no attendance record are not penalized. PF/ESI/Professional-Tax/TDS are
   // whatever the salary structure's deduction components say, not computed
@@ -175,11 +177,7 @@ export class PayrollService {
     const startIso = periodStart.toISOString().slice(0, 10);
     const endIso = periodLastDay.toISOString().slice(0, 10);
     const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, dto.branch_id, startIso, endIso);
-    const dayWeight = (iso: string) => {
-      const t = dayTypes[iso];
-      return t === "holiday" ? 0 : t === "half_day" ? 0.5 : 1;
-    };
-    const workingDaysInPeriod = Object.keys(dayTypes).reduce((sum, iso) => sum + dayWeight(iso), 0);
+    const workingDaysInPeriod = Object.values(dayTypes).reduce((sum, t) => sum + dayWeight(t), 0);
 
     const activeStaff = await this.prisma.staff.findMany({
       where: { branchId: dto.branch_id, status: "active", deletedAt: null },
@@ -224,7 +222,7 @@ export class PayrollService {
         let daysLop = 0;
         for (const [iso, dayType] of Object.entries(dayTypes)) {
           if (dayType === "holiday") continue; // never present, never LOP, regardless of any attendance row
-          const weight = dayType === "half_day" ? 0.5 : 1;
+          const weight = 1; // a school-defined half-day still counts as a full working day
           const status = staffDays.get(iso);
           if (!status) continue; // unmarked = paid, not counted either way
           if (status === "present") daysPresent += weight;

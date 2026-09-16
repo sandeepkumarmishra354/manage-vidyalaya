@@ -70,7 +70,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
     try {
       const input: NewStaffInput = {
         branch_id: selectedBranchId,
-        employee_code: form.employeeCode,
+        employee_code: form.employeeCode || undefined,
         first_name: form.firstName,
         last_name: form.lastName || null,
         designation: form.designation,
@@ -199,7 +199,12 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
             <TabsContent value="employment" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="employeeCode">Employee code</Label>
-                <Input id="employeeCode" value={form.employeeCode} onChange={update("employeeCode")} required />
+                <Input
+                  id="employeeCode"
+                  value={form.employeeCode}
+                  onChange={update("employeeCode")}
+                  placeholder="Leave blank to auto-generate"
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="designation">Designation</Label>

@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { PrinterIcon } from "lucide-react";
 
-import { FEE_TYPE_LABELS, type Branch, type FeeInvoiceListItem, type FeePayment } from "@/lib/api";
+import { api, FEE_TYPE_LABELS, type Branch, type FeeInvoiceListItem, type FeePayment } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { PrintLetterhead } from "@/components/print-letterhead";
@@ -35,6 +36,13 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
   const totalThisPayment = entries.reduce((sum, e) => sum + e.payment.amount, 0);
   const template = (branch?.print_template as PrintTemplate) || "classic";
   const paperColor = (branch?.print_paper_color as PrintPaperColor) || "white";
+
+  const [principalSignatureUrl, setPrincipalSignatureUrl] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (branch?.id) {
+      api.getPrincipalSignature(branch.id).then((r) => setPrincipalSignatureUrl(r.signature_url));
+    }
+  }, [branch?.id]);
 
   return (
     <>
@@ -136,7 +144,12 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
             )}
           </table>
           <div className="mt-16 flex justify-end">
-            <SignatureBlock branch={branch} template={template} accent="var(--color-finance)" />
+            <SignatureBlock
+              branch={branch}
+              signatureUrl={principalSignatureUrl}
+              template={template}
+              accent="var(--color-finance)"
+            />
           </div>
         </PrintFrame>
       </div>

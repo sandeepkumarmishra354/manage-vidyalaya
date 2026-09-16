@@ -8,6 +8,7 @@ import { LoginPage } from "@/routes/login";
 import { DashboardPage } from "@/routes/dashboard";
 import { StudentListPage } from "@/routes/students/student-list";
 import { StudentDetailPage } from "@/routes/students/student-detail";
+import { GuardianDetailPage } from "@/routes/students/guardian-detail";
 import { AttendancePage } from "@/routes/attendance/attendance-page";
 import { FeesPage } from "@/routes/fees/fees-page";
 import { ExamsPage } from "@/routes/exams/exams-page";
@@ -90,6 +91,14 @@ export default function App() {
           element={
             <RequirePermission permission="students.view">
               <StudentDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="guardians/:id"
+          element={
+            <RequirePermission permission="students.view">
+              <GuardianDetailPage />
             </RequirePermission>
           }
         />

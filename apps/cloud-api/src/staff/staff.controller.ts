@@ -23,10 +23,24 @@ export class StaffController {
     return this.staffService.listStaff(branchId, search);
   }
 
+  // No @RequirePermission -- resolving a signature to render on a printed
+  // document is non-sensitive and needed broadly (e.g. any teacher
+  // printing their own class's register), not just staff.view holders.
+  // Must be registered before :id so "principal" isn't swallowed as an id.
+  @Get("principal")
+  getPrincipalSignature(@Query("branch_id") branchId: string) {
+    return this.staffService.getPrincipalSignature(branchId);
+  }
+
   @Get(":id")
   @RequirePermission("staff.view")
   get(@Param("id") id: string) {
     return this.staffService.getStaff(id);
+  }
+
+  @Get(":id/signature")
+  getSignature(@Param("id") id: string) {
+    return this.staffService.getStaffSignature(id);
   }
 
   @Post()

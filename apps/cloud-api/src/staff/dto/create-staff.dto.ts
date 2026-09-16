@@ -4,8 +4,11 @@ export class CreateStaffDto {
   @IsString()
   branch_id!: string;
 
+  // Optional -- the service auto-generates one from the branch code + a
+  // running count when left blank, but a school can still supply its own.
+  @IsOptional()
   @IsString()
-  employee_code!: string;
+  employee_code?: string;
 
   @IsString()
   first_name!: string;

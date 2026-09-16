@@ -48,6 +48,7 @@ import { formatPaise } from "@/lib/money";
 import { DetailSection } from "@/components/detail-section";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
+import { PersonLink } from "@/components/person-link";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
@@ -205,7 +206,9 @@ export function StudentDetailPage() {
                 <div key={g.id}>
                   {i > 0 && <Separator className="my-3" />}
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">{g.full_name}</p>
+                    <p className="font-medium">
+                      <PersonLink type="guardian" id={g.id} name={g.full_name} />
+                    </p>
                     <div className="flex items-center gap-2">
                       {g.is_primary_contact && <Badge variant="success">Primary</Badge>}
                       <Badge variant="outline">{g.relation}</Badge>

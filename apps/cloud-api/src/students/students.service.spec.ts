@@ -166,3 +166,84 @@ describe("StudentsService.electSubject", () => {
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("StudentsService.getGuardian", () => {
+  let prisma: { guardian: { findFirst: ReturnType<typeof vi.fn> }; studentGuardian: { findMany: ReturnType<typeof vi.fn> } };
+  let service: StudentsService;
+
+  beforeEach(() => {
+    prisma = { guardian: { findFirst: vi.fn() }, studentGuardian: { findMany: vi.fn() } };
+    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock());
+  });
+
+  it("throws when the guardian doesn't exist or is soft-deleted", async () => {
+    prisma.guardian.findFirst.mockResolvedValueOnce(null);
+    await expect(service.getGuardian("tenant-a", "guardian-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns the guardian's profile plus every linked child, regardless of enrollment status", async () => {
+    prisma.guardian.findFirst.mockResolvedValueOnce({
+      id: "guardian-1",
+      fullName: "Asha Rao",
+      relation: "mother",
+      phone: "9876500000",
+      altPhone: null,
+      email: null,
+      occupation: "Engineer",
+      address: null,
+      aadhaarNumber: null,
+      annualIncome: null,
+    });
+    prisma.studentGuardian.findMany.mockResolvedValueOnce([
+      {
+        student: {
+          id: "student-1",
+          firstName: "Ravi",
+          lastName: "Rao",
+          admissionNumber: "ADM-0001",
+          status: "enrolled",
+          currentClass: { name: "Class 5" },
+          currentSection: { name: "A" },
+        },
+      },
+      {
+        student: {
+          id: "student-2",
+          firstName: "Priya",
+          lastName: "Rao",
+          admissionNumber: null,
+          status: "applied",
+          currentClass: null,
+          currentSection: null,
+        },
+      },
+    ]);
+
+    const result = await service.getGuardian("tenant-a", "guardian-1");
+
+    expect(result.full_name).toBe("Asha Rao");
+    expect(result.children).toEqual([
+      {
+        id: "student-1",
+        first_name: "Ravi",
+        last_name: "Rao",
+        admission_number: "ADM-0001",
+        class_name: "Class 5",
+        section_name: "A",
+        status: "enrolled",
+      },
+      {
+        id: "student-2",
+        first_name: "Priya",
+        last_name: "Rao",
+        admission_number: null,
+        class_name: null,
+        section_name: null,
+        status: "applied",
+      },
+    ]);
+    expect(prisma.studentGuardian.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { guardianId: "guardian-1", student: { deletedAt: null } } }),
+    );
+  });
+});

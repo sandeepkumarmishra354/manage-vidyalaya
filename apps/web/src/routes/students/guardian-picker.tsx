@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PersonLink } from "@/components/person-link";
 
 export interface GuardianPickerValue {
   mode: "existing" | "new";
@@ -91,11 +92,22 @@ export function GuardianPicker({
       <Card>
         <CardContent className="flex items-center justify-between pt-4">
           <div>
-            <p className="text-sm font-medium">{selected.full_name}</p>
+            <p className="text-sm font-medium">
+              <PersonLink type="guardian" id={selected.id} name={selected.full_name} newTab />
+            </p>
             <p className="text-xs text-muted-foreground">
               {selected.phone}
               {selected.linked_students.length > 0 && (
-                <> Already parent of: {selected.linked_students.map((s) => s.name).join(", ")}</>
+                <>
+                  {" "}
+                  Already parent of:{" "}
+                  {selected.linked_students.map((s, i) => (
+                    <span key={s.id}>
+                      {i > 0 && ", "}
+                      <PersonLink type="student" id={s.id} name={s.name} newTab />
+                    </span>
+                  ))}
+                </>
               )}
             </p>
           </div>
