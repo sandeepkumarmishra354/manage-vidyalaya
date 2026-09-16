@@ -16,6 +16,25 @@ export const PRINT_TEMPLATES: { value: PrintTemplate; label: string; description
   { value: "compact", label: "Compact Ledger", description: "Dense, paper-saving layout for high-volume receipts" },
 ];
 
+// Independent of the template: a light pastel tint for the whole printed
+// page, mimicking colored school stationery paper. Any template can be
+// printed on any of these.
+export type PrintPaperColor = "white" | "yellow" | "blue" | "pink";
+
+export const PRINT_PAPER_COLORS: { value: PrintPaperColor; label: string; swatchClass: string }[] = [
+  { value: "white", label: "White", swatchClass: "bg-white border" },
+  { value: "yellow", label: "Light Yellow", swatchClass: "bg-amber-50 border" },
+  { value: "blue", label: "Light Blue", swatchClass: "bg-sky-50 border" },
+  { value: "pink", label: "Light Pink", swatchClass: "bg-rose-50 border" },
+];
+
+const PAPER_COLOR_CLASSES: Record<PrintPaperColor, string> = {
+  white: "bg-white",
+  yellow: "bg-amber-50",
+  blue: "bg-sky-50",
+  pink: "bg-rose-50",
+};
+
 // Wraps a print surface's whole document body: the "bordered" template gets
 // a certificate-style double-rule frame (CSS border-style: double, which
 // natively renders as two parallel rules with a gap at this width -- no
@@ -26,15 +45,23 @@ export const PRINT_TEMPLATES: { value: PrintTemplate; label: string; description
 // PrintLetterhead itself.
 export function PrintFrame({
   template,
+  paperColor = "white",
   branch,
   children,
 }: {
   template: PrintTemplate;
+  paperColor?: PrintPaperColor;
   branch?: Branch;
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("relative", template === "bordered" && "border-8 border-double border-slate-700 p-8")}>
+    <div
+      className={cn(
+        "relative p-8",
+        PAPER_COLOR_CLASSES[paperColor],
+        template === "bordered" && "border-8 border-double border-slate-700",
+      )}
+    >
       {template === "emblem" && branch?.logo_url && (
         <img
           src={branch.logo_url}

@@ -4,8 +4,10 @@
 // real School Details picker + all 4 print surfaces are wired up.
 import type { Branch } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
-import { PrintFrame, PRINT_TEMPLATES } from "@/components/print-templates";
+import { PrintFrame, PRINT_TEMPLATES, type PrintPaperColor } from "@/components/print-templates";
 import { SignatureBlock } from "@/components/signature-block";
+
+const PAPER_COLORS: PrintPaperColor[] = ["white", "yellow", "blue", "pink"];
 
 const LOGO =
   "data:image/svg+xml;utf8," +
@@ -175,7 +177,12 @@ function MockReportCardBody() {
 }
 
 export function DevPrintPreview() {
-  const doc = new URLSearchParams(window.location.search).get("doc") === "reportcard" ? "reportcard" : "receipt";
+  const params = new URLSearchParams(window.location.search);
+  const doc = params.get("doc") === "reportcard" ? "reportcard" : "receipt";
+  const paperParam = params.get("paper");
+  const paperColor: PrintPaperColor = PAPER_COLORS.includes(paperParam as PrintPaperColor)
+    ? (paperParam as PrintPaperColor)
+    : "white";
 
   return (
     <div className="flex flex-col gap-10 bg-slate-100 p-10">
@@ -185,9 +192,9 @@ export function DevPrintPreview() {
             <h2 className="text-lg font-bold">{t.label}</h2>
             <span className="text-sm text-muted-foreground">{t.description}</span>
           </div>
-          <div className="mx-auto w-[210mm] bg-white p-8 shadow-lg">
+          <div className="mx-auto w-[210mm] shadow-lg">
             {doc === "receipt" ? (
-              <PrintFrame template={t.value} branch={mockBranch}>
+              <PrintFrame template={t.value} paperColor={paperColor} branch={mockBranch}>
                 <PrintLetterhead
                   branch={mockBranch}
                   documentTitle="Payment Receipt"
@@ -206,7 +213,7 @@ export function DevPrintPreview() {
                 </div>
               </PrintFrame>
             ) : (
-              <PrintFrame template={t.value} branch={mockBranch}>
+              <PrintFrame template={t.value} paperColor={paperColor} branch={mockBranch}>
                 <PrintLetterhead
                   branch={mockBranch}
                   documentTitle="Report Card"
