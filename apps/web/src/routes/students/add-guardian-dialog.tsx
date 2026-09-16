@@ -2,6 +2,7 @@ import { useState } from "react";
 import { UserPlusIcon } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,20 +13,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { emptyGuardianPickerValue, GuardianPicker, type GuardianPickerValue } from "./guardian-picker";
 
 export function AddGuardianDialog({ studentId, onAdded }: { studentId: string; onAdded: () => void }) {
   const [open, setOpen] = useState(false);
   const [guardian, setGuardian] = useState<GuardianPickerValue>(emptyGuardianPickerValue);
-  const [relation, setRelation] = useState("guardian");
+  const [relation, setRelation] = useState("Guardian");
   const [isPrimaryContact, setIsPrimaryContact] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setGuardian(emptyGuardianPickerValue);
-    setRelation("guardian");
+    setRelation("Guardian");
     setIsPrimaryContact(false);
     setError(null);
   };
@@ -79,16 +79,7 @@ export function AddGuardianDialog({ studentId, onAdded }: { studentId: string; o
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-1.5">
             <Label>Relation to student</Label>
-            <Select value={relation} onValueChange={setRelation}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="father">Father</SelectItem>
-                <SelectItem value="mother">Mother</SelectItem>
-                <SelectItem value="guardian">Guardian</SelectItem>
-              </SelectContent>
-            </Select>
+            <MasterDataSelect type="guardian_relation" value={relation} onChange={setRelation} />
           </div>
 
           <GuardianPicker value={guardian} onChange={setGuardian} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PencilIcon } from "lucide-react";
 
 import { api, type Staff } from "@/lib/api";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -114,12 +115,20 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
                 <Input id="edit-dob" type="date" value={form.date_of_birth ?? ""} onChange={update("date_of_birth")} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-gender">Gender</Label>
-                <Input id="edit-gender" value={form.gender ?? ""} onChange={update("gender")} />
+                <Label>Gender</Label>
+                <MasterDataSelect
+                  type="gender"
+                  value={form.gender ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, gender: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-bloodGroup">Blood group</Label>
-                <Input id="edit-bloodGroup" value={form.blood_group ?? ""} onChange={update("blood_group")} />
+                <Label>Blood group</Label>
+                <MasterDataSelect
+                  type="blood_group"
+                  value={form.blood_group ?? ""}
+                  onChange={(v) => setForm((f) => ({ ...f, blood_group: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-qualification">Qualification</Label>

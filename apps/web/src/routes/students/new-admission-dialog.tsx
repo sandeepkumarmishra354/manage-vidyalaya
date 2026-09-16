@@ -3,6 +3,7 @@ import { PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type SchoolClass, type Section } from "@/lib/api";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,7 +28,7 @@ const emptyForm = {
   gender: "",
   address: "",
   classId: "",
-  guardianRelation: "father",
+  guardianRelation: "Father",
   category: "",
   religion: "",
   nationality: "",
@@ -156,16 +157,11 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="gender">Gender</Label>
-                <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
-                  <SelectTrigger id="gender" className="w-full">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterDataSelect
+                  type="gender"
+                  value={form.gender}
+                  onChange={(v) => setForm((f) => ({ ...f, gender: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Applying for class</Label>
@@ -209,19 +205,11 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
             <TabsContent value="guardian">
               <div className="mb-3 flex flex-col gap-1.5">
                 <Label>Relation to student</Label>
-                <Select
+                <MasterDataSelect
+                  type="guardian_relation"
                   value={form.guardianRelation}
-                  onValueChange={(v) => setForm((f) => ({ ...f, guardianRelation: v }))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="father">Father</SelectItem>
-                    <SelectItem value="mother">Mother</SelectItem>
-                    <SelectItem value="guardian">Guardian</SelectItem>
-                  </SelectContent>
-                </Select>
+                  onChange={(v) => setForm((f) => ({ ...f, guardianRelation: v }))}
+                />
               </div>
               <GuardianPicker value={guardian} onChange={setGuardian} />
             </TabsContent>
@@ -229,30 +217,35 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
             <TabsContent value="additional" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label>Category</Label>
-                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="General">General</SelectItem>
-                    <SelectItem value="OBC">OBC</SelectItem>
-                    <SelectItem value="SC">SC</SelectItem>
-                    <SelectItem value="ST">ST</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterDataSelect
+                  type="student_category"
+                  value={form.category}
+                  onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="religion">Religion</Label>
-                <Input id="religion" value={form.religion} onChange={update("religion")} />
+                <Label>Religion</Label>
+                <MasterDataSelect
+                  type="religion"
+                  value={form.religion}
+                  onChange={(v) => setForm((f) => ({ ...f, religion: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="nationality">Nationality</Label>
-                <Input id="nationality" placeholder="e.g. Indian" value={form.nationality} onChange={update("nationality")} />
+                <Label>Nationality</Label>
+                <MasterDataSelect
+                  type="nationality"
+                  value={form.nationality}
+                  onChange={(v) => setForm((f) => ({ ...f, nationality: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="motherTongue">Mother tongue</Label>
-                <Input id="motherTongue" value={form.motherTongue} onChange={update("motherTongue")} />
+                <Label>Mother tongue</Label>
+                <MasterDataSelect
+                  type="mother_tongue"
+                  value={form.motherTongue}
+                  onChange={(v) => setForm((f) => ({ ...f, motherTongue: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="aadhaarNumber">Aadhaar number</Label>

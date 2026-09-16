@@ -932,6 +932,30 @@ model StaffCategory {
   @@map("staff_categories")
 }
 
+// Generic tenant-customizable lookup lists (student category, religion,
+// nationality, mother tongue, blood group, gender, guardian relation) --
+// one table with a `type` discriminator instead of one near-identical
+// table per list, since these are all just "a name a school can add/rename/
+// remove". Student/Staff/Guardian columns that reference these values
+// (e.g. Student.religion) stay plain strings populated by `name`, not by
+// this table's id -- see MasterDataItem admin module for details.
+model MasterDataItem {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  type      String
+  name      String
+  isSystem  Boolean   @default(false) @map("is_system")
+  sortOrder Int       @default(0) @map("sort_order")
+  updatedAt DateTime  @map("updated_at")
+  updatedBy String?   @map("updated_by")
+  deletedAt DateTime? @map("deleted_at")
+  version   Int       @default(1)
+
+  @@unique([tenantId, type, name])
+  @@index([tenantId, type])
+  @@map("master_data_items")
+}
+
 model Staff {
   id                    String    @id
   tenantId              String    @map("tenant_id")

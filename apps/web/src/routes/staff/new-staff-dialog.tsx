@@ -3,6 +3,7 @@ import { PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type NewStaffInput } from "@/lib/api";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -150,12 +151,20 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={update("dateOfBirth")} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="gender">Gender</Label>
-                <Input id="gender" value={form.gender} onChange={update("gender")} />
+                <Label>Gender</Label>
+                <MasterDataSelect
+                  type="gender"
+                  value={form.gender}
+                  onChange={(v) => setForm((f) => ({ ...f, gender: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="bloodGroup">Blood group</Label>
-                <Input id="bloodGroup" value={form.bloodGroup} onChange={update("bloodGroup")} />
+                <Label>Blood group</Label>
+                <MasterDataSelect
+                  type="blood_group"
+                  value={form.bloodGroup}
+                  onChange={(v) => setForm((f) => ({ ...f, bloodGroup: v }))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="qualification">Qualification</Label>
