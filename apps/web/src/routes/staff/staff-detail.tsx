@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { KeyIcon, UserPlusIcon } from "lucide-react";
+import { BriefcaseIcon, IdCardIcon, KeyIcon, LandmarkIcon, PhoneIcon, UserPlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -29,6 +29,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
+import { DetailSection } from "@/components/detail-section";
+import { ProfileHeader } from "@/components/profile-header";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { SalaryStructureTab } from "./salary-structure-tab";
 
@@ -62,16 +64,19 @@ export function StaffDetailPage() {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">
-            {staff.first_name} {staff.last_name ?? ""}
-          </h1>
-          <Badge variant={staff.status === "active" ? "success" : "secondary"}>{staff.status}</Badge>
-        </div>
-        {hasPermission("staff.manage_profile") && <EditStaffDialog staff={staff} onUpdated={refresh} />}
-      </div>
+    <div className="flex flex-col gap-6">
+      <ProfileHeader
+        icon={BriefcaseIcon}
+        accent="var(--color-staff)"
+        name={`${staff.first_name} ${staff.last_name ?? ""}`}
+        status={staff.status}
+        statusVariant={staff.status === "active" ? "success" : "secondary"}
+        facts={[
+          { label: "Employee code", value: staff.employee_code },
+          { label: "Designation", value: staff.designation },
+        ]}
+        actions={hasPermission("staff.manage_profile") ? <EditStaffDialog staff={staff} onUpdated={refresh} /> : undefined}
+      />
 
       <Tabs defaultValue="profile">
         <TabsList>
@@ -112,59 +117,54 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Employment</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-y-3 text-sm">
-          <Field label="Employee code" value={staff.employee_code} />
-          <Field label="Designation" value={staff.designation} />
-          <Field label="Department" value={staff.department ?? "—"} />
-          <Field label="Employment type" value={staff.employment_type} />
-          <Field label="Date of joining" value={formatDate(staff.date_of_joining)} />
-          <Field label="Qualification" value={staff.qualification ?? "—"} />
-        </CardContent>
-      </Card>
+      <DetailSection
+        title="Employment"
+        icon={BriefcaseIcon}
+        accent="var(--color-staff)"
+        fields={[
+          { label: "Employee code", value: staff.employee_code },
+          { label: "Designation", value: staff.designation },
+          { label: "Department", value: staff.department ?? "—" },
+          { label: "Employment type", value: staff.employment_type },
+          { label: "Date of joining", value: formatDate(staff.date_of_joining) },
+          { label: "Qualification", value: staff.qualification ?? "—" },
+        ]}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Contact</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-y-3 text-sm">
-          <Field label="Phone" value={staff.phone ?? "—"} />
-          <Field label="Personal email" value={staff.personal_email ?? "—"} />
-          <Field label="Address" value={staff.address ?? "—"} />
-          <Field label="Emergency contact" value={staff.emergency_contact_name ?? "—"} />
-        </CardContent>
-      </Card>
+      <DetailSection
+        title="Contact"
+        icon={PhoneIcon}
+        accent="var(--color-staff)"
+        fields={[
+          { label: "Phone", value: staff.phone ?? "—" },
+          { label: "Personal email", value: staff.personal_email ?? "—" },
+          { label: "Address", value: staff.address ?? "—" },
+          { label: "Emergency contact", value: staff.emergency_contact_name ?? "—" },
+        ]}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Statutory &amp; bank</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-y-3 text-sm">
-          <Field label="PAN" value={staff.pan_number ?? "—"} />
-          <Field label="PF number" value={staff.pf_number ?? "—"} />
-          <Field label="ESI number" value={staff.esi_number ?? "—"} />
-          <Field label="UAN" value={staff.uan_number ?? "—"} />
-          <Field label="Bank" value={staff.bank_name ?? "—"} />
-          <Field label="Account #" value={staff.bank_account_number ?? "—"} />
-        </CardContent>
-      </Card>
+      <DetailSection
+        title="Statutory & bank"
+        icon={LandmarkIcon}
+        accent="var(--color-staff)"
+        fields={[
+          { label: "PAN", value: staff.pan_number ?? "—" },
+          { label: "PF number", value: staff.pf_number ?? "—" },
+          { label: "ESI number", value: staff.esi_number ?? "—" },
+          { label: "UAN", value: staff.uan_number ?? "—" },
+          { label: "Bank", value: staff.bank_name ?? "—" },
+          { label: "Account #", value: staff.bank_account_number ?? "—" },
+        ]}
+      />
 
       {hasPermission("users.manage") && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Login access</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {staff.user_id ? (
-              <ResetPasswordDialog userId={staff.user_id} />
-            ) : (
-              <CreateLoginDialog staff={staff} onCreated={onChanged} />
-            )}
-          </CardContent>
-        </Card>
+        <DetailSection title="Login access" icon={IdCardIcon} accent="var(--color-staff)">
+          {staff.user_id ? (
+            <ResetPasswordDialog userId={staff.user_id} />
+          ) : (
+            <CreateLoginDialog staff={staff} onCreated={onChanged} />
+          )}
+        </DetailSection>
       )}
     </div>
   );
@@ -445,11 +445,3 @@ function AssignmentsTab({ staff }: { staff: Staff }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-muted-foreground">{label}</p>
-      <p className="font-medium">{value}</p>
-    </div>
-  );
-}

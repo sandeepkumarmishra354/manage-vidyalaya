@@ -568,6 +568,30 @@ export interface AttendanceRosterRangeEntry {
   days: Record<string, { status: AttendanceStatus; remarks: string | null }>;
 }
 
+export interface AttendanceReportRow {
+  student_id: string;
+  student_name: string;
+  present: number;
+  absent: number;
+  late: number;
+  half_day: number;
+  leave: number;
+  working_days: number;
+  percent_present: number;
+}
+
+export interface StaffAttendanceReportRow {
+  staff_id: string;
+  staff_name: string;
+  present: number;
+  absent: number;
+  late: number;
+  half_day: number;
+  leave: number;
+  working_days: number;
+  percent_present: number;
+}
+
 // ============================================================================
 // Fees & Billing
 // ============================================================================
@@ -1403,6 +1427,20 @@ export const api = {
     http.get<{ can_mark: boolean }>("/attendance/can-mark", { section_id: sectionId }),
   getStudentAttendanceHistory: (studentId: string) =>
     http.get<AttendanceHistoryEntry[]>(`/attendance/student/${studentId}/history`),
+  getAttendanceReport: (
+    branchId: string,
+    classId: string,
+    sectionId: string | null | undefined,
+    startDate: string,
+    endDate: string,
+  ) =>
+    http.get<AttendanceReportRow[]>("/attendance/report", {
+      branch_id: branchId,
+      class_id: classId,
+      section_id: sectionId,
+      start_date: startDate,
+      end_date: endDate,
+    }),
 
   listFeeCategories: () => http.get<FeeCategory[]>("/fee-categories"),
   createFeeCategory: (name: string) => http.post<FeeCategory>("/fee-categories", { name }),
@@ -1528,6 +1566,12 @@ export const api = {
   markStaffAttendanceBulk: (input: BulkMarkStaffAttendanceInput) => http.post<void>("/staff-attendance/bulk", input),
   getStaffAttendanceHistory: (staffId: string) =>
     http.get<StaffAttendanceHistoryEntry[]>(`/staff-attendance/staff/${staffId}/history`),
+  getStaffAttendanceReport: (branchId: string, startDate: string, endDate: string) =>
+    http.get<StaffAttendanceReportRow[]>("/staff-attendance/report", {
+      branch_id: branchId,
+      start_date: startDate,
+      end_date: endDate,
+    }),
 
   // Payroll
   getSalaryStructure: (staffId: string) =>

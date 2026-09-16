@@ -14,6 +14,7 @@ import {
   type SchoolClass,
 } from "@/lib/api";
 import { formatPaise } from "@/lib/money";
+import { PersonLink } from "@/components/person-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -482,7 +483,9 @@ function InvoicesTab() {
                       />
                     </TableCell>
                   )}
-                  <TableCell className="font-medium">{inv.student_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <PersonLink type="student" id={inv.student_id} name={inv.student_name} />
+                  </TableCell>
                   <TableCell>{inv.fee_structure_name}</TableCell>
                   <TableCell>
                     <Badge variant={feeTypeVariant[inv.fee_type] ?? "outline"}>

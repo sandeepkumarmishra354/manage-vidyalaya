@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type ExamResult, type MarksRosterEntry, type Subject } from "@/lib/api";
+import { PersonLink } from "@/components/person-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -137,7 +138,7 @@ export function MarksEntry({ exam, subjects }: { exam: Exam; subjects: Subject[]
                   return (
                     <TableRow key={entry.student_id}>
                       <TableCell className="font-medium">
-                        {entry.first_name} {entry.last_name ?? ""}
+                        <PersonLink type="student" id={entry.student_id} name={`${entry.first_name} ${entry.last_name ?? ""}`} />
                       </TableCell>
                       <TableCell>
                         <Input

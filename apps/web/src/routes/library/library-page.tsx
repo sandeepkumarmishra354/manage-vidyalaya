@@ -4,6 +4,7 @@ import { PencilIcon, PlusIcon, SearchIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { api, type LibraryBook, type LibraryIssueListItem, type StudentListItem } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import { PersonLink } from "@/components/person-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -313,7 +314,9 @@ function IssuesTab({ books }: { books: LibraryBook[] }) {
             {issues.map((issue) => (
               <TableRow key={issue.id}>
                 <TableCell className="font-medium">{issue.book_title}</TableCell>
-                <TableCell>{issue.student_name}</TableCell>
+                <TableCell>
+                  <PersonLink type="student" id={issue.student_id} name={issue.student_name} />
+                </TableCell>
                 <TableCell>{formatDate(issue.due_date)}</TableCell>
                 <TableCell className="text-right">
                   {canManageIssues && (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type SchoolClass, type Section } from "@/lib/api";
@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { emptyGuardianPickerValue, GuardianPicker, type GuardianPickerValue } from "./guardian-picker";
 
@@ -45,7 +46,6 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
   const [sections, setSections] = useState<Section[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [guardian, setGuardian] = useState<GuardianPickerValue>(emptyGuardianPickerValue);
-  const [showAdditional, setShowAdditional] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,7 +109,6 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
       });
       setForm(emptyForm);
       setGuardian(emptyGuardianPickerValue);
-      setShowAdditional(false);
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -127,158 +126,156 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
           New Admission
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Admission</DialogTitle>
           <DialogDescription>Enter the applicant's and guardian's details to start an admission.</DialogDescription>
         </DialogHeader>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="firstName">First name</Label>
-              <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="lastName">Last name</Label>
-              <Input id="lastName" value={form.lastName} onChange={update("lastName")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="dob">Date of birth</Label>
-              <Input id="dob" type="date" value={form.dateOfBirth} onChange={update("dateOfBirth")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="gender">Gender</Label>
-              <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
-                <SelectTrigger id="gender" className="w-full">
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="male">Male</SelectItem>
-                  <SelectItem value="female">Female</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Applying for class</Label>
-              <Select value={form.classId} onValueChange={(v) => setForm((f) => ({ ...f, classId: v }))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select class" />
-                </SelectTrigger>
-                <SelectContent>
-                  {classes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Section (if known)</Label>
-              <Select disabled={sections.length === 0}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={sections.length ? "Select section" : "N/A"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {sections.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <Tabs defaultValue="basic">
+            <TabsList>
+              <TabsTrigger value="basic">Basic Info</TabsTrigger>
+              <TabsTrigger value="address">Address</TabsTrigger>
+              <TabsTrigger value="guardian">Guardian</TabsTrigger>
+              <TabsTrigger value="additional">Additional Details</TabsTrigger>
+            </TabsList>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="address">Address</Label>
-            <Input id="address" value={form.address} onChange={update("address")} />
-          </div>
-
-          <div className="border-t pt-4">
-            <p className="mb-3 text-sm font-medium">Primary guardian</p>
-            <div className="mb-3 flex flex-col gap-1.5">
-              <Label>Relation to student</Label>
-              <Select
-                value={form.guardianRelation}
-                onValueChange={(v) => setForm((f) => ({ ...f, guardianRelation: v }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="father">Father</SelectItem>
-                  <SelectItem value="mother">Mother</SelectItem>
-                  <SelectItem value="guardian">Guardian</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <GuardianPicker value={guardian} onChange={setGuardian} />
-          </div>
-
-          <div className="border-t pt-4">
-            <button
-              type="button"
-              onClick={() => setShowAdditional((v) => !v)}
-              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
-            >
-              {showAdditional ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
-              Additional details
-            </button>
-            {showAdditional && (
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label>Category</Label>
-                  <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="General">General</SelectItem>
-                      <SelectItem value="OBC">OBC</SelectItem>
-                      <SelectItem value="SC">SC</SelectItem>
-                      <SelectItem value="ST">ST</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="religion">Religion</Label>
-                  <Input id="religion" value={form.religion} onChange={update("religion")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="nationality">Nationality</Label>
-                  <Input id="nationality" placeholder="e.g. Indian" value={form.nationality} onChange={update("nationality")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="motherTongue">Mother tongue</Label>
-                  <Input id="motherTongue" value={form.motherTongue} onChange={update("motherTongue")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="aadhaarNumber">Aadhaar number</Label>
-                  <Input id="aadhaarNumber" value={form.aadhaarNumber} onChange={update("aadhaarNumber")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="previousSchoolName">Previous school</Label>
-                  <Input id="previousSchoolName" value={form.previousSchoolName} onChange={update("previousSchoolName")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="emergencyContactName">Emergency contact name</Label>
-                  <Input id="emergencyContactName" value={form.emergencyContactName} onChange={update("emergencyContactName")} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="emergencyContactPhone">Emergency contact phone</Label>
-                  <Input id="emergencyContactPhone" value={form.emergencyContactPhone} onChange={update("emergencyContactPhone")} />
-                </div>
-                <div className="col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor="medicalNotes">Medical notes (allergies, conditions)</Label>
-                  <Textarea id="medicalNotes" value={form.medicalNotes} onChange={update("medicalNotes")} />
-                </div>
+            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="firstName">First name</Label>
+                <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
               </div>
-            )}
-          </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="lastName">Last name</Label>
+                <Input id="lastName" value={form.lastName} onChange={update("lastName")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="dob">Date of birth</Label>
+                <Input id="dob" type="date" value={form.dateOfBirth} onChange={update("dateOfBirth")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="gender">Gender</Label>
+                <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
+                  <SelectTrigger id="gender" className="w-full">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Applying for class</Label>
+                <Select value={form.classId} onValueChange={(v) => setForm((f) => ({ ...f, classId: v }))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Section (if known)</Label>
+                <Select disabled={sections.length === 0}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={sections.length ? "Select section" : "N/A"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sections.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="address">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="address">Address</Label>
+                <Input id="address" value={form.address} onChange={update("address")} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="guardian">
+              <div className="mb-3 flex flex-col gap-1.5">
+                <Label>Relation to student</Label>
+                <Select
+                  value={form.guardianRelation}
+                  onValueChange={(v) => setForm((f) => ({ ...f, guardianRelation: v }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="father">Father</SelectItem>
+                    <SelectItem value="mother">Mother</SelectItem>
+                    <SelectItem value="guardian">Guardian</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <GuardianPicker value={guardian} onChange={setGuardian} />
+            </TabsContent>
+
+            <TabsContent value="additional" className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label>Category</Label>
+                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="General">General</SelectItem>
+                    <SelectItem value="OBC">OBC</SelectItem>
+                    <SelectItem value="SC">SC</SelectItem>
+                    <SelectItem value="ST">ST</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="religion">Religion</Label>
+                <Input id="religion" value={form.religion} onChange={update("religion")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="nationality">Nationality</Label>
+                <Input id="nationality" placeholder="e.g. Indian" value={form.nationality} onChange={update("nationality")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="motherTongue">Mother tongue</Label>
+                <Input id="motherTongue" value={form.motherTongue} onChange={update("motherTongue")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="aadhaarNumber">Aadhaar number</Label>
+                <Input id="aadhaarNumber" value={form.aadhaarNumber} onChange={update("aadhaarNumber")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="previousSchoolName">Previous school</Label>
+                <Input id="previousSchoolName" value={form.previousSchoolName} onChange={update("previousSchoolName")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="emergencyContactName">Emergency contact name</Label>
+                <Input id="emergencyContactName" value={form.emergencyContactName} onChange={update("emergencyContactName")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="emergencyContactPhone">Emergency contact phone</Label>
+                <Input id="emergencyContactPhone" value={form.emergencyContactPhone} onChange={update("emergencyContactPhone")} />
+              </div>
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label htmlFor="medicalNotes">Medical notes (allergies, conditions)</Label>
+                <Textarea id="medicalNotes" value={form.medicalNotes} onChange={update("medicalNotes")} />
+              </div>
+            </TabsContent>
+          </Tabs>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

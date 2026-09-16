@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
+import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
 
 function makePrismaMock() {
@@ -22,15 +23,21 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+function makeSchoolCalendarMock() {
+  return { getDayTypesInRange: vi.fn(async () => ({})), getDayType: vi.fn() } as unknown as SchoolCalendarService;
+}
+
 describe("StaffAttendanceService.getRosterRange", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: StaffAttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StaffAttendanceService(prisma, audit);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar);
   });
 
   it("groups records into a per-staff, per-ISO-date map", async () => {
@@ -64,12 +71,14 @@ describe("StaffAttendanceService.getRosterRange", () => {
 describe("StaffAttendanceService.markAttendanceBulk", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: StaffAttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StaffAttendanceService(prisma, audit);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar);
   });
 
   it("upserts one row per entry, each keyed by its own date, in one audited batch", async () => {

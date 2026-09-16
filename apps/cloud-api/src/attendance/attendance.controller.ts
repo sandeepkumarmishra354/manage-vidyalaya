@@ -69,4 +69,17 @@ export class AttendanceController {
   history(@Param("studentId") studentId: string) {
     return this.attendanceService.getStudentHistory(studentId);
   }
+
+  @Get("report")
+  async report(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("class_id") classId: string,
+    @Query("start_date") startDate: string,
+    @Query("end_date") endDate: string,
+    @Query("section_id") sectionId?: string,
+  ) {
+    await this.attendanceService.assertCanView(user.tenant_id, user.sub, sectionId);
+    return this.attendanceService.getReport(user.tenant_id, branchId, classId, sectionId, startDate, endDate);
+  }
 }
