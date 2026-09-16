@@ -15,25 +15,24 @@ export class StaffCategoriesController {
   constructor(private readonly staffCategoriesService: StaffCategoriesService) {}
 
   @Get()
-  @RequirePermission("staff.view")
   list(@CurrentUser() user: JwtPayload) {
     return this.staffCategoriesService.listCategories(user.tenant_id);
   }
 
   @Post()
-  @RequirePermission("staff.manage_profile")
+  @RequirePermission(["staff.manage_profile", "master_data.manage_staff_category"])
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateStaffCategoryDto) {
     return this.staffCategoriesService.createCategory(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("staff.manage_profile")
+  @RequirePermission(["staff.manage_profile", "master_data.manage_staff_category"])
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStaffCategoryDto) {
     return this.staffCategoriesService.updateCategory(user.tenant_id, user.sub, id, dto);
   }
 
   @Delete(":id")
-  @RequirePermission("staff.manage_profile")
+  @RequirePermission(["staff.manage_profile", "master_data.manage_staff_category"])
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.staffCategoriesService.deleteCategory(user.tenant_id, user.sub, id);
   }

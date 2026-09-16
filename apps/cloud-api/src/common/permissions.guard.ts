@@ -18,7 +18,10 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredPermission = this.reflector.get<PermissionKey | undefined>(PERMISSION_KEY, context.getHandler());
+    const requiredPermission = this.reflector.get<PermissionKey | PermissionKey[] | undefined>(
+      PERMISSION_KEY,
+      context.getHandler(),
+    );
     if (!requiredPermission) {
       return true;
     }
@@ -29,8 +32,11 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException("not authorized");
     }
 
-    if (!(await this.scopedAccess.hasPermission(user.sub, requiredPermission))) {
-      throw new ForbiddenException(`missing permission: ${requiredPermission}`);
+    // Array = OR semantics: any one of the listed permissions is enough.
+    const required = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+    const grants = await Promise.all(required.map((key) => this.scopedAccess.hasPermission(user.sub, key)));
+    if (!grants.some(Boolean)) {
+      throw new ForbiddenException(`missing permission: ${required.join(" or ")}`);
     }
 
     return true;

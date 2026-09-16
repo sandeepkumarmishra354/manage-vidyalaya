@@ -15,25 +15,24 @@ export class FeeCategoriesController {
   constructor(private readonly feeCategoriesService: FeeCategoriesService) {}
 
   @Get()
-  @RequirePermission("fees.view")
   list(@CurrentUser() user: JwtPayload) {
     return this.feeCategoriesService.listCategories(user.tenant_id);
   }
 
   @Post()
-  @RequirePermission("fees.manage_structures")
+  @RequirePermission(["fees.manage_structures", "master_data.manage_fee_category"])
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateFeeCategoryDto) {
     return this.feeCategoriesService.createCategory(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
-  @RequirePermission("fees.manage_structures")
+  @RequirePermission(["fees.manage_structures", "master_data.manage_fee_category"])
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateFeeCategoryDto) {
     return this.feeCategoriesService.updateCategory(user.tenant_id, user.sub, id, dto);
   }
 
   @Delete(":id")
-  @RequirePermission("fees.manage_structures")
+  @RequirePermission(["fees.manage_structures", "master_data.manage_fee_category"])
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.feeCategoriesService.deleteCategory(user.tenant_id, user.sub, id);
   }
