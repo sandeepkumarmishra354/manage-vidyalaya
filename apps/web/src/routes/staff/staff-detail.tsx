@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { BriefcaseIcon, IdCardIcon, KeyIcon, LandmarkIcon, PhoneIcon, UserPlusIcon } from "lucide-react";
+import { BriefcaseIcon, CalendarCheckIcon, IdCardIcon, KeyIcon, LandmarkIcon, PhoneIcon, UserPlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -8,11 +8,9 @@ import {
   type SchoolClass,
   type Section,
   type Staff,
-  type StaffAttendanceHistoryEntry,
   type Subject,
   type TeacherAssignment,
 } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -30,28 +28,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
 import { DetailSection } from "@/components/detail-section";
+import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
 import { ProfileHeader } from "@/components/profile-header";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { SalaryStructureTab } from "./salary-structure-tab";
-
-const attendanceBadgeVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  present: "default",
-  absent: "destructive",
-  half_day: "secondary",
-  leave: "outline",
-  holiday: "outline",
-};
 
 export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
   const hasPermission = useAppStore((s) => s.hasPermission);
   const [staff, setStaff] = useState<Staff | null>(null);
-  const [attendance, setAttendance] = useState<StaffAttendanceHistoryEntry[]>([]);
 
   const refresh = useCallback(() => {
     if (id) {
       api.getStaff(id).then(setStaff);
-      api.getStaffAttendanceHistory(id).then(setAttendance);
     }
   }, [id]);
 
@@ -93,14 +82,9 @@ export function StaffDetailPage() {
           <AssignmentsTab staff={staff} />
         </TabsContent>
         <TabsContent value="attendance">
-          <div className="flex flex-wrap gap-1.5">
-            {attendance.map((a) => (
-              <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={formatDate(a.attendance_date)}>
-                {a.attendance_date.slice(5)} · {a.status}
-              </Badge>
-            ))}
-            {attendance.length === 0 && <p className="text-muted-foreground">No attendance recorded yet.</p>}
-          </div>
+          <DetailSection title="Attendance calendar" icon={CalendarCheckIcon} accent="var(--color-staff)">
+            <PersonAttendanceCalendar personType="staff" branchId={staff.branch_id} personId={staff.id} />
+          </DetailSection>
         </TabsContent>
         {hasPermission("payroll.view") && (
           <TabsContent value="salary">

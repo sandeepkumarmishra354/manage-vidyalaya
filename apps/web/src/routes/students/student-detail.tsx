@@ -46,17 +46,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { DetailSection } from "@/components/detail-section";
+import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
-
-const attendanceBadgeVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  present: "default",
-  absent: "destructive",
-  late: "secondary",
-  half_day: "secondary",
-  leave: "outline",
-};
 
 const feeStatusVariant: Record<InvoiceStatus, "info" | "warning" | "success" | "destructive" | "secondary"> = {
   pending: "info",
@@ -80,11 +73,6 @@ export function StudentDetailPage() {
     queryFn: () => api.getStudent(id!),
     enabled: !!id,
   });
-  const { data: attendance = [] } = useQuery({
-    queryKey: ["student-attendance-history", id],
-    queryFn: () => api.getStudentAttendanceHistory(id!),
-    enabled: !!id,
-  });
   const { data: siblings = [] } = useQuery({
     queryKey: ["student-siblings", id],
     queryFn: () => api.getSiblings(id!),
@@ -99,7 +87,6 @@ export function StudentDetailPage() {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["student", id] });
-    queryClient.invalidateQueries({ queryKey: ["student-attendance-history", id] });
     queryClient.invalidateQueries({ queryKey: ["student-siblings", id] });
   };
 
@@ -268,17 +255,17 @@ export function StudentDetailPage() {
         </TabsContent>
 
         <TabsContent value="attendance">
-          <DetailSection title="Recent attendance" icon={CalendarCheckIcon} accent="var(--color-academics)">
-            {attendance.length === 0 ? (
-              <p className="text-muted-foreground">No attendance recorded yet.</p>
+          <DetailSection title="Attendance calendar" icon={CalendarCheckIcon} accent="var(--color-academics)">
+            {student.current_class_id ? (
+              <PersonAttendanceCalendar
+                personType="student"
+                branchId={student.branch_id}
+                personId={student.id}
+                classId={student.current_class_id}
+                sectionId={student.current_section_id}
+              />
             ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {attendance.slice(0, 30).map((a) => (
-                  <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={formatDate(a.attendance_date)}>
-                    {a.attendance_date.slice(5)} · {a.status}
-                  </Badge>
-                ))}
-              </div>
+              <p className="text-muted-foreground">Attendance requires a class assignment.</p>
             )}
           </DetailSection>
         </TabsContent>
