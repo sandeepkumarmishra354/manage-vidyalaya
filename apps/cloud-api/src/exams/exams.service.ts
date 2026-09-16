@@ -318,7 +318,14 @@ export class ExamsService {
 
   async getReportCard(studentId: string, examId: string) {
     const [student, exam] = await Promise.all([
-      this.prisma.student.findUniqueOrThrow({ where: { id: studentId } }),
+      this.prisma.student.findUniqueOrThrow({
+        where: { id: studentId },
+        include: {
+          currentClass: true,
+          currentSection: true,
+          studentGuardians: { include: { guardian: true } },
+        },
+      }),
       this.prisma.exam.findUniqueOrThrow({ where: { id: examId } }),
     ]);
 
@@ -368,9 +375,17 @@ export class ExamsService {
         ? "pending"
         : "pass";
 
+    const activeGuardians = student.studentGuardians.filter((sg) => sg.guardian.deletedAt === null);
+    const primaryGuardian = activeGuardians.find((sg) => sg.isPrimaryContact) ?? activeGuardians[0];
+
     return {
       student_id: studentId,
       student_name: [student.firstName, student.lastName].filter(Boolean).join(" "),
+      class_name: student.currentClass?.name ?? null,
+      section_name: student.currentSection?.name ?? null,
+      roll_number: student.rollNumber,
+      date_of_birth: student.dateOfBirth,
+      guardian_name: primaryGuardian?.guardian.fullName ?? null,
       exam_name: exam.name,
       rows,
       total_obtained: totalObtained,

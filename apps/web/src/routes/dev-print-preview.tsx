@@ -40,7 +40,15 @@ function MockReceiptBody() {
     <>
       <div className="mb-6 grid grid-cols-2 gap-y-2 text-sm">
         <p className="text-slate-600">Student</p>
-        <p className="font-medium">Aarav Sharma (Class 8 - B)</p>
+        <p className="font-medium">Aarav Sharma</p>
+        <p className="text-slate-600">Class</p>
+        <p className="font-medium">8 - B</p>
+        <p className="text-slate-600">Roll number</p>
+        <p className="font-medium">23</p>
+        <p className="text-slate-600">Date of birth</p>
+        <p className="font-medium">12 Apr 2013</p>
+        <p className="text-slate-600">Guardian</p>
+        <p className="font-medium">Rakesh Sharma</p>
         <p className="text-slate-600">Payment method</p>
         <p className="font-medium">Cash</p>
       </div>
@@ -99,8 +107,22 @@ const PERCENTAGE = (TOTAL_OBTAINED / TOTAL_MAX) * 100;
 function MockReportCardBody() {
   return (
     <>
-      <div className="mb-6 flex items-center justify-between">
-        <p className="text-lg font-semibold">Aarav Sharma (Class 8 - B)</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+          <p className="col-span-2 text-lg font-semibold">Aarav Sharma</p>
+          <p className="text-slate-600">
+            Class <span className="font-medium text-slate-900">8 - B</span>
+          </p>
+          <p className="text-slate-600">
+            Roll number <span className="font-medium text-slate-900">23</span>
+          </p>
+          <p className="text-slate-600">
+            Date of birth <span className="font-medium text-slate-900">12 Apr 2013</span>
+          </p>
+          <p className="text-slate-600">
+            Guardian <span className="font-medium text-slate-900">Rakesh Sharma</span>
+          </p>
+        </div>
         <p className="font-medium">Overall: Pass</p>
       </div>
       <table className="w-full border-collapse text-sm">

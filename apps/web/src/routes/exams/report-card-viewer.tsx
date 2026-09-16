@@ -3,6 +3,7 @@ import { PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type ReportCard, type StudentListItem } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { SignatureBlock } from "@/components/signature-block";
 import { Badge } from "@/components/ui/badge";
@@ -127,8 +128,25 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
             right={<p className="font-medium text-slate-900">{reportCard.exam_name}</p>}
           />
 
-          <div className="mb-6 flex items-center justify-between">
-            <p className="text-lg font-semibold">{reportCard.student_name}</p>
+          <div className="mb-6 flex items-start justify-between">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+              <p className="col-span-2 text-lg font-semibold">{reportCard.student_name}</p>
+              <p className="text-slate-600">
+                Class{" "}
+                <span className="font-medium text-slate-900">
+                  {[reportCard.class_name, reportCard.section_name].filter(Boolean).join(" - ") || "-"}
+                </span>
+              </p>
+              <p className="text-slate-600">
+                Roll number <span className="font-medium text-slate-900">{reportCard.roll_number ?? "-"}</span>
+              </p>
+              <p className="text-slate-600">
+                Date of birth <span className="font-medium text-slate-900">{formatDate(reportCard.date_of_birth) || "-"}</span>
+              </p>
+              <p className="text-slate-600">
+                Guardian <span className="font-medium text-slate-900">{reportCard.guardian_name ?? "-"}</span>
+              </p>
+            </div>
             <p className="font-medium capitalize">Overall: {reportCard.overall_result}</p>
           </div>
 

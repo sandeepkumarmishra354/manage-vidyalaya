@@ -294,6 +294,7 @@ model Student {
   tenantId              String    @map("tenant_id")
   branchId              String    @map("branch_id")
   admissionNumber       String?   @map("admission_number")
+  rollNumber            String?   @map("roll_number")
   firstName             String    @map("first_name")
   lastName              String?   @map("last_name")
   dateOfBirth           DateTime? @map("date_of_birth")

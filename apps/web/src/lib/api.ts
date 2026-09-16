@@ -140,6 +140,7 @@ export type StudentStatus = "enquiry" | "applied" | "enrolled" | "alumni" | "wit
 export interface StudentListItem {
   id: string;
   admission_number?: string | null;
+  roll_number?: string | null;
   first_name: string;
   last_name?: string | null;
   status: StudentStatus;
@@ -197,6 +198,7 @@ export interface StudentDetail {
   tenant_id: string;
   branch_id: string;
   admission_number?: string | null;
+  roll_number?: string | null;
   first_name: string;
   last_name?: string | null;
   date_of_birth?: string | null;
@@ -273,6 +275,7 @@ export interface UpdateStudentInput {
   id: string;
   first_name: string;
   last_name?: string | null;
+  roll_number?: string | null;
   date_of_birth?: string | null;
   gender?: string | null;
   blood_group?: string | null;
@@ -634,6 +637,11 @@ export interface FeeInvoiceListItem {
   id: string;
   student_id: string;
   student_name: string;
+  class_name?: string | null;
+  section_name?: string | null;
+  roll_number?: string | null;
+  date_of_birth?: string | null;
+  guardian_name?: string | null;
   fee_structure_name: string;
   fee_type: FeeType;
   amount_due: number;
@@ -810,6 +818,11 @@ export interface ReportCardSubjectRow {
 export interface ReportCard {
   student_id: string;
   student_name: string;
+  class_name?: string | null;
+  section_name?: string | null;
+  roll_number?: string | null;
+  date_of_birth?: string | null;
+  guardian_name?: string | null;
   exam_name: string;
   rows: ReportCardSubjectRow[];
   total_obtained: number;

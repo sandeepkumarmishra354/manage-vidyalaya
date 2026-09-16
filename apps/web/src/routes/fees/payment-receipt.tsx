@@ -1,6 +1,7 @@
 import { PrinterIcon } from "lucide-react";
 
 import { FEE_TYPE_LABELS, type Branch, type FeeInvoiceListItem, type FeePayment } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { SignatureBlock } from "@/components/signature-block";
@@ -64,6 +65,16 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
         <div className="mb-6 grid grid-cols-2 gap-y-2 text-sm">
           <p className="text-slate-600">Student</p>
           <p className="font-medium">{first.invoice.student_name}</p>
+          <p className="text-slate-600">Class</p>
+          <p className="font-medium">
+            {[first.invoice.class_name, first.invoice.section_name].filter(Boolean).join(" - ") || "-"}
+          </p>
+          <p className="text-slate-600">Roll number</p>
+          <p className="font-medium">{first.invoice.roll_number ?? "-"}</p>
+          <p className="text-slate-600">Date of birth</p>
+          <p className="font-medium">{formatDate(first.invoice.date_of_birth) || "-"}</p>
+          <p className="text-slate-600">Guardian</p>
+          <p className="font-medium">{first.invoice.guardian_name ?? "-"}</p>
           <p className="text-slate-600">Payment method</p>
           <p className="font-medium">
             {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}

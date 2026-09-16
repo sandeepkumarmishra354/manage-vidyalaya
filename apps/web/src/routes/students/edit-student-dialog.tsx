@@ -57,6 +57,7 @@ export function EditStudentDialog({
         id: student.id,
         first_name: form.first_name,
         last_name: form.last_name,
+        roll_number: form.roll_number,
         date_of_birth: form.date_of_birth,
         gender: form.gender,
         blood_group: form.blood_group,
@@ -107,6 +108,10 @@ export function EditStudentDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="edit-lastName">Last name</Label>
               <Input id="edit-lastName" value={form.last_name ?? ""} onChange={update("last_name")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-rollNumber">Roll number</Label>
+              <Input id="edit-rollNumber" value={form.roll_number ?? ""} onChange={update("roll_number")} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="edit-dob">Date of birth</Label>

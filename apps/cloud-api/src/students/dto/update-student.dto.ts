@@ -10,6 +10,10 @@ export class UpdateStudentDto {
 
   @IsOptional()
   @IsString()
+  roll_number?: string | null;
+
+  @IsOptional()
+  @IsString()
   date_of_birth?: string | null;
 
   @IsOptional()
