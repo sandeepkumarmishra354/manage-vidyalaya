@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { formatDate } from "@/lib/date";
 import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
 
@@ -130,7 +131,7 @@ export function StudentDetailPage() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-y-3 text-sm">
           <Field label="Admission number" value={student.admission_number ?? "Not yet assigned"} />
-          <Field label="Date of birth" value={student.date_of_birth ?? "—"} />
+          <Field label="Date of birth" value={student.date_of_birth ? formatDate(student.date_of_birth) : "—"} />
           <Field label="Gender" value={student.gender ?? "—"} />
           <Field label="Blood group" value={student.blood_group ?? "—"} />
           <Field label="Address" value={student.address ?? "—"} />
@@ -237,7 +238,7 @@ export function StudentDetailPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-1.5">
             {attendance.slice(0, 30).map((a) => (
-              <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={a.attendance_date}>
+              <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={formatDate(a.attendance_date)}>
                 {a.attendance_date.slice(5)} · {a.status}
               </Badge>
             ))}
@@ -297,7 +298,9 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
   const [routes, setRoutes] = useState<TransportRoute[]>([]);
   const [stops, setStops] = useState<TransportStop[]>([]);
   const [routeId, setRouteId] = useState("");
+  const [stopId, setStopId] = useState("");
   const [current, setCurrent] = useState<StudentTransportInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listRoutes(branchId).then(setRoutes);
@@ -305,13 +308,20 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
   }, [branchId, studentId]);
 
   useEffect(() => {
+    setStopId("");
     if (routeId) api.listStops(routeId).then(setStops);
   }, [routeId]);
 
-  const handleAssign = async (stopId: string) => {
-    await api.assignStudentTransport(studentId, routeId, stopId);
-    const info = await api.getStudentTransport(studentId);
-    setCurrent(info);
+  const handleAssign = async (newStopId: string) => {
+    setError(null);
+    try {
+      await api.assignStudentTransport(studentId, routeId, newStopId);
+      setStopId(newStopId);
+      const info = await api.getStudentTransport(studentId);
+      setCurrent(info);
+    } catch {
+      setError("Could not assign transport. Please try again.");
+    }
   };
 
   return (
@@ -341,7 +351,7 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
                 ))}
               </SelectContent>
             </Select>
-            <Select disabled={!routeId} onValueChange={handleAssign}>
+            <Select value={stopId} disabled={!routeId} onValueChange={handleAssign}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Select stop" />
               </SelectTrigger>
@@ -355,6 +365,7 @@ function TransportCard({ studentId, branchId }: { studentId: string; branchId: s
             </Select>
           </div>
         )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
         {!canAssign && !current && <p className="text-sm text-muted-foreground">Not assigned</p>}
       </CardContent>
     </Card>

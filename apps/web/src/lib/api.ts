@@ -12,6 +12,9 @@ export interface Branch {
   phone?: string | null;
   email?: string | null;
   logo_url?: string | null;
+  signature_url?: string | null;
+  print_template: string;
+  print_paper_color: string;
   is_active: boolean;
 }
 
@@ -25,6 +28,9 @@ export interface UpdateBranchInput {
   phone?: string | null;
   email?: string | null;
   logo_url?: string | null;
+  signature_url?: string | null;
+  print_template?: string;
+  print_paper_color?: string;
 }
 
 export interface SchoolClass {
@@ -91,11 +97,54 @@ export interface NewAcademicSessionInput {
   is_current: boolean;
 }
 
+// "holiday" = no attendance/payroll impact. "half_day" = counts as half a
+// working day for everyone (school-wide) -- distinct from a staff member's
+// own attendance status of the same name.
+export type DayType = "holiday" | "half_day" | "working";
+
+export interface CalendarHoliday {
+  id: string;
+  date: string;
+  name: string;
+  type: "holiday" | "half_day";
+}
+
+export interface SchoolCalendarData {
+  id: string | null;
+  branch_id: string;
+  academic_session_id: string;
+  weekly_off_days: number[];
+  weekly_half_days: number[];
+  holidays: CalendarHoliday[];
+}
+
+export interface SetWeeklyRuleInput {
+  branch_id: string;
+  academic_session_id: string;
+  weekly_off_days: number[];
+  weekly_half_days: number[];
+}
+
+export interface CreateHolidayInput {
+  branch_id: string;
+  academic_session_id: string;
+  date: string;
+  name: string;
+  type: "holiday" | "half_day";
+}
+
+export interface UpdateHolidayInput {
+  date: string;
+  name: string;
+  type: "holiday" | "half_day";
+}
+
 export type StudentStatus = "enquiry" | "applied" | "enrolled" | "alumni" | "withdrawn";
 
 export interface StudentListItem {
   id: string;
   admission_number?: string | null;
+  roll_number?: string | null;
   first_name: string;
   last_name?: string | null;
   status: StudentStatus;
@@ -153,6 +202,7 @@ export interface StudentDetail {
   tenant_id: string;
   branch_id: string;
   admission_number?: string | null;
+  roll_number?: string | null;
   first_name: string;
   last_name?: string | null;
   date_of_birth?: string | null;
@@ -229,6 +279,7 @@ export interface UpdateStudentInput {
   id: string;
   first_name: string;
   last_name?: string | null;
+  roll_number?: string | null;
   date_of_birth?: string | null;
   gender?: string | null;
   blood_group?: string | null;
@@ -590,6 +641,11 @@ export interface FeeInvoiceListItem {
   id: string;
   student_id: string;
   student_name: string;
+  class_name?: string | null;
+  section_name?: string | null;
+  roll_number?: string | null;
+  date_of_birth?: string | null;
+  guardian_name?: string | null;
   fee_structure_name: string;
   fee_type: FeeType;
   amount_due: number;
@@ -766,6 +822,11 @@ export interface ReportCardSubjectRow {
 export interface ReportCard {
   student_id: string;
   student_name: string;
+  class_name?: string | null;
+  section_name?: string | null;
+  roll_number?: string | null;
+  date_of_birth?: string | null;
+  guardian_name?: string | null;
   exam_name: string;
   rows: ReportCardSubjectRow[];
   total_obtained: number;
@@ -993,6 +1054,19 @@ export interface StaffAttendanceHistoryEntry {
   remarks?: string | null;
 }
 
+export interface StaffAttendanceRosterRangeEntry {
+  staff_id: string;
+  first_name: string;
+  last_name?: string | null;
+  designation: string;
+  days: Record<string, { status: string; remarks: string | null }>;
+}
+
+export interface BulkMarkStaffAttendanceInput {
+  branch_id: string;
+  entries: { staff_id: string; attendance_date: string; status: AttendanceStatus; remarks?: string | null }[];
+}
+
 // ============================================================================
 // Payroll
 // ============================================================================
@@ -1165,6 +1239,25 @@ export interface FeeStatusCount {
   amount: number;
 }
 
+export interface BirthdayEntry {
+  id: string;
+  name: string;
+  role: "student" | "staff";
+}
+
+export interface UpcomingHoliday {
+  id: string;
+  date: string;
+  name: string;
+  type: "holiday" | "half_day";
+}
+
+export interface UpcomingExam {
+  id: string;
+  name: string;
+  exam_date: string | null;
+}
+
 export interface DashboardStats {
   total_students: number;
   enrolled_count: number;
@@ -1172,12 +1265,17 @@ export interface DashboardStats {
   alumni_count: number;
   todays_attendance_present: number;
   todays_attendance_total: number;
-  fee_collected_paise: number;
-  fee_pending_paise: number;
+  // Omitted entirely by the backend (not just hidden) when the caller lacks fees.view.
+  fee_collected_paise?: number;
+  fee_pending_paise?: number;
+  fee_status_breakdown?: FeeStatusCount[];
   overdue_books_count: number;
   enrollment_by_class: ClassCount[];
   attendance_trend: AttendanceTrendPoint[];
-  fee_status_breakdown: FeeStatusCount[];
+  birthdays_today: BirthdayEntry[];
+  birthdays_tomorrow: BirthdayEntry[];
+  upcoming_holidays: UpcomingHoliday[];
+  upcoming_exams: UpcomingExam[];
 }
 
 export const api = {
@@ -1200,6 +1298,18 @@ export const api = {
     const sessions = await http.get<AcademicSession[]>("/academic-sessions");
     return sessions.find((s) => s.is_current)?.id ?? null;
   },
+  getSchoolCalendar: (branchId: string, academicSessionId: string) =>
+    http.get<SchoolCalendarData>("/school-calendar", { branch_id: branchId, academic_session_id: academicSessionId }),
+  setWeeklyRule: (input: SetWeeklyRuleInput) => http.post<void>("/school-calendar/weekly-rule", input),
+  addHoliday: (input: CreateHolidayInput) => http.post<CalendarHoliday>("/school-calendar/holidays", input),
+  updateHoliday: (id: string, input: UpdateHolidayInput) => http.patch<void>(`/calendar-holidays/${id}`, input),
+  deleteHoliday: (id: string) => http.delete<void>(`/calendar-holidays/${id}`),
+  getDayTypes: (branchId: string, startDate: string, endDate: string) =>
+    http.get<Record<string, DayType>>("/school-calendar/day-types", {
+      branch_id: branchId,
+      start_date: startDate,
+      end_date: endDate,
+    }),
   updateClass: (input: UpdateClassInput) => http.patch<void>(`/classes/${input.id}`, input),
   deleteClass: (id: string) => http.delete<void>(`/classes/${id}`),
   updateSection: (input: UpdateSectionInput) => http.patch<void>(`/sections/${input.id}`, input),
@@ -1409,12 +1519,21 @@ export const api = {
       attendance_date: attendanceDate,
     }),
   markStaffAttendance: (input: MarkStaffAttendanceInput) => http.post<void>("/staff-attendance", input),
+  getStaffAttendanceRosterRange: (branchId: string, startDate: string, endDate: string) =>
+    http.get<StaffAttendanceRosterRangeEntry[]>("/staff-attendance/roster-range", {
+      branch_id: branchId,
+      start_date: startDate,
+      end_date: endDate,
+    }),
+  markStaffAttendanceBulk: (input: BulkMarkStaffAttendanceInput) => http.post<void>("/staff-attendance/bulk", input),
   getStaffAttendanceHistory: (staffId: string) =>
     http.get<StaffAttendanceHistoryEntry[]>(`/staff-attendance/staff/${staffId}/history`),
 
   // Payroll
   getSalaryStructure: (staffId: string) =>
     http.get<SalaryStructure | null>(`/salary-structures/staff/${staffId}`),
+  listSalaryHistory: (staffId: string) =>
+    http.get<SalaryStructure[]>(`/salary-structures/staff/${staffId}/history`),
   setSalaryStructure: (input: SetSalaryStructureInput) => http.post<void>("/salary-structures", input),
   generatePayrollRun: (input: GeneratePayrollRunInput) =>
     http.post<PayrollRunDetail>("/payroll-runs/generate", input),

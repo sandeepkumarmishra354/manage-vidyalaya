@@ -3,6 +3,7 @@ import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type SchoolClass, type Subject } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -327,7 +328,7 @@ function ExamsTab() {
                   )}
                 </TableCell>
                 <TableCell>{classes.find((c) => c.id === exam.class_id)?.name ?? "—"}</TableCell>
-                <TableCell>{exam.exam_date ?? "—"}</TableCell>
+                <TableCell>{exam.exam_date ? formatDate(exam.exam_date) : "—"}</TableCell>
                 <TableCell className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                   {canManage && exam.exam_type === "regular" && (
                     <CreateBackpaperDialog exam={exam} subjects={subjects} onCreated={refresh} />

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatDate } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { ID_CARD_TEMPLATES, IdCardPreview, type IdCardTemplate } from "./id-card-templates";
 
@@ -136,7 +137,7 @@ export function IdCardsPage() {
               template={template}
               student={student}
               branch={branch}
-              validTill={currentSession?.end_date}
+              validTill={currentSession?.end_date ? formatDate(currentSession.end_date) : undefined}
             />
           ))}
         </div>

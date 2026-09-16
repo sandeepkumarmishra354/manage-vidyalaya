@@ -3,6 +3,7 @@ import { PlusIcon, TrashIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type SalaryComponent, type SalaryStructure } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,9 +19,18 @@ const emptyComponent: SalaryComponent = {
   percent: null,
 };
 
-export function SalaryStructureTab({ staffId, branchId }: { staffId: string; branchId: string }) {
+export function SalaryStructureTab({
+  staffId,
+  branchId,
+  dateOfJoining,
+}: {
+  staffId: string;
+  branchId: string;
+  dateOfJoining: string;
+}) {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const [structure, setStructure] = useState<SalaryStructure | null>(null);
+  const [history, setHistory] = useState<SalaryStructure[]>([]);
   const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
   const [basicAmount, setBasicAmount] = useState("0");
   const [components, setComponents] = useState<SalaryComponent[]>([]);
@@ -30,12 +40,20 @@ export function SalaryStructureTab({ staffId, branchId }: { staffId: string; bra
     api.getSalaryStructure(staffId).then((s) => {
       setStructure(s);
       if (s) {
-        setEffectiveFrom(s.effective_from);
+        setEffectiveFrom(s.effective_from.slice(0, 10));
         setBasicAmount(String(s.basic_amount / 100));
         setComponents(s.components);
       }
     });
-  }, [staffId]);
+    api.listSalaryHistory(staffId).then((rows) => {
+      setHistory(rows);
+      // First-ever structure for this staff member: prefill the effective
+      // date from their joining date rather than today.
+      if (rows.length === 0) {
+        setEffectiveFrom(dateOfJoining.slice(0, 10));
+      }
+    });
+  }, [staffId, dateOfJoining]);
 
   useEffect(() => {
     refresh();
@@ -63,11 +81,14 @@ export function SalaryStructureTab({ staffId, branchId }: { staffId: string; bra
 
   if (!hasPermission("payroll.manage_salary_structure")) {
     return structure ? (
-      <div className="grid grid-cols-2 gap-y-3 text-sm">
-        <div>
-          <p className="text-muted-foreground">Basic</p>
-          <p className="font-medium">{formatPaise(structure.basic_amount)}</p>
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-y-3 text-sm">
+          <div>
+            <p className="text-muted-foreground">Basic</p>
+            <p className="font-medium">{formatPaise(structure.basic_amount)}</p>
+          </div>
         </div>
+        <SalaryHistoryList history={history} />
       </div>
     ) : (
       <p className="text-muted-foreground">No salary structure set up yet.</p>
@@ -76,9 +97,15 @@ export function SalaryStructureTab({ staffId, branchId }: { staffId: string; bra
 
   return (
     <div className="flex flex-col gap-4">
+      <SalaryHistoryList history={history} />
+
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Salary structure</CardTitle>
+          <CardTitle className="text-base">Record a salary revision</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Saving here always records a new increment effective from the date below -- it never overwrites past
+            history, and a new payroll run automatically uses whichever structure was in force for that month.
+          </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-4">
@@ -172,5 +199,37 @@ export function SalaryStructureTab({ staffId, branchId }: { staffId: string; bra
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Read-only list of every historical structure, most recent first -- the
+// increment history a "record a revision" save builds up over time.
+function SalaryHistoryList({ history }: { history: SalaryStructure[] }) {
+  if (history.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Salary history</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2">
+          {history.map((s, i) => (
+            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Effective {s.effective_from.slice(0, 10)}</span>
+                {i === 0 && <Badge variant="success">Latest</Badge>}
+              </div>
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <span>Basic {formatPaise(s.basic_amount)}</span>
+                <span>
+                  {s.components.length} component{s.components.length === 1 ? "" : "s"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

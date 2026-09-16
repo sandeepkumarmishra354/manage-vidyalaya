@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsIn, IsOptional, IsString } from "class-validator";
 
 // Deliberately excludes `code`: it feeds the admission-number prefix
 // (`confirmAdmission`), so changing it retroactively would be confusing
@@ -34,4 +34,16 @@ export class UpdateBranchDto {
   @IsOptional()
   @IsString()
   logo_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  signature_url?: string | null;
+
+  @IsOptional()
+  @IsIn(["classic", "bordered", "tricolor", "emblem", "compact"])
+  print_template?: string;
+
+  @IsOptional()
+  @IsIn(["white", "yellow", "blue", "pink"])
+  print_paper_color?: string;
 }

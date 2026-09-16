@@ -27,6 +27,12 @@ export class SalaryStructuresController {
     return this.payrollService.getSalaryStructure(staffId);
   }
 
+  @Get("staff/:staffId/history")
+  @RequirePermission("payroll.view")
+  history(@Param("staffId") staffId: string) {
+    return this.payrollService.listSalaryHistory(staffId);
+  }
+
   @Post()
   @RequirePermission("payroll.manage_salary_structure")
   set(@CurrentUser() user: JwtPayload, @Body() dto: SetSalaryStructureDto) {

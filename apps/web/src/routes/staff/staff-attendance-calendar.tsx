@@ -3,7 +3,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 import { MonthAttendanceGrid, STATUS_CYCLE, type MonthAttendanceGridRow } from "@/components/month-attendance-grid";
 import { Button } from "@/components/ui/button";
-import { api, type AttendanceRosterRangeEntry, type AttendanceStatus, type DayType } from "@/lib/api";
+import { api, type AttendanceStatus, type DayType, type StaffAttendanceRosterRangeEntry } from "@/lib/api";
 
 type DaysMap = Record<string, Record<string, AttendanceStatus | undefined>>;
 
@@ -15,32 +15,22 @@ function monthLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
 }
 
-function cloneDaysMap(entries: AttendanceRosterRangeEntry[]): DaysMap {
+function cloneDaysMap(entries: StaffAttendanceRosterRangeEntry[]): DaysMap {
   const map: DaysMap = {};
   for (const entry of entries) {
-    map[entry.student_id] = {};
+    map[entry.staff_id] = {};
     for (const [date, day] of Object.entries(entry.days)) {
-      map[entry.student_id][date] = day.status as AttendanceStatus;
+      map[entry.staff_id][date] = day.status as AttendanceStatus;
     }
   }
   return map;
 }
 
-export function AttendanceCalendar({
-  branchId,
-  classId,
-  sectionId,
-  canMark,
-}: {
-  branchId: string;
-  classId: string;
-  sectionId: string | null;
-  canMark: boolean;
-}) {
+export function StaffAttendanceCalendar({ branchId, canMark }: { branchId: string; canMark: boolean }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [roster, setRoster] = useState<AttendanceRosterRangeEntry[]>([]);
+  const [roster, setRoster] = useState<StaffAttendanceRosterRangeEntry[]>([]);
   const [original, setOriginal] = useState<DaysMap>({});
   const [current, setCurrent] = useState<DaysMap>({});
   const [dayTypes, setDayTypes] = useState<Record<string, DayType>>({});
@@ -58,19 +48,18 @@ export function AttendanceCalendar({
     setSavedMessage(null);
     const startDate = `${year}-${pad2(month)}-01`;
     const endDate = `${year}-${pad2(month)}-${pad2(daysInMonth)}`;
-    api.getAttendanceRosterRange(branchId, classId, sectionId, startDate, endDate).then((entries) => {
+    api.getStaffAttendanceRosterRange(branchId, startDate, endDate).then((entries) => {
       setRoster(entries);
       const days = cloneDaysMap(entries);
       setOriginal(days);
       setCurrent(structuredClone(days));
     });
     api.getDayTypes(branchId, startDate, endDate).then(setDayTypes);
-  }, [branchId, classId, sectionId, year, month, daysInMonth]);
+  }, [branchId, year, month, daysInMonth]);
 
-  // Named holidays for the visible month, for the header tooltip -- best
-  // effort against whichever session is currently marked "current"; if the
-  // visible month belongs to a different session the day-type tinting above
-  // still resolves correctly, only the name tooltip is missing.
+  // Best-effort holiday-name tooltips against the "current" session, same
+  // caveat as the student calendar: day-type tinting is always correct
+  // (session-independent), only the name lookup can miss a different session.
   useEffect(() => {
     api.listAcademicSessions().then((sessions) => {
       const currentSession = sessions.find((s) => s.is_current);
@@ -101,21 +90,21 @@ export function AttendanceCalendar({
     }
   };
 
-  const cycleCell = (studentId: string, date: string) => {
+  const cycleCell = (staffId: string, date: string) => {
     if (!canMark || dayTypes[date] === "holiday") return;
     setCurrent((prev) => {
-      const studentDays = { ...(prev[studentId] ?? {}) };
-      const existing = studentDays[date];
+      const staffDays = { ...(prev[staffId] ?? {}) };
+      const existing = staffDays[date];
       const nextIndex = existing ? (STATUS_CYCLE.indexOf(existing) + 1) % STATUS_CYCLE.length : 0;
-      studentDays[date] = STATUS_CYCLE[nextIndex];
-      return { ...prev, [studentId]: studentDays };
+      staffDays[date] = STATUS_CYCLE[nextIndex];
+      return { ...prev, [staffId]: staffDays };
     });
   };
 
   const hasChanges = useMemo(() => {
-    for (const studentId of Object.keys(current)) {
+    for (const staffId of Object.keys(current)) {
       for (const date of dates) {
-        if (current[studentId]?.[date] !== original[studentId]?.[date]) return true;
+        if (current[staffId]?.[date] !== original[staffId]?.[date]) return true;
       }
     }
     return false;
@@ -125,12 +114,12 @@ export function AttendanceCalendar({
     setIsSaving(true);
     setSavedMessage(null);
     try {
-      const entries: { student_id: string; attendance_date: string; status: AttendanceStatus }[] = [];
-      for (const studentId of Object.keys(current)) {
+      const entries: { staff_id: string; attendance_date: string; status: AttendanceStatus }[] = [];
+      for (const staffId of Object.keys(current)) {
         for (const date of dates) {
-          const status = current[studentId]?.[date];
-          if (status && status !== original[studentId]?.[date]) {
-            entries.push({ student_id: studentId, attendance_date: date, status });
+          const status = current[staffId]?.[date];
+          if (status && status !== original[staffId]?.[date]) {
+            entries.push({ staff_id: staffId, attendance_date: date, status });
           }
         }
       }
@@ -138,12 +127,7 @@ export function AttendanceCalendar({
         setSavedMessage("No changes to save.");
         return;
       }
-      await api.markAttendanceBulk({
-        branch_id: branchId,
-        class_id: classId,
-        section_id: sectionId,
-        entries,
-      });
+      await api.markStaffAttendanceBulk({ branch_id: branchId, entries });
       setOriginal(structuredClone(current));
       setSavedMessage(`Saved ${entries.length} attendance entr${entries.length === 1 ? "y" : "ies"}.`);
     } finally {
@@ -152,10 +136,10 @@ export function AttendanceCalendar({
   };
 
   const rows: MonthAttendanceGridRow[] = roster.map((entry) => ({
-    id: entry.student_id,
+    id: entry.staff_id,
     primaryLabel: entry.first_name,
     secondaryLabel: entry.last_name,
-    days: current[entry.student_id] ?? {},
+    days: current[entry.staff_id] ?? {},
   }));
 
   return (
@@ -171,7 +155,7 @@ export function AttendanceCalendar({
       </div>
 
       <MonthAttendanceGrid
-        rowLabel="Student"
+        rowLabel="Staff"
         dates={dates}
         rows={rows}
         dayTypes={dayTypes}

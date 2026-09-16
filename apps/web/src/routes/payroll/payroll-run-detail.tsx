@@ -5,6 +5,8 @@ import { PrinterIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { api, type Payslip, type PayrollRunDetail as PayrollRunDetailType } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { PrintFrame, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
+import { SignatureBlock } from "@/components/signature-block";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +34,8 @@ export function PayrollRunDetailPage() {
   }, [refresh]);
 
   const branch = branches.find((b) => b.id === detail?.run.branch_id);
+  const template = (branch?.print_template as PrintTemplate) || "classic";
+  const paperColor = (branch?.print_paper_color as PrintPaperColor) || "white";
 
   if (!detail) return <p className="text-muted-foreground">Loading...</p>;
 
@@ -145,13 +149,20 @@ export function PayrollRunDetailPage() {
             </CardContent>
           </Card>
 
-          <div data-print-area className="hidden p-8 print:block">
-            <PrintLetterhead
-              branch={branch}
-              documentTitle={`Payslip — ${MONTH_NAMES[detail.run.period_month - 1]} ${detail.run.period_year}`}
-              right={<p className="font-medium">{selectedPayslip.staff_name}</p>}
-            />
-            <PayslipLines payslip={selectedPayslip} />
+          <div data-print-area className="hidden print:block">
+            <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+              <PrintLetterhead
+                branch={branch}
+                documentTitle={`Payslip — ${MONTH_NAMES[detail.run.period_month - 1]} ${detail.run.period_year}`}
+                template={template}
+                accent="var(--color-staff)"
+                right={<p className="font-medium">{selectedPayslip.staff_name}</p>}
+              />
+              <PayslipLines payslip={selectedPayslip} />
+              <div className="mt-16 flex justify-end">
+                <SignatureBlock branch={branch} template={template} accent="var(--color-staff)" />
+              </div>
+            </PrintFrame>
           </div>
         </>
       )}

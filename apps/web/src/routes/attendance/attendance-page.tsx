@@ -10,6 +10,8 @@ import {
   type Section,
 } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { PrintFrame, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
+import { SignatureBlock } from "@/components/signature-block";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +37,8 @@ export function AttendancePage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const branches = useAppStore((s) => s.branches);
   const branch = branches.find((b) => b.id === selectedBranchId);
+  const template = (branch?.print_template as PrintTemplate) || "classic";
+  const paperColor = (branch?.print_paper_color as PrintPaperColor) || "white";
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [classId, setClassId] = useState("");
@@ -257,41 +261,48 @@ export function AttendancePage() {
             )}
 
             {roster.length > 0 && (
-              <div data-print-area className="hidden p-6 print:block">
-                <PrintLetterhead
-                  branch={branch}
-                  documentTitle="Attendance Register"
-                  right={
-                    <>
-                      <p>
-                        Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
-                      </p>
-                      <p>Date: {date}</p>
-                    </>
-                  }
-                />
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b-2">
-                      <th className="py-1.5 text-left">#</th>
-                      <th className="py-1.5 text-left">Student Name</th>
-                      <th className="py-1.5 text-left">Status</th>
-                      <th className="py-1.5 text-left">Signature</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {roster.map((entry, i) => (
-                      <tr key={entry.student_id} className="border-b">
-                        <td className="py-1.5">{i + 1}</td>
-                        <td className="py-1.5">
-                          {entry.first_name} {entry.last_name ?? ""}
-                        </td>
-                        <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
-                        <td className="py-1.5"></td>
+              <div data-print-area className="hidden print:block">
+                <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+                  <PrintLetterhead
+                    branch={branch}
+                    documentTitle="Attendance Register"
+                    template={template}
+                    accent="var(--color-academics)"
+                    right={
+                      <>
+                        <p>
+                          Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
+                        </p>
+                        <p>Date: {date}</p>
+                      </>
+                    }
+                  />
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b-2">
+                        <th className="py-1.5 text-left">#</th>
+                        <th className="py-1.5 text-left">Student Name</th>
+                        <th className="py-1.5 text-left">Status</th>
+                        <th className="py-1.5 text-left">Signature</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {roster.map((entry, i) => (
+                        <tr key={entry.student_id} className="border-b">
+                          <td className="py-1.5">{i + 1}</td>
+                          <td className="py-1.5">
+                            {entry.first_name} {entry.last_name ?? ""}
+                          </td>
+                          <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
+                          <td className="py-1.5"></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="mt-16 flex justify-end">
+                    <SignatureBlock branch={branch} label="Class Teacher Signature" template={template} accent="var(--color-academics)" />
+                  </div>
+                </PrintFrame>
               </div>
             )}
           </TabsContent>

@@ -16,6 +16,25 @@ function invoiceStatus(amountDue: number, amountPaid: number): string {
   return "pending";
 }
 
+// Student info needed on the printed fee receipt (name, class, roll number,
+// DOB, guardian) alongside the invoice line items -- one shared include so
+// both listInvoices and getStudentFeeSummary return the same shape.
+const RECEIPT_STUDENT_INCLUDE = {
+  currentClass: true,
+  currentSection: true,
+  studentGuardians: { include: { guardian: true } },
+} as const;
+
+// Picks the guardian to show on a printed document: the one flagged
+// primary, falling back to the first active (non-deleted) linked guardian.
+function primaryGuardianName(
+  studentGuardians: { isPrimaryContact: boolean; guardian: { fullName: string; deletedAt: Date | null } }[],
+): string | null {
+  const active = studentGuardians.filter((sg) => sg.guardian.deletedAt === null);
+  const primary = active.find((sg) => sg.isPrimaryContact) ?? active[0];
+  return primary?.guardian.fullName ?? null;
+}
+
 @Injectable()
 export class FeesService {
   constructor(
@@ -234,7 +253,7 @@ export class FeesService {
         ...(feeType ? { feeStructure: { feeType } } : {}),
         ...(classId ? { student: { currentClassId: classId } } : {}),
       },
-      include: { student: true, feeStructure: true },
+      include: { student: { include: RECEIPT_STUDENT_INCLUDE }, feeStructure: true },
       orderBy: [{ dueDate: "asc" }, { student: { firstName: "asc" } }],
     });
 
@@ -244,7 +263,7 @@ export class FeesService {
   async getStudentFeeSummary(studentId: string) {
     const invoices = await this.prisma.feeInvoice.findMany({
       where: { studentId, deletedAt: null },
-      include: { student: true, feeStructure: true },
+      include: { student: { include: RECEIPT_STUDENT_INCLUDE }, feeStructure: true },
       orderBy: [{ dueDate: "asc" }],
     });
 
@@ -438,7 +457,15 @@ export class FeesService {
   private toListItem(invoice: {
     id: string;
     studentId: string;
-    student: { firstName: string; lastName: string | null };
+    student: {
+      firstName: string;
+      lastName: string | null;
+      rollNumber: string | null;
+      dateOfBirth: Date | null;
+      currentClass: { name: string } | null;
+      currentSection: { name: string } | null;
+      studentGuardians: { isPrimaryContact: boolean; guardian: { fullName: string; deletedAt: Date | null } }[];
+    };
     feeStructure: { name: string; feeType: string };
     amountDue: number;
     amountPaid: number;
@@ -449,6 +476,11 @@ export class FeesService {
       id: invoice.id,
       student_id: invoice.studentId,
       student_name: [invoice.student.firstName, invoice.student.lastName].filter(Boolean).join(" "),
+      class_name: invoice.student.currentClass?.name ?? null,
+      section_name: invoice.student.currentSection?.name ?? null,
+      roll_number: invoice.student.rollNumber,
+      date_of_birth: invoice.student.dateOfBirth,
+      guardian_name: primaryGuardianName(invoice.student.studentGuardians),
       fee_structure_name: invoice.feeStructure.name,
       fee_type: invoice.feeStructure.feeType,
       amount_due: invoice.amountDue,

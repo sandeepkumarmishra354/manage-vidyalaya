@@ -45,6 +45,7 @@ export class StudentsService {
     return students.map((s) => ({
       id: s.id,
       admission_number: s.admissionNumber,
+      roll_number: s.rollNumber,
       first_name: s.firstName,
       last_name: s.lastName,
       status: s.status,
@@ -63,6 +64,7 @@ export class StudentsService {
     return students.map((s) => ({
       id: s.id,
       admission_number: s.admissionNumber,
+      roll_number: s.rollNumber,
       first_name: s.firstName,
       last_name: s.lastName,
       status: s.status,
@@ -87,6 +89,7 @@ export class StudentsService {
       tenant_id: student.tenantId,
       branch_id: student.branchId,
       admission_number: student.admissionNumber,
+      roll_number: student.rollNumber,
       first_name: student.firstName,
       last_name: student.lastName,
       date_of_birth: student.dateOfBirth,
@@ -499,6 +502,7 @@ export class StudentsService {
         data: {
           firstName: dto.first_name,
           lastName: dto.last_name ?? null,
+          rollNumber: dto.roll_number ?? null,
           dateOfBirth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
           gender: dto.gender ?? null,
           bloodGroup: dto.blood_group ?? null,

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
-import { AuditService } from "../audit/audit.service.js";
+import { AuditService, type AuditableClient } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
 import type { GeneratePayrollRunDto } from "./dto/generate-payroll-run.dto.js";
 import type { SetSalaryStructureDto } from "./dto/set-salary-structure.dto.js";
@@ -34,18 +35,36 @@ export class PayrollService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly schoolCalendar: SchoolCalendarService,
   ) {}
 
-  async getSalaryStructure(staffId: string) {
-    const structure = await this.prisma.salaryStructure.findFirst({
-      where: { staffId, deletedAt: null },
+  // "The structure that was in force on this date" -- the most recent
+  // structure whose effective_from is on or before asOfDate. Accepts either
+  // the plain PrismaService or a $transaction client, since
+  // generatePayrollRun needs this resolved consistently inside its own
+  // transaction rather than against a separate connection.
+  async getEffectiveSalaryStructure(client: AuditableClient, staffId: string, asOfDate: Date) {
+    return client.salaryStructure.findFirst({
+      where: { staffId, deletedAt: null, effectiveFrom: { lte: asOfDate } },
       orderBy: { effectiveFrom: "desc" },
       include: { salaryComponents: { where: { deletedAt: null } } },
     });
-    if (!structure) {
-      return null;
-    }
+  }
 
+  private formatStructure(structure: {
+    id: string;
+    staffId: string;
+    effectiveFrom: Date;
+    basicAmount: number;
+    salaryComponents: {
+      id: string;
+      componentName: string;
+      componentType: string;
+      calculationType: string;
+      amount: number | null;
+      percent: number | null;
+    }[];
+  }) {
     return {
       id: structure.id,
       staff_id: structure.staffId,
@@ -62,29 +81,33 @@ export class PayrollService {
     };
   }
 
-  // Replaces a staff member's salary structure wholesale: soft-deletes any
-  // prior structure/components and inserts a fresh set.
+  async getSalaryStructure(staffId: string) {
+    const structure = await this.getEffectiveSalaryStructure(this.prisma, staffId, new Date());
+    return structure ? this.formatStructure(structure) : null;
+  }
+
+  // Every historical structure a staff member has ever had, most recent
+  // first -- the increment history behind the "current" one getSalaryStructure
+  // returns.
+  async listSalaryHistory(staffId: string) {
+    const structures = await this.prisma.salaryStructure.findMany({
+      where: { staffId, deletedAt: null },
+      orderBy: { effectiveFrom: "desc" },
+      include: { salaryComponents: { where: { deletedAt: null } } },
+    });
+    return structures.map((s) => this.formatStructure(s));
+  }
+
+  // Records a new salary structure effective from dto.effective_from. This
+  // is an increment, not a replacement -- prior structures are left alone
+  // (never soft-deleted) so getEffectiveSalaryStructure/listSalaryHistory
+  // can resolve whichever one was in force for any given date, including
+  // past payroll runs that must keep using the structure that applied then.
   async setSalaryStructure(tenantId: string, actorUserId: string, dto: SetSalaryStructureDto) {
     const now = new Date();
     const structureId = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
-      const priorStructures = await tx.salaryStructure.findMany({
-        where: { staffId: dto.staff_id, deletedAt: null },
-        select: { id: true },
-      });
-
-      for (const prior of priorStructures) {
-        await tx.salaryStructure.update({
-          where: { id: prior.id },
-          data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
-        });
-        await tx.salaryComponent.updateMany({
-          where: { salaryStructureId: prior.id },
-          data: { deletedAt: now, updatedAt: now },
-        });
-      }
-
       await tx.salaryStructure.create({
         data: {
           id: structureId,
@@ -126,28 +149,54 @@ export class PayrollService {
   }
 
   // Generates one payroll run for a branch/month, with one payslip per
-  // active staff member who has a salary structure. Loss-of-pay days are
-  // derived from staff_attendance for the period: present = full paid day,
-  // half_day = half paid/half LOP, absent = full LOP, leave/holiday = paid
-  // (not counted). Days with no attendance record are not penalized.
-  // PF/ESI/Professional-Tax/TDS are whatever the salary structure's
-  // deduction components say, not computed against government slabs.
+  // active staff member who has a salary structure. Working days and
+  // loss-of-pay days are both derived from the school calendar (section A):
+  // a holiday never counts, a school half-day counts as half a working day
+  // for everyone, and staff_attendance status is only consulted on days
+  // that aren't a full holiday -- present = full paid day, half_day = half
+  // paid/half LOP, absent = full LOP, leave = paid (not counted). Days with
+  // no attendance record are not penalized. PF/ESI/Professional-Tax/TDS are
+  // whatever the salary structure's deduction components say, not computed
+  // against government slabs.
   async generatePayrollRun(tenantId: string, actorUserId: string, dto: GeneratePayrollRunDto) {
     const runId = randomUUID();
     const now = new Date();
-    const totalDaysInMonth = daysInMonth(dto.period_year, dto.period_month);
 
     const periodStart = new Date(Date.UTC(dto.period_year, dto.period_month - 1, 1));
     const periodEnd =
       dto.period_month === 12
         ? new Date(Date.UTC(dto.period_year + 1, 0, 1))
         : new Date(Date.UTC(dto.period_year, dto.period_month, 1));
+    // Last calendar day of the period -- the "as of" date used to resolve
+    // which salary structure applies, so a mid-month increment takes effect
+    // for that whole month's run rather than being ignored until next month.
+    const periodLastDay = new Date(periodEnd.getTime() - 24 * 60 * 60 * 1000);
+
+    const startIso = periodStart.toISOString().slice(0, 10);
+    const endIso = periodLastDay.toISOString().slice(0, 10);
+    const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, dto.branch_id, startIso, endIso);
+    const dayWeight = (iso: string) => {
+      const t = dayTypes[iso];
+      return t === "holiday" ? 0 : t === "half_day" ? 0.5 : 1;
+    };
+    const workingDaysInPeriod = Object.keys(dayTypes).reduce((sum, iso) => sum + dayWeight(iso), 0);
 
     const activeStaff = await this.prisma.staff.findMany({
       where: { branchId: dto.branch_id, status: "active", deletedAt: null },
     });
 
     return this.prisma.$transaction(async (tx) => {
+      const attendanceRecords = await tx.staffAttendance.findMany({
+        where: { branchId: dto.branch_id, deletedAt: null, attendanceDate: { gte: periodStart, lt: periodEnd } },
+      });
+      const attendanceByStaff = new Map<string, Map<string, string>>();
+      for (const record of attendanceRecords) {
+        const iso = record.attendanceDate.toISOString().slice(0, 10);
+        const staffDays = attendanceByStaff.get(record.staffId) ?? new Map<string, string>();
+        staffDays.set(iso, record.status);
+        attendanceByStaff.set(record.staffId, staffDays);
+      }
+
       await tx.payrollRun.create({
         data: {
           id: runId,
@@ -165,27 +214,27 @@ export class PayrollService {
       const payslips = [];
 
       for (const staff of activeStaff) {
-        const structure = await tx.salaryStructure.findFirst({
-          where: { staffId: staff.id, deletedAt: null },
-          orderBy: { effectiveFrom: "desc" },
-          include: { salaryComponents: { where: { deletedAt: null } } },
-        });
+        const structure = await this.getEffectiveSalaryStructure(tx, staff.id, periodLastDay);
         if (!structure) {
           continue; // no salary structure configured -- nothing to pay out yet
         }
 
-        const attendance = await tx.staffAttendance.groupBy({
-          by: ["status"],
-          where: { staffId: staff.id, deletedAt: null, attendanceDate: { gte: periodStart, lt: periodEnd } },
-          _count: { status: true },
-        });
-        const countByStatus = new Map(attendance.map((a) => [a.status, a._count.status]));
-        const presentDays = countByStatus.get("present") ?? 0;
-        const halfDays = countByStatus.get("half_day") ?? 0;
-        const absentDays = countByStatus.get("absent") ?? 0;
-
-        const daysPresent = presentDays + halfDays * 0.5;
-        const daysLop = absentDays + halfDays * 0.5;
+        const staffDays = attendanceByStaff.get(staff.id) ?? new Map<string, string>();
+        let daysPresent = 0;
+        let daysLop = 0;
+        for (const [iso, dayType] of Object.entries(dayTypes)) {
+          if (dayType === "holiday") continue; // never present, never LOP, regardless of any attendance row
+          const weight = dayType === "half_day" ? 0.5 : 1;
+          const status = staffDays.get(iso);
+          if (!status) continue; // unmarked = paid, not counted either way
+          if (status === "present") daysPresent += weight;
+          else if (status === "absent") daysLop += weight;
+          else if (status === "half_day") {
+            daysPresent += weight / 2;
+            daysLop += weight / 2;
+          }
+          // leave: paid, not counted
+        }
 
         const earningComponents = structure.salaryComponents
           .filter((c) => c.componentType === "earning")
@@ -196,7 +245,7 @@ export class PayrollService {
 
         const grossBeforeLop = structure.basicAmount + earningComponents;
         const lopAmount =
-          totalDaysInMonth > 0 ? Math.round((grossBeforeLop / totalDaysInMonth) * daysLop) : 0;
+          workingDaysInPeriod > 0 ? Math.round((grossBeforeLop / workingDaysInPeriod) * daysLop) : 0;
         const grossEarnings = Math.max(grossBeforeLop - lopAmount, 0);
         const netPay = Math.max(grossEarnings - deductionComponents, 0);
 
@@ -207,7 +256,7 @@ export class PayrollService {
             tenantId,
             payrollRunId: runId,
             staffId: staff.id,
-            daysInMonth: totalDaysInMonth,
+            daysInMonth: workingDaysInPeriod,
             daysPresent,
             daysLop,
             grossEarnings,
@@ -243,7 +292,7 @@ export class PayrollService {
           payroll_run_id: runId,
           staff_id: staff.id,
           staff_name: [staff.firstName, staff.lastName].filter(Boolean).join(" "),
-          days_in_month: totalDaysInMonth,
+          days_in_month: workingDaysInPeriod,
           days_present: daysPresent,
           days_lop: daysLop,
           gross_earnings: grossEarnings,

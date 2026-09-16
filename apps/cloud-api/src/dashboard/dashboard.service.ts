@@ -1,57 +1,112 @@
 import { Injectable } from "@nestjs/common";
 
+import { ScopedAccessService } from "../common/scoped-access.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 
 function todayUtcMidnight(): Date {
   return new Date(new Date().toISOString().slice(0, 10));
 }
 
+function matchesMonthDay(date: Date, reference: Date): boolean {
+  return date.getUTCMonth() === reference.getUTCMonth() && date.getUTCDate() === reference.getUTCDate();
+}
+
 // One aggregate call for everything the dashboard renders, rather than one
 // round trip per widget. All read-only, computed fresh each time.
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scopedAccess: ScopedAccessService,
+  ) {}
 
-  async getStats(branchId: string) {
+  async getStats(userId: string, branchId: string) {
     const today = todayUtcMidnight();
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
     const fourteenDaysAgo = new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAhead = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    const [studentGroups, todaysAttendance, feeAgg, overdueBooksCount, classes, attendanceRows, feeStatusGroups] =
-      await Promise.all([
-        this.prisma.student.groupBy({
-          by: ["status"],
-          where: { branchId, deletedAt: null },
-          _count: { status: true },
-        }),
-        this.prisma.attendanceRecord.findMany({
-          where: { branchId, attendanceDate: today, deletedAt: null },
-          select: { status: true },
-        }),
-        this.prisma.feeInvoice.aggregate({
-          where: { branchId, deletedAt: null },
-          _sum: { amountPaid: true, amountDue: true },
-        }),
-        this.prisma.libraryIssue.count({
-          where: { branchId, status: "issued", dueDate: { lt: today }, deletedAt: null },
-        }),
-        this.prisma.class.findMany({
-          where: { branchId, deletedAt: null },
-          orderBy: { sortOrder: "asc" },
-          include: {
-            studentsCurrent: { where: { status: "enrolled", deletedAt: null }, select: { id: true } },
-          },
-        }),
-        this.prisma.attendanceRecord.findMany({
-          where: { branchId, deletedAt: null, attendanceDate: { gte: fourteenDaysAgo } },
-          select: { attendanceDate: true, status: true },
-        }),
-        this.prisma.feeInvoice.groupBy({
-          by: ["status"],
-          where: { branchId, deletedAt: null },
-          _count: { status: true },
-          _sum: { amountDue: true, amountPaid: true },
-        }),
-      ]);
+    // Fee totals are financially sensitive -- a teacher role shouldn't see
+    // total fees collected/pending, so the fields are omitted entirely from
+    // the response (not just hidden client-side) when the caller lacks
+    // fees.view. Upcoming exams are similarly gated by exams.view; birthdays
+    // and holidays aren't sensitive, so they're open to any authenticated user.
+    const [canViewFees, canViewExams] = await Promise.all([
+      this.scopedAccess.hasPermission(userId, "fees.view"),
+      this.scopedAccess.hasPermission(userId, "exams.view"),
+    ]);
+
+    const [
+      studentGroups,
+      todaysAttendance,
+      feeAgg,
+      overdueBooksCount,
+      classes,
+      attendanceRows,
+      feeStatusGroups,
+      studentsWithDob,
+      staffWithDob,
+      upcomingHolidays,
+      upcomingExams,
+    ] = await Promise.all([
+      this.prisma.student.groupBy({
+        by: ["status"],
+        where: { branchId, deletedAt: null },
+        _count: { status: true },
+      }),
+      this.prisma.attendanceRecord.findMany({
+        where: { branchId, attendanceDate: today, deletedAt: null },
+        select: { status: true },
+      }),
+      this.prisma.feeInvoice.aggregate({
+        where: { branchId, deletedAt: null },
+        _sum: { amountPaid: true, amountDue: true },
+      }),
+      this.prisma.libraryIssue.count({
+        where: { branchId, status: "issued", dueDate: { lt: today }, deletedAt: null },
+      }),
+      this.prisma.class.findMany({
+        where: { branchId, deletedAt: null },
+        orderBy: { sortOrder: "asc" },
+        include: {
+          studentsCurrent: { where: { status: "enrolled", deletedAt: null }, select: { id: true } },
+        },
+      }),
+      this.prisma.attendanceRecord.findMany({
+        where: { branchId, deletedAt: null, attendanceDate: { gte: fourteenDaysAgo } },
+        select: { attendanceDate: true, status: true },
+      }),
+      this.prisma.feeInvoice.groupBy({
+        by: ["status"],
+        where: { branchId, deletedAt: null },
+        _count: { status: true },
+        _sum: { amountDue: true, amountPaid: true },
+      }),
+      this.prisma.student.findMany({
+        where: { branchId, deletedAt: null, status: "enrolled", dateOfBirth: { not: null } },
+        select: { id: true, firstName: true, lastName: true, dateOfBirth: true },
+      }),
+      this.prisma.staff.findMany({
+        where: { branchId, deletedAt: null, status: "active", dateOfBirth: { not: null } },
+        select: { id: true, firstName: true, lastName: true, dateOfBirth: true },
+      }),
+      this.prisma.calendarHoliday.findMany({
+        where: {
+          deletedAt: null,
+          date: { gte: today, lte: fourteenDaysAhead },
+          schoolCalendar: { branchId, deletedAt: null },
+        },
+        orderBy: { date: "asc" },
+        take: 5,
+      }),
+      canViewExams
+        ? this.prisma.exam.findMany({
+            where: { branchId, deletedAt: null, examDate: { gte: today, lte: fourteenDaysAhead } },
+            orderBy: { examDate: "asc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
+    ]);
 
     const countByStatus = new Map(studentGroups.map((g) => [g.status, g._count.status]));
     const totalStudents = studentGroups.reduce((sum, g) => sum + g._count.status, 0);
@@ -84,6 +139,20 @@ export class DashboardService {
       amount: (g._sum.amountDue ?? 0) - (g._sum.amountPaid ?? 0),
     }));
 
+    const toBirthdayEntry = (p: { id: string; firstName: string; lastName: string | null }, role: "student" | "staff") => ({
+      id: p.id,
+      name: [p.firstName, p.lastName].filter(Boolean).join(" "),
+      role,
+    });
+    const birthdaysToday = [
+      ...studentsWithDob.filter((s) => matchesMonthDay(s.dateOfBirth!, today)).map((s) => toBirthdayEntry(s, "student")),
+      ...staffWithDob.filter((s) => matchesMonthDay(s.dateOfBirth!, today)).map((s) => toBirthdayEntry(s, "staff")),
+    ];
+    const birthdaysTomorrow = [
+      ...studentsWithDob.filter((s) => matchesMonthDay(s.dateOfBirth!, tomorrow)).map((s) => toBirthdayEntry(s, "student")),
+      ...staffWithDob.filter((s) => matchesMonthDay(s.dateOfBirth!, tomorrow)).map((s) => toBirthdayEntry(s, "staff")),
+    ];
+
     return {
       total_students: totalStudents,
       enrolled_count: countByStatus.get("enrolled") ?? 0,
@@ -91,12 +160,20 @@ export class DashboardService {
       alumni_count: countByStatus.get("alumni") ?? 0,
       todays_attendance_present: todaysAttendancePresent,
       todays_attendance_total: todaysAttendance.length,
-      fee_collected_paise: feeCollectedPaise,
-      fee_pending_paise: feePendingPaise,
       overdue_books_count: overdueBooksCount,
       enrollment_by_class: enrollmentByClass,
       attendance_trend: attendanceTrend,
-      fee_status_breakdown: feeStatusBreakdown,
+      birthdays_today: birthdaysToday,
+      birthdays_tomorrow: birthdaysTomorrow,
+      upcoming_holidays: upcomingHolidays.map((h) => ({ id: h.id, date: h.date, name: h.name, type: h.type })),
+      upcoming_exams: upcomingExams.map((e) => ({ id: e.id, name: e.name, exam_date: e.examDate })),
+      ...(canViewFees
+        ? {
+            fee_collected_paise: feeCollectedPaise,
+            fee_pending_paise: feePendingPaise,
+            fee_status_breakdown: feeStatusBreakdown,
+          }
+        : {}),
     };
   }
 }

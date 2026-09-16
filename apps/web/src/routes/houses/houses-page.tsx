@@ -3,6 +3,7 @@ import { PencilIcon, PlusIcon, TrophyIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import { api, type House, type HouseLeaderboardRow, type HousePointEventListItem } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -304,7 +305,7 @@ function PointsTab({ houses, onChanged }: { houses: House[]; onChanged: () => vo
           <TableBody>
             {events.map((e) => (
               <TableRow key={e.id}>
-                <TableCell>{e.event_date}</TableCell>
+                <TableCell>{formatDate(e.event_date)}</TableCell>
                 <TableCell className="font-medium">{e.house_name}</TableCell>
                 <TableCell className={e.points >= 0 ? "text-emerald-600" : "text-destructive"}>
                   {e.points >= 0 ? `+${e.points}` : e.points}

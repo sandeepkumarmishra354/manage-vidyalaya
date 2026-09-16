@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatDateTime } from "@/lib/date";
 
 const actionVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   create: "default",
@@ -81,7 +82,7 @@ export function AuditLogPage() {
             {entries.map((e) => (
               <TableRow key={e.id}>
                 <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                  {e.created_at.replace("T", " ").slice(0, 19)}
+                  {formatDateTime(e.created_at)}
                 </TableCell>
                 <TableCell>{e.actor_name ?? "System"}</TableCell>
                 <TableCell>

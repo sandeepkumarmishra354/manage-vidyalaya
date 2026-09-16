@@ -74,7 +74,6 @@ const navSections: NavSection[] = [
         module: "exams",
         permission: "exams.view",
       },
-      { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon, permission: "academic_setup.view" },
     ],
   },
   {
@@ -106,6 +105,7 @@ const navSections: NavSection[] = [
     label: "Admin",
     accent: "admin",
     items: [
+      { to: "/academic-setup", label: "Academic Setup", icon: LayersIcon, permission: "academic_setup.view" },
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
       { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },

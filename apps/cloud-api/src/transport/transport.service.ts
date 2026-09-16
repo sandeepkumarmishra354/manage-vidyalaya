@@ -110,20 +110,43 @@ export class TransportService {
   }
 
   // Assigns a student to a route/stop, replacing any previous assignment.
+  // The update branch resets deletedAt -- without it, re-assigning a student
+  // whose prior assignment was ever soft-deleted would silently succeed in
+  // the DB but stay invisible to getStudentTransport's deletedAt: null read.
   async assignStudentTransport(tenantId: string, actorUserId: string, dto: AssignTransportDto) {
     const now = new Date();
-    return this.prisma.studentTransport.upsert({
-      where: { studentId: dto.student_id },
-      create: {
-        id: randomUUID(),
+    return this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.studentTransport.upsert({
+        where: { studentId: dto.student_id },
+        create: {
+          id: randomUUID(),
+          tenantId,
+          studentId: dto.student_id,
+          routeId: dto.route_id,
+          stopId: dto.stop_id,
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        update: {
+          routeId: dto.route_id,
+          stopId: dto.stop_id,
+          deletedAt: null,
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
         tenantId,
-        studentId: dto.student_id,
-        routeId: dto.route_id,
-        stopId: dto.stop_id,
-        updatedAt: now,
-        updatedBy: actorUserId,
-      },
-      update: { routeId: dto.route_id, stopId: dto.stop_id, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+        actorUserId,
+        entityTable: "student_transport",
+        entityId: assignment.id,
+        action: "update",
+        summary: "Assigned student transport route/stop",
+      });
+
+      return assignment;
     });
   }
 

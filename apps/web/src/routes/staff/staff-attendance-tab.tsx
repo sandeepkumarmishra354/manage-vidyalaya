@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StaffAttendanceCalendar } from "./staff-attendance-calendar";
 
 const STATUS_OPTIONS: AttendanceStatus[] = ["present", "absent", "half_day", "leave"];
 
@@ -50,64 +52,77 @@ export function StaffAttendanceTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label>Date</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
-        </div>
-        {hasPermission("staff_attendance.mark") && (
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? "Saving..." : "Save attendance"}
-          </Button>
-        )}
-      </div>
+    <Tabs defaultValue="daily">
+      <TabsList>
+        <TabsTrigger value="daily">Daily</TabsTrigger>
+        <TabsTrigger value="calendar">Calendar</TabsTrigger>
+      </TabsList>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Designation</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {roster.map((r) => (
-              <TableRow key={r.staff_id}>
-                <TableCell className="font-medium">
-                  {r.first_name} {r.last_name ?? ""}
-                </TableCell>
-                <TableCell>{r.designation}</TableCell>
-                <TableCell>
-                  {hasPermission("staff_attendance.mark") ? (
-                    <Select
-                      value={statuses[r.staff_id] ?? "present"}
-                      onValueChange={(v) => setStatuses((s) => ({ ...s, [r.staff_id]: v as AttendanceStatus }))}
-                    >
-                      <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((s) => (
-                          <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <span className="capitalize">{(statuses[r.staff_id] ?? "present").replace("_", " ")}</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {roster.length === 0 && (
+      <TabsContent value="daily" className="flex flex-col gap-4">
+        <div className="flex items-end gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label>Date</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
+          </div>
+          {hasPermission("staff_attendance.mark") && (
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save attendance"}
+            </Button>
+          )}
+        </div>
+
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
-                  No active staff at this branch.
-                </TableCell>
+                <TableHead>Name</TableHead>
+                <TableHead>Designation</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
+            </TableHeader>
+            <TableBody>
+              {roster.map((r) => (
+                <TableRow key={r.staff_id}>
+                  <TableCell className="font-medium">
+                    {r.first_name} {r.last_name ?? ""}
+                  </TableCell>
+                  <TableCell>{r.designation}</TableCell>
+                  <TableCell>
+                    {hasPermission("staff_attendance.mark") ? (
+                      <Select
+                        value={statuses[r.staff_id] ?? "present"}
+                        onValueChange={(v) => setStatuses((s) => ({ ...s, [r.staff_id]: v as AttendanceStatus }))}
+                      >
+                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {STATUS_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="capitalize">{(statuses[r.staff_id] ?? "present").replace("_", " ")}</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {roster.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                    No active staff at this branch.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="calendar">
+        {selectedBranchId && (
+          <StaffAttendanceCalendar branchId={selectedBranchId} canMark={hasPermission("staff_attendance.mark")} />
+        )}
+      </TabsContent>
+    </Tabs>
   );
 }
