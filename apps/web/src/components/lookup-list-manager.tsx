@@ -42,20 +42,30 @@ export function LookupListManager({
     try {
       await onCreate(name);
       setNewName("");
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not add this value.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleRename = (item: LookupListItem) => {
+  const handleRename = async (item: LookupListItem) => {
     const name = window.prompt(`Rename "${item.name}" to:`, item.name);
     if (!name || !name.trim() || name.trim() === item.name) return;
-    onUpdate(item.id, name.trim());
+    try {
+      await onUpdate(item.id, name.trim());
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not rename this value.");
+    }
   };
 
-  const handleDelete = (item: LookupListItem) => {
+  const handleDelete = async (item: LookupListItem) => {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
-    onDelete(item.id);
+    try {
+      await onDelete(item.id);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not delete this value.");
+    }
   };
 
   return (

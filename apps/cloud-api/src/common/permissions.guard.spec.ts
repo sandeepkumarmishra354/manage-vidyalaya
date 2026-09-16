@@ -50,4 +50,21 @@ describe("PermissionsGuard", () => {
     expect(result).toBe(true);
     expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "users.manage");
   });
+
+  it("allows a user who holds any one of several required permissions (OR)", async () => {
+    (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(["staff.manage_profile", "master_data.manage_staff_category"]);
+    scopedAccess.hasPermission.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    const result = await guard.canActivate(makeContext({ sub: "user-1" }));
+    expect(result).toBe(true);
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "staff.manage_profile");
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "master_data.manage_staff_category");
+  });
+
+  it("rejects a user who holds none of several required permissions", async () => {
+    (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(["staff.manage_profile", "master_data.manage_staff_category"]);
+    scopedAccess.hasPermission.mockResolvedValue(false);
+
+    await expect(guard.canActivate(makeContext({ sub: "user-1" }))).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });
