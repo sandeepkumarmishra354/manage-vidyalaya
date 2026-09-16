@@ -121,6 +121,12 @@ export function StudentDetailPage() {
         facts={[
           { label: "Admission #", value: student.admission_number ?? "Not yet assigned" },
           ...(student.roll_number ? [{ label: "Roll #", value: student.roll_number }] : []),
+          {
+            label: "Class",
+            value: student.class_name
+              ? `${student.class_name}${student.section_name ? ` ${student.section_name}` : ""}`
+              : "Not assigned",
+          },
         ]}
         actions={
           hasPermission("students.edit") ? (
@@ -212,6 +218,15 @@ export function StudentDetailPage() {
                     {g.occupation ? ` · ${g.occupation}` : ""}
                   </p>
                   {g.address && <p className="text-sm text-muted-foreground">{g.address}</p>}
+                  {(g.aadhaar_number || g.annual_income != null) && (
+                    <p className="text-sm text-muted-foreground">
+                      {g.aadhaar_number ? `Aadhaar: ${g.aadhaar_number}` : ""}
+                      {g.aadhaar_number && g.annual_income != null ? " · " : ""}
+                      {g.annual_income != null
+                        ? `Annual income: ${new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(g.annual_income)}`
+                        : ""}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

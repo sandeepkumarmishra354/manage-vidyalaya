@@ -210,6 +210,8 @@ export interface StudentDetail {
   blood_group?: string | null;
   current_class_id?: string | null;
   current_section_id?: string | null;
+  class_name?: string | null;
+  section_name?: string | null;
   status: StudentStatus;
   address?: string | null;
   city?: string | null;

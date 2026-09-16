@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { BriefcaseIcon, CalendarCheckIcon, IdCardIcon, KeyIcon, LandmarkIcon, PhoneIcon, UserPlusIcon } from "lucide-react";
+import {
+  BriefcaseIcon,
+  CalendarCheckIcon,
+  IdCardIcon,
+  KeyIcon,
+  LandmarkIcon,
+  PhoneIcon,
+  UserIcon,
+  UserPlusIcon,
+} from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -8,6 +17,7 @@ import {
   type SchoolClass,
   type Section,
   type Staff,
+  type StaffCategory,
   type Subject,
   type TeacherAssignment,
 } from "@/lib/api";
@@ -36,6 +46,7 @@ import { SalaryStructureTab } from "./salary-structure-tab";
 export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
   const hasPermission = useAppStore((s) => s.hasPermission);
+  const branches = useAppStore((s) => s.branches);
   const [staff, setStaff] = useState<Staff | null>(null);
 
   const refresh = useCallback(() => {
@@ -63,6 +74,7 @@ export function StaffDetailPage() {
         facts={[
           { label: "Employee code", value: staff.employee_code },
           { label: "Designation", value: staff.designation },
+          { label: "Branch", value: branches.find((b) => b.id === staff.branch_id)?.name ?? "—" },
         ]}
         actions={hasPermission("staff.manage_profile") ? <EditStaffDialog staff={staff} onUpdated={refresh} /> : undefined}
       />
@@ -98,9 +110,28 @@ export function StaffDetailPage() {
 
 function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void }) {
   const hasPermission = useAppStore((s) => s.hasPermission);
+  const [categories, setCategories] = useState<StaffCategory[]>([]);
+
+  useEffect(() => {
+    api.listStaffCategories().then(setCategories);
+  }, []);
+
+  const categoryName = categories.find((c) => c.id === staff.category_id)?.name ?? "—";
 
   return (
     <div className="flex flex-col gap-4">
+      <DetailSection
+        title="Personal details"
+        icon={UserIcon}
+        accent="var(--color-staff)"
+        fields={[
+          { label: "Date of birth", value: staff.date_of_birth ? formatDate(staff.date_of_birth) : "—" },
+          { label: "Gender", value: staff.gender ?? "—" },
+          { label: "Blood group", value: staff.blood_group ?? "—" },
+          ...(staff.notes ? [{ label: "Notes", value: staff.notes, span: true }] : []),
+        ]}
+      />
+
       <DetailSection
         title="Employment"
         icon={BriefcaseIcon}
@@ -108,9 +139,11 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
         fields={[
           { label: "Employee code", value: staff.employee_code },
           { label: "Designation", value: staff.designation },
+          { label: "Category", value: categoryName },
           { label: "Department", value: staff.department ?? "—" },
           { label: "Employment type", value: staff.employment_type },
           { label: "Date of joining", value: formatDate(staff.date_of_joining) },
+          { label: "Date of leaving", value: staff.date_of_leaving ? formatDate(staff.date_of_leaving) : "—" },
           { label: "Qualification", value: staff.qualification ?? "—" },
         ]}
       />
@@ -123,7 +156,12 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
           { label: "Phone", value: staff.phone ?? "—" },
           { label: "Personal email", value: staff.personal_email ?? "—" },
           { label: "Address", value: staff.address ?? "—" },
+          {
+            label: "City / State / Pincode",
+            value: [staff.city, staff.state, staff.pincode].filter(Boolean).join(", ") || "—",
+          },
           { label: "Emergency contact", value: staff.emergency_contact_name ?? "—" },
+          { label: "Emergency contact phone", value: staff.emergency_contact_phone ?? "—" },
         ]}
       />
 
@@ -133,11 +171,13 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
         accent="var(--color-staff)"
         fields={[
           { label: "PAN", value: staff.pan_number ?? "—" },
+          { label: "Aadhaar number", value: staff.aadhaar_number ?? "—" },
           { label: "PF number", value: staff.pf_number ?? "—" },
           { label: "ESI number", value: staff.esi_number ?? "—" },
           { label: "UAN", value: staff.uan_number ?? "—" },
           { label: "Bank", value: staff.bank_name ?? "—" },
           { label: "Account #", value: staff.bank_account_number ?? "—" },
+          { label: "IFSC", value: staff.bank_ifsc ?? "—" },
         ]}
       />
 
