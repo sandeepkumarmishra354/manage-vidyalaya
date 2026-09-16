@@ -78,6 +78,8 @@ export class StudentsService {
       where: { id, deletedAt: null },
       include: {
         studentGuardians: { include: { guardian: true } },
+        currentClass: true,
+        currentSection: true,
       },
     });
     if (!student) {
@@ -97,6 +99,8 @@ export class StudentsService {
       blood_group: student.bloodGroup,
       current_class_id: student.currentClassId,
       current_section_id: student.currentSectionId,
+      class_name: student.currentClass?.name ?? null,
+      section_name: student.currentSection?.name ?? null,
       status: student.status,
       address: student.address,
       city: student.city,
