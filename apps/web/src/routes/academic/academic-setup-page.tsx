@@ -18,9 +18,11 @@ import {
   type Subject,
 } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PRINT_PAPER_COLORS, PRINT_TEMPLATES, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +55,8 @@ function SchoolDetailsTab() {
     logo_url: "",
     signature_url: "",
   });
+  const [printTemplate, setPrintTemplate] = useState<PrintTemplate>("classic");
+  const [printPaperColor, setPrintPaperColor] = useState<PrintPaperColor>("white");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [signatureError, setSignatureError] = useState<string | null>(null);
@@ -70,6 +74,8 @@ function SchoolDetailsTab() {
         logo_url: branch.logo_url ?? "",
         signature_url: branch.signature_url ?? "",
       });
+      setPrintTemplate((branch.print_template as PrintTemplate) || "classic");
+      setPrintPaperColor((branch.print_paper_color as PrintPaperColor) || "white");
     }
   }, [branch]);
 
@@ -110,6 +116,8 @@ function SchoolDetailsTab() {
         email: form.email || null,
         logo_url: form.logo_url || null,
         signature_url: form.signature_url || null,
+        print_template: printTemplate,
+        print_paper_color: printPaperColor,
       });
       await refreshBranches();
       setMessage("Saved.");
@@ -191,6 +199,47 @@ function SchoolDetailsTab() {
               )}
             </div>
             {signatureError && <p className="text-sm text-destructive">{signatureError}</p>}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Print template</Label>
+            <p className="text-xs text-muted-foreground">
+              Applies to payslips, fee receipts, attendance registers, and report cards.
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {PRINT_TEMPLATES.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setPrintTemplate(t.value)}
+                  className={cn(
+                    "rounded-lg border p-3 text-left transition-colors",
+                    printTemplate === t.value ? "border-primary bg-primary/5" : "hover:bg-muted",
+                  )}
+                >
+                  <p className="text-sm font-medium">{t.label}</p>
+                  <p className="text-xs text-muted-foreground">{t.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Paper color</Label>
+            <div className="flex flex-wrap gap-2">
+              {PRINT_PAPER_COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setPrintPaperColor(c.value)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border p-2 pr-3 text-left transition-colors",
+                    printPaperColor === c.value ? "border-primary bg-primary/5" : "hover:bg-muted",
+                  )}
+                >
+                  <span className={cn("size-5 rounded-full", c.swatchClass)} />
+                  <span className="text-sm font-medium">{c.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
           {message && <p className="text-sm text-muted-foreground">{message}</p>}
           <div>

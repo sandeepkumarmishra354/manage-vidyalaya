@@ -23,7 +23,6 @@ import { PayrollRunDetailPage } from "@/routes/payroll/payroll-run-detail";
 import { RolesPage } from "@/routes/admin/roles-page";
 import { UsersPage } from "@/routes/admin/users-page";
 import { AuditLogPage } from "@/routes/admin/audit-log-page";
-import { DevPrintPreview } from "@/routes/dev-print-preview";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -68,8 +67,6 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      {/* TEMPORARY: dev-only print-template review, unauthenticated, mock data. Remove once approved. */}
-      <Route path="/dev/print-preview" element={<DevPrintPreview />} />
       <Route
         path="/"
         element={

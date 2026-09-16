@@ -13,6 +13,8 @@ export interface Branch {
   email?: string | null;
   logo_url?: string | null;
   signature_url?: string | null;
+  print_template: string;
+  print_paper_color: string;
   is_active: boolean;
 }
 
@@ -27,6 +29,8 @@ export interface UpdateBranchInput {
   email?: string | null;
   logo_url?: string | null;
   signature_url?: string | null;
+  print_template?: string;
+  print_paper_color?: string;
 }
 
 export interface SchoolClass {

@@ -46,23 +46,25 @@ model Tenant {
 }
 
 model Branch {
-  id           String    @id
-  tenantId     String    @map("tenant_id")
-  name         String
-  code         String
-  address      String?
-  city         String?
-  state        String?
-  pincode      String?
-  phone        String?
-  email        String?
-  logoUrl      String?   @map("logo_url")
-  signatureUrl String?   @map("signature_url")
-  isActive     Boolean   @default(true) @map("is_active")
-  updatedAt    DateTime  @map("updated_at")
-  updatedBy    String?   @map("updated_by")
-  deletedAt    DateTime? @map("deleted_at")
-  version      Int       @default(1)
+  id              String    @id
+  tenantId        String    @map("tenant_id")
+  name            String
+  code            String
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  phone           String?
+  email           String?
+  logoUrl         String?   @map("logo_url")
+  signatureUrl    String?   @map("signature_url")
+  printTemplate   String    @default("classic") @map("print_template")
+  printPaperColor String    @default("white") @map("print_paper_color")
+  isActive        Boolean   @default(true) @map("is_active")
+  updatedAt       DateTime  @map("updated_at")
+  updatedBy       String?   @map("updated_by")
+  deletedAt       DateTime? @map("deleted_at")
+  version         Int       @default(1)
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
