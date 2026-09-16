@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatDate } from "@/lib/date";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { SalaryStructureTab } from "./salary-structure-tab";
 
@@ -89,7 +90,7 @@ export function StaffDetailPage() {
         <TabsContent value="attendance">
           <div className="flex flex-wrap gap-1.5">
             {attendance.map((a) => (
-              <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={a.attendance_date}>
+              <Badge key={a.attendance_date} variant={attendanceBadgeVariant[a.status] ?? "outline"} title={formatDate(a.attendance_date)}>
                 {a.attendance_date.slice(5)} · {a.status}
               </Badge>
             ))}
@@ -98,7 +99,7 @@ export function StaffDetailPage() {
         </TabsContent>
         {hasPermission("payroll.view") && (
           <TabsContent value="salary">
-            <SalaryStructureTab staffId={staff.id} branchId={staff.branch_id} />
+            <SalaryStructureTab staffId={staff.id} branchId={staff.branch_id} dateOfJoining={staff.date_of_joining} />
           </TabsContent>
         )}
       </Tabs>
@@ -120,7 +121,7 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
           <Field label="Designation" value={staff.designation} />
           <Field label="Department" value={staff.department ?? "—"} />
           <Field label="Employment type" value={staff.employment_type} />
-          <Field label="Date of joining" value={staff.date_of_joining} />
+          <Field label="Date of joining" value={formatDate(staff.date_of_joining)} />
           <Field label="Qualification" value={staff.qualification ?? "—"} />
         </CardContent>
       </Card>

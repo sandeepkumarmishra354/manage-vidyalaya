@@ -1,7 +1,10 @@
 import {
   BookOpenIcon,
   CalendarCheckIcon,
+  CalendarDaysIcon,
+  PartyPopperIcon,
   ReceiptIndianRupeeIcon,
+  ScrollTextIcon,
   TrendingUpIcon,
   TrophyIcon,
   UsersIcon,
@@ -24,6 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAppStore } from "@/stores/app-store";
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -78,7 +82,10 @@ export function DashboardPage() {
   const session = useAppStore((s) => s.session);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const housesEnabled = isModuleEnabled("houses");
+  const canViewFees = isModuleEnabled("fees") && hasPermission("fees.view");
+  const canViewExams = isModuleEnabled("exams") && hasPermission("exams.view");
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats", selectedBranchId],
@@ -105,7 +112,7 @@ export function DashboardPage() {
     pct: p.total_count > 0 ? Math.round((p.present_count / p.total_count) * 100) : 0,
   }));
 
-  const feeData = stats.fee_status_breakdown.filter((f) => f.count > 0);
+  const feeData = (stats.fee_status_breakdown ?? []).filter((f) => f.count > 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -135,12 +142,12 @@ export function DashboardPage() {
             accent="var(--color-success)"
           />
         )}
-        {isModuleEnabled("fees") && (
+        {canViewFees && (
           <StatCard
             icon={ReceiptIndianRupeeIcon}
             label="Fees Collected"
-            value={formatPaise(stats.fee_collected_paise)}
-            hint={`${formatPaise(stats.fee_pending_paise)} pending`}
+            value={formatPaise(stats.fee_collected_paise ?? 0)}
+            hint={`${formatPaise(stats.fee_pending_paise ?? 0)} pending`}
             accent="var(--color-finance)"
           />
         )}
@@ -186,7 +193,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {isModuleEnabled("fees") && (
+        {canViewFees && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -312,6 +319,92 @@ export function DashboardPage() {
           </Card>
         )}
       </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PartyPopperIcon className="size-4 text-staff" />
+              Birthdays
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <BirthdayList title="Today" entries={stats.birthdays_today} />
+            <BirthdayList title="Tomorrow" entries={stats.birthdays_tomorrow} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarDaysIcon className="size-4 text-academics" />
+              Upcoming holidays
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {stats.upcoming_holidays.length > 0 ? (
+              <div className="flex flex-col gap-2 text-sm">
+                {stats.upcoming_holidays.map((h) => (
+                  <div key={h.id} className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{h.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(h.date)}
+                      {h.type === "half_day" ? " (half-day)" : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No holidays in the next 2 weeks.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {canViewExams && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ScrollTextIcon className="size-4 text-exams" />
+                Upcoming exams
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {stats.upcoming_exams.length > 0 ? (
+                <div className="flex flex-col gap-2 text-sm">
+                  {stats.upcoming_exams.map((e) => (
+                    <div key={e.id} className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{e.name}</span>
+                      <span className="text-xs text-muted-foreground">{e.exam_date ? formatDate(e.exam_date) : "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No exams in the next 2 weeks.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BirthdayList({ title, entries }: { title: string; entries: { id: string; name: string; role: string }[] }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium text-muted-foreground uppercase">{title}</p>
+      {entries.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {entries.map((e) => (
+            <div key={e.id} className="flex items-center justify-between text-sm">
+              <span>{e.name}</span>
+              <span className="text-xs text-muted-foreground capitalize">{e.role}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">None</p>
+      )}
     </div>
   );
 }

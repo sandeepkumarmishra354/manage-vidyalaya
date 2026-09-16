@@ -5,6 +5,7 @@ import { PrinterIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { api, type Payslip, type PayrollRunDetail as PayrollRunDetailType } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { SignatureBlock } from "@/components/signature-block";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -152,6 +153,9 @@ export function PayrollRunDetailPage() {
               right={<p className="font-medium">{selectedPayslip.staff_name}</p>}
             />
             <PayslipLines payslip={selectedPayslip} />
+            <div className="mt-16 flex justify-end">
+              <SignatureBlock branch={branch} />
+            </div>
           </div>
         </>
       )}

@@ -34,4 +34,8 @@ export class UpdateBranchDto {
   @IsOptional()
   @IsString()
   logo_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  signature_url?: string | null;
 }

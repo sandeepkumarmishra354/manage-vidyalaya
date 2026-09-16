@@ -46,22 +46,23 @@ model Tenant {
 }
 
 model Branch {
-  id        String    @id
-  tenantId  String    @map("tenant_id")
-  name      String
-  code      String
-  address   String?
-  city      String?
-  state     String?
-  pincode   String?
-  phone     String?
-  email     String?
-  logoUrl   String?   @map("logo_url")
-  isActive  Boolean   @default(true) @map("is_active")
-  updatedAt DateTime  @map("updated_at")
-  updatedBy String?   @map("updated_by")
-  deletedAt DateTime? @map("deleted_at")
-  version   Int       @default(1)
+  id           String    @id
+  tenantId     String    @map("tenant_id")
+  name         String
+  code         String
+  address      String?
+  city         String?
+  state        String?
+  pincode      String?
+  phone        String?
+  email        String?
+  logoUrl      String?   @map("logo_url")
+  signatureUrl String?   @map("signature_url")
+  isActive     Boolean   @default(true) @map("is_active")
+  updatedAt    DateTime  @map("updated_at")
+  updatedBy    String?   @map("updated_by")
+  deletedAt    DateTime? @map("deleted_at")
+  version      Int       @default(1)
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -177,8 +178,54 @@ model AcademicSession {
   electiveChoices      StudentElectiveChoice[]
   promotionBatchesFrom PromotionBatch[]           @relation("PromotionBatchFromSession")
   promotionBatchesTo   PromotionBatch[]           @relation("PromotionBatchToSession")
+  schoolCalendars      SchoolCalendar[]
 
   @@map("academic_sessions")
+}
+
+// A branch's calendar for one academic session: which weekdays are always
+// off/half-day (weeklyOffDays/weeklyHalfDays, 0=Sunday matching JS
+// Date.getUTCDay()), plus dated CalendarHoliday overrides for specific
+// public holidays. Drives attendance-grid greying and payroll's working-day
+// calculation -- see SchoolCalendarService.getDayType.
+model SchoolCalendar {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  weeklyOffDays     Int[]     @default([]) @map("weekly_off_days")
+  weeklyHalfDays    Int[]     @default([]) @map("weekly_half_days")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession AcademicSession   @relation(fields: [academicSessionId], references: [id])
+  holidays        CalendarHoliday[]
+
+  @@unique([branchId, academicSessionId])
+  @@map("school_calendars")
+}
+
+// A dated override -- a specific holiday or half-day -- that always wins
+// over the weekly rule for that one date.
+model CalendarHoliday {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  schoolCalendarId String    @map("school_calendar_id")
+  date             DateTime
+  name             String
+  type             String // "holiday" | "half_day"
+  updatedAt        DateTime  @map("updated_at")
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at")
+  version          Int       @default(1)
+
+  schoolCalendar SchoolCalendar @relation(fields: [schoolCalendarId], references: [id])
+
+  @@unique([schoolCalendarId, date])
+  @@index([schoolCalendarId])
+  @@map("calendar_holidays")
 }
 
 model Class {
@@ -641,7 +688,7 @@ model ExamMark {
   maxMarks      Int       @default(100) @map("max_marks")
   marksObtained Float?    @map("marks_obtained")
   isAbsent      Boolean   @default(false) @map("is_absent")
-  result        String?   // "pass" | "fail" | "grace" -- null until marks are entered; auto-computed on save unless explicitly overridden
+  result        String? // "pass" | "fail" | "grace" -- null until marks are entered; auto-computed on save unless explicitly overridden
   remarks       String?
   updatedAt     DateTime  @map("updated_at")
   updatedBy     String?   @map("updated_by")
@@ -1061,7 +1108,7 @@ model Payslip {
   tenantId        String    @map("tenant_id")
   payrollRunId    String    @map("payroll_run_id")
   staffId         String    @map("staff_id")
-  daysInMonth     Int       @map("days_in_month")
+  daysInMonth     Float     @map("days_in_month")
   daysPresent     Float     @map("days_present")
   daysLop         Float     @default(0) @map("days_lop")
   grossEarnings   Int       @map("gross_earnings")

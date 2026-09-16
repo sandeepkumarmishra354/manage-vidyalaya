@@ -47,6 +47,7 @@ export class AcademicService {
           phone: dto.phone ?? null,
           email: dto.email ?? null,
           logoUrl: dto.logo_url ?? null,
+          signatureUrl: dto.signature_url ?? null,
           updatedAt: now,
           updatedBy: actorUserId,
           version: { increment: 1 },

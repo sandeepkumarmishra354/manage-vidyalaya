@@ -4,6 +4,7 @@ import { PrinterIcon } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { api, type Exam, type ReportCard, type StudentListItem } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { SignatureBlock } from "@/components/signature-block";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -166,7 +167,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
 
           <div className="mt-16 flex justify-between text-sm text-slate-600">
             <div className="border-t border-slate-400 pt-1">Class Teacher</div>
-            <div className="border-t border-slate-400 pt-1">Principal</div>
+            <SignatureBlock branch={branch} label="Principal" />
           </div>
         </div>
       )}

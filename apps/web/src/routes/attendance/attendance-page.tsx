@@ -10,6 +10,7 @@ import {
   type Section,
 } from "@/lib/api";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { SignatureBlock } from "@/components/signature-block";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -292,6 +293,9 @@ export function AttendancePage() {
                     ))}
                   </tbody>
                 </table>
+                <div className="mt-16 flex justify-end">
+                  <SignatureBlock branch={branch} label="Class Teacher Signature" />
+                </div>
               </div>
             )}
           </TabsContent>

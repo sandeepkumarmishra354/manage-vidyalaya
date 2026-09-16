@@ -6,6 +6,7 @@ import { CurrentUser } from "../common/current-user.decorator.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
+import { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
 
 @Controller("staff-attendance")
@@ -19,10 +20,26 @@ export class StaffAttendanceController {
     return this.staffAttendanceService.getRoster(branchId, attendanceDate);
   }
 
+  @Get("roster-range")
+  @RequirePermission("staff_attendance.view")
+  rosterRange(
+    @Query("branch_id") branchId: string,
+    @Query("start_date") startDate: string,
+    @Query("end_date") endDate: string,
+  ) {
+    return this.staffAttendanceService.getRosterRange(branchId, startDate, endDate);
+  }
+
   @Post()
   @RequirePermission("staff_attendance.mark")
   mark(@CurrentUser() user: JwtPayload, @Body() dto: MarkStaffAttendanceDto) {
     return this.staffAttendanceService.markAttendance(user.tenant_id, user.sub, dto);
+  }
+
+  @Post("bulk")
+  @RequirePermission("staff_attendance.mark")
+  markBulk(@CurrentUser() user: JwtPayload, @Body() dto: BulkMarkStaffAttendanceDto) {
+    return this.staffAttendanceService.markAttendanceBulk(user.tenant_id, user.sub, dto);
   }
 
   @Get("staff/:staffId/history")

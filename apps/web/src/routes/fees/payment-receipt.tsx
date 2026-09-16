@@ -3,6 +3,7 @@ import { PrinterIcon } from "lucide-react";
 import { FEE_TYPE_LABELS, type Branch, type FeeInvoiceListItem, type FeePayment } from "@/lib/api";
 import { formatPaise } from "@/lib/money";
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { SignatureBlock } from "@/components/signature-block";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -106,7 +107,7 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
           )}
         </table>
         <div className="mt-16 flex justify-end">
-          <div className="border-t pt-1 text-center text-xs text-slate-600">Authorized signatory</div>
+          <SignatureBlock branch={branch} />
         </div>
       </div>
     </>

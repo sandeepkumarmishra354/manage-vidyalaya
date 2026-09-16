@@ -1,4 +1,5 @@
 import type { Branch } from "@/lib/api";
+import { useAppStore } from "@/stores/app-store";
 
 /**
  * Shared print-document header: school name/logo, address, contact info,
@@ -16,6 +17,7 @@ export function PrintLetterhead({
   documentTitle: string;
   right?: React.ReactNode;
 }) {
+  const tenant = useAppStore((s) => s.tenant);
   const addressLine = [branch?.address, branch?.city, branch?.state, branch?.pincode].filter(Boolean).join(", ");
   const contactLine = [branch?.phone, branch?.email].filter(Boolean).join(" · ");
 
@@ -24,6 +26,7 @@ export function PrintLetterhead({
       <div className="flex items-center gap-3">
         {branch?.logo_url && <img src={branch.logo_url} alt="" className="h-12 w-12 object-contain" />}
         <div>
+          {tenant?.name && <p className="text-xs font-medium text-slate-500 uppercase">School: {tenant.name}</p>}
           <p className="text-xl font-bold">{branch?.name ?? "Vidyalaya School"}</p>
           <p className="text-sm text-slate-600">{documentTitle}</p>
           {addressLine && <p className="text-xs text-slate-500">{addressLine}</p>}

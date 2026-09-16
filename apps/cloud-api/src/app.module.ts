@@ -20,6 +20,7 @@ import { PayrollModule } from "./payroll/payroll.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { PromotionModule } from "./promotion/promotion.module.js";
 import { RolesModule } from "./roles/roles.module.js";
+import { SchoolCalendarModule } from "./school-calendar/school-calendar.module.js";
 import { StaffModule } from "./staff/staff.module.js";
 import { StaffCategoriesModule } from "./staff-categories/staff-categories.module.js";
 import { StudentsModule } from "./students/students.module.js";
@@ -34,6 +35,7 @@ import { UsersModule } from "./users/users.module.js";
     AuthModule,
     AuditModule,
     UsersModule,
+    SchoolCalendarModule,
     AcademicModule,
     StudentsModule,
     AttendanceModule,
