@@ -38,19 +38,31 @@ const mockBranch: Branch = {
 function MockReceiptBody() {
   return (
     <>
-      <div className="mb-6 grid grid-cols-2 gap-y-2 text-sm">
-        <p className="text-slate-600">Student</p>
-        <p className="font-medium">Aarav Sharma</p>
-        <p className="text-slate-600">Class</p>
-        <p className="font-medium">8 - B</p>
-        <p className="text-slate-600">Roll number</p>
-        <p className="font-medium">23</p>
-        <p className="text-slate-600">Date of birth</p>
-        <p className="font-medium">12 Apr 2013</p>
-        <p className="text-slate-600">Guardian</p>
-        <p className="font-medium">Rakesh Sharma</p>
-        <p className="text-slate-600">Payment method</p>
-        <p className="font-medium">Cash</p>
+      <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Student</span>
+          <span className="font-medium">Aarav Sharma</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Class</span>
+          <span className="font-medium">8 - B</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Roll number</span>
+          <span className="font-medium">23</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Date of birth</span>
+          <span className="font-medium">12 Apr 2013</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Guardian</span>
+          <span className="font-medium">Rakesh Sharma</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-slate-600">Payment method</span>
+          <span className="font-medium">Cash</span>
+        </div>
       </div>
       <table className="w-full border-collapse text-sm">
         <thead>
@@ -108,20 +120,24 @@ function MockReportCardBody() {
   return (
     <>
       <div className="mb-6 flex items-start justify-between">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
           <p className="col-span-2 text-lg font-semibold">Aarav Sharma</p>
-          <p className="text-slate-600">
-            Class <span className="font-medium text-slate-900">8 - B</span>
-          </p>
-          <p className="text-slate-600">
-            Roll number <span className="font-medium text-slate-900">23</span>
-          </p>
-          <p className="text-slate-600">
-            Date of birth <span className="font-medium text-slate-900">12 Apr 2013</span>
-          </p>
-          <p className="text-slate-600">
-            Guardian <span className="font-medium text-slate-900">Rakesh Sharma</span>
-          </p>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Class</span>
+            <span className="font-medium">8 - B</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Roll number</span>
+            <span className="font-medium">23</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Date of birth</span>
+            <span className="font-medium">12 Apr 2013</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Guardian</span>
+            <span className="font-medium">Rakesh Sharma</span>
+          </div>
         </div>
         <p className="font-medium">Overall: Pass</p>
       </div>

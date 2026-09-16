@@ -129,23 +129,26 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
           />
 
           <div className="mb-6 flex items-start justify-between">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
               <p className="col-span-2 text-lg font-semibold">{reportCard.student_name}</p>
-              <p className="text-slate-600">
-                Class{" "}
-                <span className="font-medium text-slate-900">
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Class</span>
+                <span className="font-medium">
                   {[reportCard.class_name, reportCard.section_name].filter(Boolean).join(" - ") || "-"}
                 </span>
-              </p>
-              <p className="text-slate-600">
-                Roll number <span className="font-medium text-slate-900">{reportCard.roll_number ?? "-"}</span>
-              </p>
-              <p className="text-slate-600">
-                Date of birth <span className="font-medium text-slate-900">{formatDate(reportCard.date_of_birth) || "-"}</span>
-              </p>
-              <p className="text-slate-600">
-                Guardian <span className="font-medium text-slate-900">{reportCard.guardian_name ?? "-"}</span>
-              </p>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Roll number</span>
+                <span className="font-medium">{reportCard.roll_number ?? "-"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Date of birth</span>
+                <span className="font-medium">{formatDate(reportCard.date_of_birth) || "-"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Guardian</span>
+                <span className="font-medium">{reportCard.guardian_name ?? "-"}</span>
+              </div>
             </div>
             <p className="font-medium capitalize">Overall: {reportCard.overall_result}</p>
           </div>

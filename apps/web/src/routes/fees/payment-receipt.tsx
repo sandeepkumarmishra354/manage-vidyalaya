@@ -62,23 +62,35 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
             </>
           }
         />
-        <div className="mb-6 grid grid-cols-2 gap-y-2 text-sm">
-          <p className="text-slate-600">Student</p>
-          <p className="font-medium">{first.invoice.student_name}</p>
-          <p className="text-slate-600">Class</p>
-          <p className="font-medium">
-            {[first.invoice.class_name, first.invoice.section_name].filter(Boolean).join(" - ") || "-"}
-          </p>
-          <p className="text-slate-600">Roll number</p>
-          <p className="font-medium">{first.invoice.roll_number ?? "-"}</p>
-          <p className="text-slate-600">Date of birth</p>
-          <p className="font-medium">{formatDate(first.invoice.date_of_birth) || "-"}</p>
-          <p className="text-slate-600">Guardian</p>
-          <p className="font-medium">{first.invoice.guardian_name ?? "-"}</p>
-          <p className="text-slate-600">Payment method</p>
-          <p className="font-medium">
-            {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}
-          </p>
+        <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Student</span>
+            <span className="font-medium">{first.invoice.student_name}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Class</span>
+            <span className="font-medium">
+              {[first.invoice.class_name, first.invoice.section_name].filter(Boolean).join(" - ") || "-"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Roll number</span>
+            <span className="font-medium">{first.invoice.roll_number ?? "-"}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Date of birth</span>
+            <span className="font-medium">{formatDate(first.invoice.date_of_birth) || "-"}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Guardian</span>
+            <span className="font-medium">{first.invoice.guardian_name ?? "-"}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Payment method</span>
+            <span className="font-medium">
+              {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}
+            </span>
+          </div>
         </div>
         <table className="w-full border-collapse text-sm">
           <thead>
