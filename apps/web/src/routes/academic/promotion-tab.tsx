@@ -10,6 +10,7 @@ import {
   type PromotionDecision,
   type SchoolClass,
 } from "@/lib/api";
+import { PersonLink } from "@/components/person-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,7 +186,9 @@ export function PromotionTab() {
                 <TableBody>
                   {batch.items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.student_name}</TableCell>
+                      <TableCell className="font-medium">
+                        <PersonLink type="student" id={item.student_id} name={item.student_name} />
+                      </TableCell>
                       <TableCell>{item.from_class_name ?? "—"}</TableCell>
                       <TableCell>{item.decision === "promote" ? (item.to_class_name ?? "—") : "—"}</TableCell>
                       <TableCell>

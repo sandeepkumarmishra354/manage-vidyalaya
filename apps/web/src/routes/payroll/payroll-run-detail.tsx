@@ -7,6 +7,7 @@ import { api, type Payslip, type PayrollRunDetail as PayrollRunDetailType } from
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { PrintFrame, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
 import { SignatureBlock } from "@/components/signature-block";
+import { PersonLink } from "@/components/person-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -100,7 +101,9 @@ export function PayrollRunDetailPage() {
           <TableBody>
             {detail.payslips.map((p) => (
               <TableRow key={p.id}>
-                <TableCell className="font-medium">{p.staff_name}</TableCell>
+                <TableCell className="font-medium">
+                  <PersonLink type="staff" id={p.staff_id} name={p.staff_name} />
+                </TableCell>
                 <TableCell>{p.days_present}</TableCell>
                 <TableCell>{p.days_lop}</TableCell>
                 <TableCell>{formatPaise(p.gross_earnings)}</TableCell>

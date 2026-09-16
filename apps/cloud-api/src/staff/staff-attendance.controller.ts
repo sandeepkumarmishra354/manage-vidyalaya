@@ -47,4 +47,15 @@ export class StaffAttendanceController {
   history(@Param("staffId") staffId: string) {
     return this.staffAttendanceService.getStaffHistory(staffId);
   }
+
+  @Get("report")
+  @RequirePermission("staff_attendance.view")
+  report(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("start_date") startDate: string,
+    @Query("end_date") endDate: string,
+  ) {
+    return this.staffAttendanceService.getReport(user.tenant_id, branchId, startDate, endDate);
+  }
 }

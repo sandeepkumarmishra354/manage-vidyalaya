@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditService } from "../audit/audit.service.js";
 import type { ScopedAccessService } from "../common/scoped-access.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
+import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { AttendanceService } from "./attendance.service.js";
 
 function makePrismaMock() {
@@ -33,17 +34,23 @@ function makeScopedAccessMock() {
   } as unknown as ScopedAccessService & Record<string, ReturnType<typeof vi.fn>>;
 }
 
+function makeSchoolCalendarMock() {
+  return { getDayTypesInRange: vi.fn(async () => ({})), getDayType: vi.fn() } as unknown as SchoolCalendarService;
+}
+
 describe("AttendanceService.assertCanView / assertCanMark", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new AttendanceService(prisma, audit, scopedAccess);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar);
   });
 
   it("allows a broad attendance.mark holder to mark any section", async () => {
@@ -99,13 +106,15 @@ describe("AttendanceService.markAttendance", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new AttendanceService(prisma, audit, scopedAccess);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar);
   });
 
   it("upserts every entry and writes one audit record for the batch", async () => {
@@ -140,13 +149,15 @@ describe("AttendanceService.markAttendanceBulk", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new AttendanceService(prisma, audit, scopedAccess);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar);
   });
 
   it("upserts one row per entry, each keyed by its own date, in one audited batch", async () => {
@@ -176,13 +187,15 @@ describe("AttendanceService.getRosterRange", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new AttendanceService(prisma, audit, scopedAccess);
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar);
   });
 
   it("groups records into a per-student, per-ISO-date map", async () => {

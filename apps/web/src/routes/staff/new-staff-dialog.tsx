@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StaffCategorySelect } from "./staff-category-select";
 
 const emptyForm = {
@@ -117,7 +118,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
           New Staff
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New staff member</DialogTitle>
           <DialogDescription>
@@ -127,75 +128,22 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
         </DialogHeader>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="firstName">First name</Label>
-              <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="lastName">Last name</Label>
-              <Input id="lastName" value={form.lastName} onChange={update("lastName")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="employeeCode">Employee code</Label>
-              <Input id="employeeCode" value={form.employeeCode} onChange={update("employeeCode")} required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="designation">Designation</Label>
-              <Input
-                id="designation"
-                placeholder="e.g. PGT Mathematics"
-                value={form.designation}
-                onChange={update("designation")}
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Category</Label>
-              <StaffCategorySelect value={form.categoryId} onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="department">Department</Label>
-              <Input id="department" value={form.department} onChange={update("department")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Employment type</Label>
-              <Select
-                value={form.employmentType}
-                onValueChange={(v) => setForm((f) => ({ ...f, employmentType: v }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="full_time">Full-time</SelectItem>
-                  <SelectItem value="part_time">Part-time</SelectItem>
-                  <SelectItem value="contract">Contract</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="dateOfJoining">Date of joining</Label>
-              <Input
-                id="dateOfJoining"
-                type="date"
-                value={form.dateOfJoining}
-                onChange={update("dateOfJoining")}
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="phone">Phone</Label>
-              <Input id="phone" value={form.phone} onChange={update("phone")} />
-            </div>
-          </div>
+          <Tabs defaultValue="basic">
+            <TabsList>
+              <TabsTrigger value="basic">Basic Info</TabsTrigger>
+              <TabsTrigger value="employment">Employment</TabsTrigger>
+              <TabsTrigger value="statutory">Statutory &amp; Bank</TabsTrigger>
+              <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
+            </TabsList>
 
-          <details className="rounded-md border p-3 text-sm">
-            <summary className="cursor-pointer font-medium">More details (optional)</summary>
-            <div className="mt-3 grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="personalEmail">Personal email</Label>
-                <Input id="personalEmail" type="email" value={form.personalEmail} onChange={update("personalEmail")} />
+                <Label htmlFor="firstName">First name</Label>
+                <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="lastName">Last name</Label>
+                <Input id="lastName" value={form.lastName} onChange={update("lastName")} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="dateOfBirth">Date of birth</Label>
@@ -214,6 +162,14 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Input id="qualification" value={form.qualification} onChange={update("qualification")} />
               </div>
               <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phone">Phone</Label>
+                <Input id="phone" value={form.phone} onChange={update("phone")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="personalEmail">Personal email</Label>
+                <Input id="personalEmail" type="email" value={form.personalEmail} onChange={update("personalEmail")} />
+              </div>
+              <div className="col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="address">Address</Label>
                 <Input id="address" value={form.address} onChange={update("address")} />
               </div>
@@ -229,9 +185,60 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="pincode">Pincode</Label>
                 <Input id="pincode" value={form.pincode} onChange={update("pincode")} />
               </div>
-              <div className="col-span-2 border-t pt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Statutory &amp; bank details
+            </TabsContent>
+
+            <TabsContent value="employment" className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="employeeCode">Employee code</Label>
+                <Input id="employeeCode" value={form.employeeCode} onChange={update("employeeCode")} required />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="designation">Designation</Label>
+                <Input
+                  id="designation"
+                  placeholder="e.g. PGT Mathematics"
+                  value={form.designation}
+                  onChange={update("designation")}
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Category</Label>
+                <StaffCategorySelect value={form.categoryId} onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="department">Department</Label>
+                <Input id="department" value={form.department} onChange={update("department")} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Employment type</Label>
+                <Select
+                  value={form.employmentType}
+                  onValueChange={(v) => setForm((f) => ({ ...f, employmentType: v }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="full_time">Full-time</SelectItem>
+                    <SelectItem value="part_time">Part-time</SelectItem>
+                    <SelectItem value="contract">Contract</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="dateOfJoining">Date of joining</Label>
+                <Input
+                  id="dateOfJoining"
+                  type="date"
+                  value={form.dateOfJoining}
+                  onChange={update("dateOfJoining")}
+                  required
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="statutory" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="panNumber">PAN</Label>
                 <Input id="panNumber" value={form.panNumber} onChange={update("panNumber")} />
@@ -264,9 +271,9 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="bankIfsc">IFSC</Label>
                 <Input id="bankIfsc" value={form.bankIfsc} onChange={update("bankIfsc")} />
               </div>
-              <div className="col-span-2 border-t pt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Emergency contact
-              </div>
+            </TabsContent>
+
+            <TabsContent value="emergency" className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="emergencyContactName">Name</Label>
                 <Input id="emergencyContactName" value={form.emergencyContactName} onChange={update("emergencyContactName")} />
@@ -275,8 +282,8 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="emergencyContactPhone">Phone</Label>
                 <Input id="emergencyContactPhone" value={form.emergencyContactPhone} onChange={update("emergencyContactPhone")} />
               </div>
-            </div>
-          </details>
+            </TabsContent>
+          </Tabs>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

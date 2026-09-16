@@ -136,7 +136,8 @@ export function MonthAttendanceGrid({
                   </td>
                   {dates.map((date) => {
                     const dayType = dayTypes[date];
-                    const disabled = !canMark || dayType === "holiday";
+                    const isFuture = date > todayIso;
+                    const disabled = !canMark || dayType === "holiday" || isFuture;
                     const status = row.days[date];
                     const isToday = date === todayIso;
                     return (
@@ -151,12 +152,13 @@ export function MonthAttendanceGrid({
                         <button
                           type="button"
                           disabled={disabled}
+                          title={isFuture ? "Can't mark attendance for a future date" : undefined}
                           onClick={() => onCycleCell(row.id, date)}
                           className={cn(
                             badgeVariants({ variant: status ? STATUS_BADGE_VARIANT[status] : "outline" }),
                             "size-7 justify-center rounded-full p-0",
                             !disabled && "cursor-pointer hover:opacity-80",
-                            disabled && dayType === "holiday" && "opacity-40",
+                            disabled && (dayType === "holiday" || isFuture) && "opacity-40",
                           )}
                         >
                           {status ? STATUS_CODE[status] : ""}

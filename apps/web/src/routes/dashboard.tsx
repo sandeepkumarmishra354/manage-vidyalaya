@@ -30,6 +30,7 @@ import { api } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { IconTile } from "@/components/icon-tile";
 
 const FEE_STATUS_COLORS: Record<string, string> = {
   paid: "var(--color-success)",
@@ -59,15 +60,7 @@ function StatCard({
         style={{ backgroundImage: `linear-gradient(90deg, ${accent}, color-mix(in oklch, ${accent} 40%, transparent))` }}
       />
       <CardContent className="flex items-center gap-4 pt-6">
-        <div
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-white shadow-md"
-          style={{
-            backgroundImage: `linear-gradient(135deg, ${accent}, color-mix(in oklch, ${accent} 70%, black))`,
-            boxShadow: `0 4px 14px color-mix(in oklch, ${accent} 35%, transparent)`,
-          }}
-        >
-          <Icon className="size-5" />
-        </div>
+        <IconTile icon={Icon} accent={accent} size="md" />
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold">{value}</p>
