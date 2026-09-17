@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ManageVidya — School Management Software</title>
+<meta name="description" content="ManageVidya brings admissions, attendance, fees, exams, library, transport, payroll and more into one beautifully simple school management platform." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%237c3aed'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='6' fill='url(%23g)'/%3E%3Cpath d='M12 6.5 5 10l7 3.5 7-3.5-7-3.5Z' fill='white'/%3E%3Cpath d='M8 12.2v3.3c0 1 1.8 2 4 2s4-1 4-2v-3.3' stroke='white' stroke-width='1.3' fill='none'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.5 2.7-6 5.5-6s5.5 2.5 5.5 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15 13.2c2.4.3 4.5 2.3 4.5 5.3"/></symbol>
+    <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18"/><path d="M8 2.5v4M16 2.5v4"/><path d="M8.5 14l2.2 2.2L15.5 12"/></symbol>
+    <symbol id="icon-receipt" viewBox="0 0 24 24"><path d="M6 3h12v18l-2.5-1.6L13 21l-2.5-1.6L8 21l-2-1.5V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+    <symbol id="icon-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><rect x="9" y="2.2" width="6" height="3.2" rx="1"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/></symbol>
+    <symbol id="icon-book" viewBox="0 0 24 24"><path d="M12 6.2C10.3 4.8 7.7 4 5 4v13.5c2.7 0 5.3.8 7 2.2 1.7-1.4 4.3-2.2 7-2.2V4c-2.7 0-5.3.8-7 2.2Z"/><path d="M12 6.2v13.5"/></symbol>
+    <symbol id="icon-bus" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2.5"/><path d="M3 11h18"/><circle cx="7.5" cy="19" r="1.6"/><circle cx="16.5" cy="19" r="1.6"/><path d="M6.5 8h3M14.5 8h3"/></symbol>
+    <symbol id="icon-award" viewBox="0 0 24 24"><path d="M8 3h8v5a4 4 0 0 1-8 0V3Z"/><path d="M8 4H5a3 3 0 0 0 3 5"/><path d="M16 4h3a3 3 0 0 1-3 5"/><path d="M12 12v3"/><path d="M9 20h6"/><path d="M9.5 17h5l.7 3h-6.4l.7-3Z"/></symbol>
+    <symbol id="icon-briefcase" viewBox="0 0 24 24"><rect x="3" y="7.5" width="18" height="12" rx="2"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5"/><path d="M3 12.5h18"/></symbol>
+    <symbol id="icon-banknote" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></symbol>
+    <symbol id="icon-id" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.3"/><path d="M6 16c0-1.8 1.3-3 3-3s3 1.2 3 3"/><path d="M14.5 9.5h4M14.5 13h4"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 13l9 5 9-5"/></symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="icon-building" viewBox="0 0 24 24"><rect x="4" y="3" width="10" height="18" rx="1.5"/><rect x="16" y="9" width="4.5" height="12" rx="1.2"/><path d="M7 7h1.2M10.5 7h1.2M7 10.5h1.2M10.5 10.5h1.2M7 14h1.2M10.5 14h1.2"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="icon-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 6.5l8 6 8-6"/></symbol>
+    <symbol id="icon-phone" viewBox="0 0 24 24"><path d="M7 4c1.2 0 2.3.4 3.1 1.2l1 1a2 2 0 0 1 0 2.8l-1.2 1.2c1 2 2.6 3.6 4.6 4.6l1.2-1.2a2 2 0 0 1 2.8 0l1 1A4.5 4.5 0 0 1 20 18c0 1.1-.9 2-2 2C10.5 20 4 13.5 4 6c0-1.1.9-2 2-2h1Z"/></symbol>
+    <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></symbol>
+  </defs>
+</svg>
+
+<style>
+  .icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-sm { width: 16px; height: 16px; }
+</style>
+
+<!-- ================= Navbar ================= -->
+<header class="navbar">
+  <div class="container">
+    <a href="#top" class="brand">
+      <span class="brand-mark"><svg class="icon icon-sm" style="width:20px;height:20px"><use href="#icon-layers"/></svg></span>
+      ManageVidya
+    </a>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#modules">Modules</a></li>
+        <li><a href="#benefits">Why ManageVidya</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+    <div class="nav-actions">
+      <a href="#contact" class="btn btn-secondary">Request a Demo</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Mobile menu -->
+<div id="mobileMenu" style="display:none; border-bottom:1px solid var(--color-border); background:#fff;">
+  <div class="container" style="display:flex; flex-direction:column; padding:20px 24px; gap:16px;">
+    <a href="#features">Features</a>
+    <a href="#modules">Modules</a>
+    <a href="#benefits">Why ManageVidya</a>
+    <a href="#contact">Contact</a>
+    <a href="#contact" class="btn btn-primary btn-block">Request a Demo</a>
+  </div>
+</div>
+
+<main id="top">
+
+  <!-- ================= Hero ================= -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-content">
+        <span class="section-eyebrow">School Management, Simplified</span>
+        <h1>Run your entire school from <span>one beautiful dashboard</span></h1>
+        <p class="lead">ManageVidya brings admissions, attendance, fees, exams, library, transport, houses and payroll into a single cloud platform — built so your team spends less time on paperwork and more time on students.</p>
+        <div class="hero-actions">
+          <a href="#contact" class="btn btn-primary">Get in touch</a>
+          <a href="#modules" class="btn btn-secondary">Explore features</a>
+        </div>
+        <p class="hero-note">No installation needed · Works on any device · Role-based access for your whole staff</p>
+      </div>
+      <div class="browser-frame reveal">
+        <div class="browser-bar">
+          <span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span>
+        </div>
+        <img src="assets/screenshots/dashboard.png" alt="ManageVidya dashboard showing enrollment, fee collection, attendance trends and a house leaderboard" loading="eager" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Stats strip ================= -->
+  <section class="stats-strip">
+    <div class="container">
+      <div class="stat-item">
+        <div class="stat-value">15+</div>
+        <div class="stat-label">Integrated modules</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">Role-based</div>
+        <div class="stat-label">Access for every staff role</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">Multi-branch</div>
+        <div class="stat-label">Manage several campuses</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">Cloud-based</div>
+        <div class="stat-label">Secure &amp; accessible anywhere</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Modules grid ================= -->
+  <section class="modules" id="modules">
+    <div class="container">
+      <div class="section-heading center">
+        <span class="section-eyebrow">Modules</span>
+        <h2>Everything your school needs, in one place</h2>
+        <p>Every part of running a school, connected — so information entered once shows up everywhere it's needed.</p>
+      </div>
+      <div class="modules-grid">
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-grid"/></svg></div><h3>Dashboard &amp; Analytics</h3><p>Real-time enrollment, attendance, fee collection and house-points at a glance.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-users"/></svg></div><h3>Student Admissions &amp; Profiles</h3><p>End-to-end admissions with complete academic and family profiles.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-calendar"/></svg></div><h3>Attendance Tracking</h3><p>Daily, calendar and report views with automatic working-day logic.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-receipt"/></svg></div><h3>Fees &amp; Billing</h3><p>Flexible fee structures, invoices, receipts and discounts.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-clipboard"/></svg></div><h3>Exams &amp; Report Cards</h3><p>Exam setup, mark entry and print-ready report cards.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-book"/></svg></div><h3>Library Management</h3><p>Catalog, issue/return tracking and overdue reporting.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-bus"/></svg></div><h3>Transport Management</h3><p>Routes, stops, seat capacity and student assignments.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-award"/></svg></div><h3>Houses &amp; Leaderboards</h3><p>House points, events and a real-time leaderboard.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-briefcase"/></svg></div><h3>Staff Directory</h3><p>Employee records, designations and login access.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-banknote"/></svg></div><h3>Payroll Processing</h3><p>Salary structures, automated runs and printable payslips.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-id"/></svg></div><h3>ID Card Generator</h3><p>Bulk-generate ID cards from ready-made templates.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-layers"/></svg></div><h3>Academic Setup</h3><p>Sessions, classes, sections and subjects, all configurable.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-shield"/></svg></div><h3>Roles &amp; Permissions</h3><p>Fine-grained, role-based access control for every user.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-building"/></svg></div><h3>Multi-branch Support</h3><p>Run multiple campuses from a single account.</p></div>
+        <div class="module-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-history"/></svg></div><h3>Audit Log</h3><p>A complete trail of who changed what, and when.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Feature spotlights ================= -->
+  <section id="features">
+    <div class="container">
+
+      <div class="section-heading center">
+        <span class="section-eyebrow">A closer look</span>
+        <h2>See it in action</h2>
+        <p>Real screens from the actual product — no mockups.</p>
+      </div>
+
+      <!-- Students -->
+      <div class="spotlight">
+        <div class="spotlight-text reveal">
+          <span class="tag">Students &amp; Admissions</span>
+          <h3>A complete profile for every student</h3>
+          <p>Manage admissions end-to-end and keep every student's academic, family and attendance history in one searchable record.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Fast, searchable student directory with class &amp; status filters</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Rich profiles covering academics, guardians, attendance and fees</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Guardian records with sibling linking and dedicated profile pages</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="media-stack">
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/students.png" alt="Student directory list with search and class filters" loading="lazy"/></div>
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/student-detail.png" alt="Individual student profile page with personal details" loading="lazy"/></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attendance -->
+      <div class="spotlight reverse">
+        <div class="spotlight-text reveal">
+          <span class="tag">Attendance</span>
+          <h3>Mark attendance in seconds, not minutes</h3>
+          <p>Daily attendance and calendar views with automatic working-day calculations that respect holidays and half-days — synced straight into payroll and reports.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>One-click "mark all present / absent" for a whole class</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Calendar &amp; report views to spot patterns instantly</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Feeds directly into staff payroll calculations</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/attendance-calendar.png" alt="Attendance page with a class roster and status dropdowns" loading="lazy"/></div>
+        </div>
+      </div>
+
+      <!-- Fees -->
+      <div class="spotlight">
+        <div class="spotlight-text reveal">
+          <span class="tag">Fees &amp; Billing</span>
+          <h3>Billing that adapts to how your school actually charges</h3>
+          <p>Create flexible fee structures — monthly, quarterly, annual or one-time — apply discounts and waivers, and track every rupee collected and outstanding.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Session-based or evergreen fee structures, with per-student overrides</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Automatic invoice generation with receipts and payment history</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Sibling discounts, waivers and an at-a-glance outstanding balance</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="media-stack">
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/fees-invoices.png" alt="Fee invoices list with outstanding balance summary" loading="lazy"/></div>
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/fees-structures.png" alt="Fee structure creation form and list" loading="lazy"/></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Exams -->
+      <div class="spotlight reverse">
+        <div class="spotlight-text reveal">
+          <span class="tag">Exams &amp; Report Cards</span>
+          <h3>From mark entry to printable report cards</h3>
+          <p>Set up exams per class, capture marks, and publish report cards that are ready to print with signatures.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Track submission status across subjects and teachers</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Support for back-papers and re-evaluations</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Printable, signed report cards for every student</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/exams.png" alt="Exams list with published status badges" loading="lazy"/></div>
+        </div>
+      </div>
+
+      <!-- Library -->
+      <div class="spotlight">
+        <div class="spotlight-text reveal">
+          <span class="tag">Library</span>
+          <h3>Never lose track of a book again</h3>
+          <p>Catalog every title, issue and return books in a click, and keep an eye on overdue copies before they become a problem.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Searchable catalog with ISBN, author and copy tracking</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Issue / return workflow with automatic due dates</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Overdue highlighting plus full history &amp; reporting</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="media-stack">
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/library.png" alt="Library issue and return tracking table" loading="lazy"/></div>
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/library-reports.png" alt="Library statistics and history & reports tab" loading="lazy"/></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transport -->
+      <div class="spotlight reverse">
+        <div class="spotlight-text reveal">
+          <span class="tag">Transport</span>
+          <h3>Routes, stops and riders — organized</h3>
+          <p>Plan routes with seat capacity, assign students to stops, and see who's riding which bus at a glance.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Route and stop management with live capacity tracking</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>One-click student-to-route assignment</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Clear roster view for every vehicle</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/transport.png" alt="Transport route list and roster detail view" loading="lazy"/></div>
+        </div>
+      </div>
+
+      <!-- Staff & Payroll -->
+      <div class="spotlight">
+        <div class="spotlight-text reveal">
+          <span class="tag">Staff &amp; Payroll</span>
+          <h3>HR and payroll, without the spreadsheets</h3>
+          <p>Maintain a full staff directory with salary structures, then run monthly payroll with automatic attendance-based calculations and printable payslips.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Employee records with designation, department &amp; login access</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Configurable salary components — HRA, DA, PF and more</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>One-click payroll runs with signed, printable payslips</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="media-stack">
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/staff.png" alt="Staff directory table with designations and status" loading="lazy"/></div>
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/payroll-detail.png" alt="Payroll run detail with gross, deductions and net pay" loading="lazy"/></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Houses & ID Cards -->
+      <div class="spotlight reverse">
+        <div class="spotlight-text reveal">
+          <span class="tag">Houses &amp; ID Cards</span>
+          <h3>The finishing touches that make it feel complete</h3>
+          <p>Run a house-points leaderboard to keep students motivated, and generate professional ID cards in a choice of templates — ready to print in bulk.</p>
+          <ul>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Real-time house leaderboard with point history</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Four ready-made ID card templates</li>
+            <li><svg class="icon icon-sm"><use href="#icon-check"/></svg>Bulk generation and printing by class</li>
+          </ul>
+        </div>
+        <div class="spotlight-media reveal">
+          <div class="media-stack">
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/houses.png" alt="House leaderboard with colored progress bars" loading="lazy"/></div>
+            <div class="shot-frame"><div class="browser-bar"><span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span></div><img src="assets/screenshots/id-cards-preview.png" alt="Generated student ID cards preview grid" loading="lazy"/></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= Benefits ================= -->
+  <section class="benefits" id="benefits">
+    <div class="container">
+      <div class="section-heading center">
+        <span class="section-eyebrow" style="background:rgba(124,58,237,0.18); color:#c4b5fd;">Why ManageVidya</span>
+        <h2>Built to simplify school administration</h2>
+        <p>Fewer tools, less manual work, and a system your whole team actually enjoys using.</p>
+      </div>
+      <div class="benefits-grid">
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-layers"/></svg></div><h3>All-in-one platform</h3><p>Replace a dozen spreadsheets and disconnected tools with a single system your whole school can rely on.</p></div>
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-shield"/></svg></div><h3>Role-based access</h3><p>Give every admin, teacher and accountant exactly the access they need — nothing more.</p></div>
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-building"/></svg></div><h3>Multi-branch ready</h3><p>Manage multiple campuses from one account, with data cleanly scoped per branch.</p></div>
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-receipt"/></svg></div><h3>Built for Indian schools</h3><p>Fee categories, Aadhaar fields, academic sessions and more — modeled the way Indian schools actually work.</p></div>
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-id"/></svg></div><h3>Print-ready documents</h3><p>Receipts, payslips, ID cards and report cards that come out print-ready, with signatures.</p></div>
+        <div class="benefit-card reveal"><div class="module-icon"><svg class="icon"><use href="#icon-history"/></svg></div><h3>Full audit trail</h3><p>Every important change is logged, so you always know who did what, and when.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Contact ================= -->
+  <section class="contact" id="contact">
+    <div class="container">
+      <div class="section-heading center">
+        <span class="section-eyebrow">Get in touch</span>
+        <h2>Let's talk about your school</h2>
+        <p>Questions about ManageVidya, or want to see it in action? Send us a message and we'll get back to you shortly.</p>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-info">
+          <div class="contact-info-card reveal">
+            <div class="module-icon"><svg class="icon"><use href="#icon-mail"/></svg></div>
+            <div>
+              <h4>Email</h4>
+              <a href="mailto:hello@managevidya.in">hello@managevidya.in</a>
+            </div>
+          </div>
+          <div class="contact-info-card reveal">
+            <div class="module-icon"><svg class="icon"><use href="#icon-phone"/></svg></div>
+            <div>
+              <h4>Phone</h4>
+              <a href="tel:+919876543210">+91 98765 43210</a>
+              <p>Mon–Sat, 9:00 AM – 6:00 PM IST</p>
+            </div>
+          </div>
+          <div class="contact-info-card reveal">
+            <div class="module-icon"><svg class="icon"><use href="#icon-pin"/></svg></div>
+            <div>
+              <h4>Office</h4>
+              <p>4th Floor, Tech Park One, Sector 44<br/>Gurugram, Haryana 122003, India</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="contact-form-wrap reveal">
+          <h3>Send us a message</h3>
+          <p>Fill in the form below — it'll open your email app with everything pre-filled, ready to send.</p>
+          <form id="contactForm">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cf-name">Full name</label>
+                <input type="text" id="cf-name" name="name" placeholder="Your name" required />
+              </div>
+              <div class="form-group">
+                <label for="cf-email">Email address</label>
+                <input type="email" id="cf-email" name="email" placeholder="you@school.edu" required />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cf-phone">Phone (optional)</label>
+                <input type="tel" id="cf-phone" name="phone" placeholder="+91 00000 00000" />
+              </div>
+              <div class="form-group">
+                <label for="cf-school">School name (optional)</label>
+                <input type="text" id="cf-school" name="school" placeholder="Your school" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="cf-message">Message</label>
+              <textarea id="cf-message" name="message" rows="5" placeholder="Tell us a bit about your school and what you're looking for..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">
+              <svg class="icon icon-sm"><use href="#icon-send"/></svg>
+              Send Message
+            </button>
+            <p class="form-hint">This opens your email app with your message pre-filled — just hit send from there.</p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================= Footer ================= -->
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a href="#top" class="brand">
+          <span class="brand-mark"><svg class="icon icon-sm" style="width:20px;height:20px"><use href="#icon-layers"/></svg></span>
+          ManageVidya
+        </a>
+        <p>A single, cloud-based platform for running every part of your school — from admissions to payroll.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Explore</h4>
+        <ul>
+          <li><a href="#modules">Modules</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#benefits">Why ManageVidya</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Get in touch</h4>
+        <ul>
+          <li><a href="mailto:hello@managevidya.in">hello@managevidya.in</a></li>
+          <li><a href="tel:+919876543210">+91 98765 43210</a></li>
+          <li>Gurugram, Haryana, India</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span id="footerYear">&copy; 2026 ManageVidya. All rights reserved.</span>
+      <span>Made for schools that want less paperwork.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
