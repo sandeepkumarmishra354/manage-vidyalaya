@@ -186,6 +186,8 @@ model AcademicSession {
   promotionBatchesFrom PromotionBatch[]           @relation("PromotionBatchFromSession")
   promotionBatchesTo   PromotionBatch[]           @relation("PromotionBatchToSession")
   schoolCalendars      SchoolCalendar[]
+  periodSlots          PeriodSlot[]
+  timetableEntries     TimetableEntry[]
 
   @@map("academic_sessions")
 }
@@ -261,6 +263,7 @@ model Class {
   promotionItemsTo   PromotionBatchItem[]       @relation("PromotionItemToClass")
   classSubjects      ClassSubject[]
   electiveGroups     SubjectElectiveGroup[]
+  timetableEntries   TimetableEntry[]
 
   @@index([branchId, academicSessionId])
   @@map("classes")
@@ -287,6 +290,7 @@ model Section {
   studentEnrollments StudentEnrollment[]
   promotionItemsFrom PromotionBatchItem[]       @relation("PromotionItemFromSection")
   promotionItemsTo   PromotionBatchItem[]       @relation("PromotionItemToSection")
+  timetableEntries   TimetableEntry[]
 
   @@index([classId])
   @@map("sections")
@@ -341,6 +345,10 @@ model Student {
   currentOccupation     String?   @map("current_occupation")
   alumniContactEmail    String?   @map("alumni_contact_email")
   alumniNotes           String?   @map("alumni_notes")
+  // Signed against by QrTokenService -- incrementing this instantly
+  // invalidates every QR code previously printed for this student without
+  // needing to store or revoke individual tokens.
+  qrCodeVersion         Int       @default(1) @map("qr_code_version")
   updatedAt             DateTime  @map("updated_at")
   updatedBy             String?   @map("updated_by")
   deletedAt             DateTime? @map("deleted_at")
@@ -687,6 +695,7 @@ model Subject {
   teacherAssignments TeacherSubjectAssignment[]
   classSubjects      ClassSubject[]
   electiveChoices    StudentElectiveChoice[]
+  timetableEntries   TimetableEntry[]
 
   @@index([branchId])
   @@map("subjects")
@@ -1130,6 +1139,8 @@ model Staff {
   experienceLetterNumber    String?   @map("experience_letter_number")
   experienceLetterIssueDate DateTime? @map("experience_letter_issue_date")
   conductRemark             String?   @map("conduct_remark")
+  // Signed against by QrTokenService -- see Student.qrCodeVersion.
+  qrCodeVersion             Int       @default(1) @map("qr_code_version")
   updatedAt                 DateTime  @map("updated_at")
   updatedBy                 String?   @map("updated_by")
   deletedAt                 DateTime? @map("deleted_at")
@@ -1145,6 +1156,7 @@ model Staff {
   salaryStructures       SalaryStructure[]
   payslips               Payslip[]
   documents              StaffDocument[]
+  timetableEntries       TimetableEntry[]
 
   @@unique([tenantId, employeeCode])
   @@index([branchId])
@@ -1177,6 +1189,68 @@ model TeacherSubjectAssignment {
   @@index([staffId])
   @@index([classId, sectionId])
   @@map("teacher_subject_assignments")
+}
+
+// One shared period-time grid per (branch, academic session) -- every class
+// follows the same bell schedule; only which subject/teacher is taught in a
+// "teaching" slot varies by section/day (see TimetableEntry). "break"/"lunch"
+// slots never get a TimetableEntry -- the frontend renders them as merged,
+// non-editable bands across every section column.
+model PeriodSlot {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  name              String
+  sortOrder         Int       @default(0) @map("sort_order")
+  startTime         String    @map("start_time") // "HH:mm"
+  endTime           String    @map("end_time") // "HH:mm"
+  periodType        String    @default("teaching") @map("period_type") // "teaching" | "break" | "lunch"
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession  AcademicSession  @relation(fields: [academicSessionId], references: [id])
+  timetableEntries TimetableEntry[]
+
+  @@unique([branchId, academicSessionId, sortOrder])
+  @@index([branchId, academicSessionId])
+  @@map("period_slots")
+}
+
+// Which subject + teacher is taught to one section, in one period slot, on
+// one day of week. Per-Section (not per-Class) since that's how attendance
+// and rosters are already scoped. dayOfWeek matches SchoolCalendarService's
+// convention (0=Sunday..6=Saturday, JS getUTCDay()).
+model TimetableEntry {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  academicSessionId String    @map("academic_session_id")
+  classId           String    @map("class_id")
+  sectionId         String    @map("section_id")
+  dayOfWeek         Int       @map("day_of_week")
+  periodSlotId      String    @map("period_slot_id")
+  subjectId         String    @map("subject_id")
+  staffId           String    @map("staff_id")
+  roomName          String?   @map("room_name")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
+  class           Class           @relation(fields: [classId], references: [id])
+  section         Section         @relation(fields: [sectionId], references: [id])
+  periodSlot      PeriodSlot      @relation(fields: [periodSlotId], references: [id])
+  subject         Subject         @relation(fields: [subjectId], references: [id])
+  staff           Staff           @relation(fields: [staffId], references: [id])
+
+  @@unique([sectionId, dayOfWeek, periodSlotId])
+  @@index([staffId, dayOfWeek])
+  @@index([sectionId, dayOfWeek])
+  @@map("timetable_entries")
 }
 
 model StaffAttendance {

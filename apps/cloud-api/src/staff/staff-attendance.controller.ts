@@ -8,6 +8,7 @@ import { RequirePermission } from "../common/require-permission.decorator.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
 import { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
+import { ScanStaffAttendanceDto } from "./dto/scan-staff-attendance.dto.js";
 
 @Controller("staff-attendance")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -40,6 +41,12 @@ export class StaffAttendanceController {
   @RequirePermission("staff_attendance.mark")
   markBulk(@CurrentUser() user: JwtPayload, @Body() dto: BulkMarkStaffAttendanceDto) {
     return this.staffAttendanceService.markAttendanceBulk(user.tenant_id, user.sub, dto);
+  }
+
+  @Post("scan")
+  @RequirePermission("staff_attendance.mark")
+  scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanStaffAttendanceDto) {
+    return this.staffAttendanceService.scanMark(user.tenant_id, user.sub, dto.token);
   }
 
   @Get("staff/:staffId/history")

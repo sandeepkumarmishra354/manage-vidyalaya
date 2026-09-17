@@ -5,6 +5,7 @@ import {
   BookOpenIcon,
   BusIcon,
   CalendarCheckIcon,
+  CalendarClockIcon,
   CalendarOffIcon,
   ClipboardListIcon,
   DatabaseIcon,
@@ -14,6 +15,7 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   ReceiptIndianRupeeIcon,
+  ScanLineIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
   StarIcon,
@@ -47,6 +49,8 @@ interface NavItem {
   end?: boolean;
   module?: ModuleKey;
   permission?: string;
+  /** Shown if the user holds ANY of these, instead of the single `permission` check. */
+  anyPermission?: string[];
 }
 
 /** Tailwind color-token name (e.g. "academics" -> bg-academics/text-academics) for this section's nav items. */
@@ -74,11 +78,25 @@ const navSections: NavSection[] = [
         permission: "attendance.view",
       },
       {
+        to: "/attendance/scan",
+        label: "Scan Attendance",
+        icon: ScanLineIcon,
+        module: "attendance",
+        anyPermission: ["attendance.mark", "staff_attendance.mark"],
+      },
+      {
         to: "/exams",
         label: "Exams & Report Cards",
         icon: ScrollTextIcon,
         module: "exams",
         permission: "exams.view",
+      },
+      {
+        to: "/timetable",
+        label: "Timetable",
+        icon: CalendarClockIcon,
+        module: "timetable",
+        permission: "timetable.view",
       },
     ],
   },
@@ -181,7 +199,8 @@ export function AppShell() {
             const visibleItems = section.items.filter(
               (item) =>
                 (!item.module || isModuleEnabled(item.module)) &&
-                (!item.permission || hasPermission(item.permission)),
+                (!item.permission || hasPermission(item.permission)) &&
+                (!item.anyPermission || item.anyPermission.some((p) => hasPermission(p))),
             );
             if (visibleItems.length === 0) return null;
             const accent = ACCENT_STYLES[section.accent];

@@ -9,6 +9,7 @@ import { CreateStaffDto } from "./dto/create-staff.dto.js";
 import { CreateTeacherAssignmentDto } from "./dto/create-teacher-assignment.dto.js";
 import { IssueExperienceLetterDto } from "./dto/issue-experience-letter.dto.js";
 import { SetClassTeacherDto } from "./dto/set-class-teacher.dto.js";
+import { SetPhotoDto } from "./dto/set-photo.dto.js";
 import { SetStaffStatusDto } from "./dto/set-staff-status.dto.js";
 import { UpdateStaffDto } from "./dto/update-staff.dto.js";
 import { StaffService } from "./staff.service.js";
@@ -37,6 +38,32 @@ export class StaffController {
   @Get("principal")
   getPrincipalSignature(@Query("branch_id") branchId: string) {
     return this.staffService.getPrincipalSignature(branchId);
+  }
+
+  // Must be registered before :id so "qr-codes"/"photo-urls" aren't
+  // swallowed as an id.
+  @Get("qr-codes")
+  @RequirePermission("staff.view")
+  getQrCodesBulk(@CurrentUser() user: JwtPayload, @Query("ids") ids: string) {
+    return this.staffService.getQrCodesBulk(
+      user.tenant_id,
+      ids
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
+  }
+
+  @Get("photo-urls")
+  @RequirePermission("staff.view")
+  getPhotoUrlsBulk(@CurrentUser() user: JwtPayload, @Query("ids") ids: string) {
+    return this.staffService.getPhotoUrlsBulk(
+      user.tenant_id,
+      ids
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
   }
 
   @Get(":id")
@@ -78,6 +105,47 @@ export class StaffController {
   @RequirePermission("staff.manage_profile")
   issueExperienceLetter(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: IssueExperienceLetterDto) {
     return this.staffService.issueExperienceLetter(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Get(":id/qr-code")
+  @RequirePermission("staff.view")
+  getQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.getQrCode(user.tenant_id, id);
+  }
+
+  @Post(":id/qr-code/reissue")
+  @RequirePermission("staff.manage_profile")
+  reissueQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.reissueQrCode(user.tenant_id, user.sub, id);
+  }
+
+  @Get(":id/photo/upload-url")
+  @RequirePermission("staff.manage_profile")
+  getPhotoUploadUrl(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Query("file_name") fileName: string,
+    @Query("content_type") contentType: string,
+  ) {
+    return this.staffService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType);
+  }
+
+  @Patch(":id/photo")
+  @RequirePermission("staff.manage_profile")
+  setPhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPhotoDto) {
+    return this.staffService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key);
+  }
+
+  @Get(":id/photo-url")
+  @RequirePermission("staff.view")
+  getPhotoUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.getPhotoUrl(user.tenant_id, id);
+  }
+
+  @Delete(":id/photo")
+  @RequirePermission("staff.manage_profile")
+  deletePhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.deletePhoto(user.tenant_id, user.sub, id);
   }
 }
 

@@ -3,7 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
+import { QrTokenService } from "../qr/qr-token.service.js";
+import type { StorageService } from "../storage/storage.service.js";
 import { StaffService } from "./staff.service.js";
+
+function makeStorageMock() {
+  return {
+    createUploadUrl: vi.fn(),
+    createDownloadUrl: vi.fn(),
+    deleteObject: vi.fn(),
+  } as unknown as StorageService;
+}
 
 function makePrismaMock() {
   const tx = {
@@ -37,7 +47,7 @@ describe("StaffService.setClassTeacher", () => {
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StaffService(prisma, audit);
+    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
   });
 
   it("rejects assigning a staff member who is already class teacher of a different section", async () => {
@@ -93,7 +103,7 @@ describe("StaffService.updateStaff", () => {
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StaffService(prisma, audit);
+    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
     prisma.__tx.staff.update.mockResolvedValue({ id: "staff-1" });
   });
 
@@ -153,7 +163,7 @@ describe("StaffService.createStaff", () => {
   beforeEach(() => {
     prisma = makeCreatePrismaMock();
     audit = makeAuditMock();
-    service = new StaffService(prisma, audit);
+    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
     prisma.__tx.staff.create.mockResolvedValue({ id: "staff-1", employeeCode: "MAIN-0001" });
   });
 
@@ -218,7 +228,7 @@ describe("StaffService.issueExperienceLetter", () => {
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
       __tx: tx,
     };
-    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock());
+    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock(), new QrTokenService(), makeStorageMock());
   });
 
   it("404s for a staff member outside the tenant", async () => {
@@ -286,7 +296,7 @@ describe("StaffService.listStaff", () => {
 
   beforeEach(() => {
     prisma = { staff: { findMany: vi.fn().mockResolvedValue([]) } };
-    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock());
+    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock(), new QrTokenService(), makeStorageMock());
   });
 
   it("scopes to the branch with no extra filters when none are given", async () => {
@@ -331,5 +341,103 @@ describe("StaffService.listStaff", () => {
         }),
       }),
     );
+  });
+});
+
+describe("StaffService photo upload", () => {
+  function makePhotoPrismaMock() {
+    const tx = { staff: { update: vi.fn() } };
+    return {
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
+      __tx: tx,
+      staff: { findFirst: vi.fn(), findMany: vi.fn() },
+    } as unknown as PrismaService & {
+      __tx: typeof tx;
+      staff: { findFirst: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
+    };
+  }
+
+  let prisma: ReturnType<typeof makePhotoPrismaMock>;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let storage: ReturnType<typeof makeStorageMock>;
+  let service: StaffService;
+
+  beforeEach(() => {
+    prisma = makePhotoPrismaMock();
+    audit = makeAuditMock();
+    storage = makeStorageMock();
+    service = new StaffService(prisma, audit, new QrTokenService(), storage);
+  });
+
+  it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1" });
+    (storage.createUploadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      url: "https://upload",
+      method: "PUT",
+      expires_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await service.getPhotoUploadUrl("tenant-1", "staff-1", "photo.JPG", "image/jpeg");
+
+    expect(result.storage_key).toMatch(/^photo-staff-.+\.jpg$/);
+    expect(storage.createUploadUrl).toHaveBeenCalledWith(result.storage_key, "image/jpeg");
+  });
+
+  it("replacing a photo best-effort deletes the old object", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: "old-key" });
+    prisma.__tx.staff.update.mockResolvedValueOnce({});
+
+    await service.setPhoto("tenant-1", "actor-1", "staff-1", "new-key");
+
+    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ photoPath: "new-key" }) }),
+    );
+    expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
+    expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("getPhotoUrl returns null when no photo is set, without calling storage", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", photoPath: null });
+
+    const result = await service.getPhotoUrl("tenant-1", "staff-1");
+
+    expect(result).toEqual({ url: null });
+    expect(storage.createDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it("deletePhoto clears the field and deletes the object", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: "old-key" });
+    prisma.__tx.staff.update.mockResolvedValueOnce({});
+
+    await service.deletePhoto("tenant-1", "actor-1", "staff-1");
+
+    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ photoPath: null }) }),
+    );
+    expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
+  });
+
+  it("deletePhoto is a no-op when no photo is set", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: null });
+
+    await service.deletePhoto("tenant-1", "actor-1", "staff-1");
+
+    expect(prisma.__tx.staff.update).not.toHaveBeenCalled();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("bulk photo urls only includes staff that actually have a photo set (query-level filter)", async () => {
+    prisma.staff.findMany.mockResolvedValueOnce([{ id: "staff-1", photoPath: "key-1" }]);
+    (storage.createDownloadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      url: "https://download",
+      expires_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await service.getPhotoUrlsBulk("tenant-1", ["staff-1", "staff-2"]);
+
+    expect(prisma.staff.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ photoPath: { not: null } }) }),
+    );
+    expect(result).toEqual([{ staff_id: "staff-1", url: "https://download", expires_at: "2026-01-01T00:00:00.000Z" }]);
   });
 });

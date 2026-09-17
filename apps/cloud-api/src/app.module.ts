@@ -23,12 +23,14 @@ import { ModuleSettingsModule } from "./module-settings/module-settings.module.j
 import { PayrollModule } from "./payroll/payroll.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { PromotionModule } from "./promotion/promotion.module.js";
+import { QrModule } from "./qr/qr.module.js";
 import { RolesModule } from "./roles/roles.module.js";
 import { SchoolCalendarModule } from "./school-calendar/school-calendar.module.js";
 import { StaffModule } from "./staff/staff.module.js";
 import { StaffCategoriesModule } from "./staff-categories/staff-categories.module.js";
 import { StorageModule } from "./storage/storage.module.js";
 import { StudentsModule } from "./students/students.module.js";
+import { TimetableModule } from "./timetable/timetable.module.js";
 import { TransportModule } from "./transport/transport.module.js";
 import { UsersModule } from "./users/users.module.js";
 
@@ -64,6 +66,8 @@ import { UsersModule } from "./users/users.module.js";
     StorageModule,
     DocumentsModule,
     ExpensesModule,
+    TimetableModule,
+    QrModule,
   ],
   controllers: [AppController],
 })

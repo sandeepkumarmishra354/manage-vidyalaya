@@ -6,6 +6,8 @@ import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service.js";
 import { FeesService } from "../fees/fees.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { QrTokenService } from "../qr/qr-token.service.js";
+import { StorageService } from "../storage/storage.service.js";
 import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import type { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import type { ElectSubjectDto } from "./dto/elect-subject.dto.js";
@@ -14,6 +16,17 @@ import type { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import type { UpdateStudentDto } from "./dto/update-student.dto.js";
 
 const MAX_ADMISSION_NUMBER_ATTEMPTS = 20;
+
+// Same convention as DocumentsService's sanitizeExtension.
+function sanitizePhotoExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  if (dot < 0 || dot === fileName.length - 1) return "";
+  const ext = fileName
+    .slice(dot + 1)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return ext.slice(0, 10);
+}
 
 // Same convention as generateReceiptNumber in fees.service.ts.
 function generateTcNumber(branchId: string): string {
@@ -28,6 +41,8 @@ export class StudentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly feesService: FeesService,
+    private readonly qrToken: QrTokenService,
+    private readonly storage: StorageService,
   ) {}
 
   async listStudents(
@@ -772,6 +787,159 @@ export class StudentsService {
       tc_issue_date: student.tcIssueDate,
       status: student.status,
     };
+  }
+
+  async getQrCode(tenantId: string, studentId: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    return { token: this.qrToken.generate("student", tenantId, student.id, student.qrCodeVersion) };
+  }
+
+  // Bumping qrCodeVersion instantly invalidates every previously-printed
+  // code for this student, since verification always checks against the
+  // row's current version -- no separate revocation list needed.
+  async reissueQrCode(tenantId: string, actorUserId: string, studentId: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.student.update({
+        where: { id: studentId },
+        data: {
+          qrCodeVersion: { increment: 1 },
+          updatedAt: new Date(),
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "students",
+        entityId: studentId,
+        action: "update",
+        summary: "Reissued QR code",
+      });
+
+      return { token: this.qrToken.generate("student", tenantId, updated.id, updated.qrCodeVersion) };
+    });
+  }
+
+  async getQrCodesBulk(tenantId: string, ids: string[]) {
+    const students = await this.prisma.student.findMany({ where: { id: { in: ids }, tenantId, deletedAt: null } });
+    return students.map((s) => ({
+      student_id: s.id,
+      token: this.qrToken.generate("student", tenantId, s.id, s.qrCodeVersion),
+    }));
+  }
+
+  async getPhotoUploadUrl(tenantId: string, studentId: string, fileName: string, contentType: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    const ext = sanitizePhotoExtension(fileName);
+    const key = `photo-student-${randomUUID()}${ext ? `.${ext}` : ""}`;
+    const upload = await this.storage.createUploadUrl(key, contentType);
+    return { ...upload, storage_key: key };
+  }
+
+  // Single slot, not a list -- setting a new photo best-effort deletes the
+  // old object (mirrors DocumentsService.remove's storage cleanup, but here
+  // it happens as part of the replace rather than a separate delete call).
+  async setPhoto(tenantId: string, actorUserId: string, studentId: string, storageKey: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    const previousPath = student.photoPath;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.student.update({
+        where: { id: studentId },
+        data: {
+          photoPath: storageKey,
+          updatedAt: new Date(),
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "students",
+        entityId: studentId,
+        action: "update",
+        summary: "Updated photo",
+      });
+    });
+
+    if (previousPath && previousPath !== storageKey) {
+      await this.storage.deleteObject(previousPath);
+    }
+
+    return { ok: true };
+  }
+
+  async getPhotoUrl(tenantId: string, studentId: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    if (!student.photoPath) {
+      return { url: null };
+    }
+    return this.storage.createDownloadUrl(student.photoPath);
+  }
+
+  async deletePhoto(tenantId: string, actorUserId: string, studentId: string) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    if (!student.photoPath) {
+      return { ok: true };
+    }
+    const previousPath = student.photoPath;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.student.update({
+        where: { id: studentId },
+        data: { photoPath: null, updatedAt: new Date(), updatedBy: actorUserId, version: { increment: 1 } },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "students",
+        entityId: studentId,
+        action: "update",
+        summary: "Removed photo",
+      });
+    });
+
+    await this.storage.deleteObject(previousPath);
+
+    return { ok: true };
+  }
+
+  async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
+    const students = await this.prisma.student.findMany({
+      where: { id: { in: ids }, tenantId, deletedAt: null, photoPath: { not: null } },
+    });
+    const entries = await Promise.all(
+      students.map(async (s) => ({ student_id: s.id, ...(await this.storage.createDownloadUrl(s.photoPath!)) })),
+    );
+    return entries;
   }
 
   // Soft-delete only; a student leaving the school normally goes through

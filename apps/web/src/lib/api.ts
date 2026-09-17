@@ -405,7 +405,8 @@ export type ModuleKey =
   | "houses"
   | "id_cards"
   | "payroll"
-  | "expenses";
+  | "expenses"
+  | "timetable";
 
 export interface ModuleSetting {
   module_key: ModuleKey;
@@ -1447,6 +1448,53 @@ export interface PresignedUpload {
   storage_key: string;
 }
 
+// QR code attendance + photo upload -- reuses DocumentOwnerType ("student" |
+// "staff") to dispatch between the two owner-scoped route families.
+export interface QrCodeToken {
+  token: string;
+}
+
+export interface StudentQrCodeBulkEntry {
+  student_id: string;
+  token: string;
+}
+
+export interface StaffQrCodeBulkEntry {
+  staff_id: string;
+  token: string;
+}
+
+export interface PhotoUrl {
+  url: string | null;
+  expires_at?: string;
+}
+
+export interface StudentPhotoUrlBulkEntry {
+  student_id: string;
+  url: string;
+  expires_at: string;
+}
+
+export interface StaffPhotoUrlBulkEntry {
+  staff_id: string;
+  url: string;
+  expires_at: string;
+}
+
+export type ScanEntityType = "student" | "staff";
+
+export interface ScanResult {
+  status: "marked" | "already_marked";
+  existing_status?: string;
+  student_id?: string;
+  staff_id?: string;
+  name: string;
+  class_name?: string | null;
+  section_name?: string | null;
+  designation?: string;
+  photo_path?: string | null;
+}
+
 // ============================================================================
 // Payroll
 // ============================================================================
@@ -1656,6 +1704,92 @@ export interface DashboardStats {
   birthdays_tomorrow: BirthdayEntry[];
   upcoming_holidays: UpcomingHoliday[];
   upcoming_exams: UpcomingExam[];
+}
+
+// ============================================================================
+// Timetable
+// ============================================================================
+
+export type PeriodType = "teaching" | "break" | "lunch";
+
+export interface PeriodSlot {
+  id: string;
+  branch_id: string;
+  academic_session_id: string;
+  name: string;
+  sort_order: number;
+  start_time: string;
+  end_time: string;
+  period_type: PeriodType;
+}
+
+export interface NewPeriodSlotInput {
+  branch_id: string;
+  academic_session_id: string;
+  name: string;
+  sort_order: number;
+  start_time: string;
+  end_time: string;
+  period_type?: PeriodType;
+}
+
+export interface UpdatePeriodSlotInput {
+  name: string;
+  sort_order: number;
+  start_time: string;
+  end_time: string;
+  period_type?: PeriodType;
+}
+
+export interface TimetableEntry {
+  id: string;
+  day_of_week: number;
+  period_slot_id: string;
+  subject_id: string;
+  subject_name: string;
+  staff_id: string;
+  staff_name: string;
+  room_name?: string | null;
+}
+
+export interface SectionTimetable {
+  section_id: string;
+  class_id: string;
+  period_slots: PeriodSlot[];
+  entries: TimetableEntry[];
+  weekly_off_days: number[];
+  weekly_half_days: number[];
+}
+
+export interface SectionTimetableEntryInput {
+  day_of_week: number;
+  period_slot_id: string;
+  subject_id: string;
+  staff_id: string;
+  room_name?: string | null;
+}
+
+export interface SaveSectionTimetableInput {
+  branch_id: string;
+  class_id: string;
+  academic_session_id: string;
+  entries: SectionTimetableEntryInput[];
+}
+
+export interface StaffTimetableEntry {
+  id: string;
+  day_of_week: number;
+  period_slot_id: string;
+  period_name: string;
+  start_time: string;
+  end_time: string;
+  class_id: string;
+  class_name: string;
+  section_id: string;
+  section_name: string;
+  subject_id: string;
+  subject_name: string;
+  room_name?: string | null;
 }
 
 export const api = {
@@ -2113,4 +2247,57 @@ export const api = {
       to_date: filter.to_date,
       page: filter.page,
     }),
+
+  // Timetable
+  listPeriodSlots: (branchId: string, academicSessionId: string) =>
+    http.get<PeriodSlot[]>("/timetable/period-slots", { branch_id: branchId, academic_session_id: academicSessionId }),
+  createPeriodSlot: (input: NewPeriodSlotInput) => http.post<PeriodSlot>("/timetable/period-slots", input),
+  updatePeriodSlot: (id: string, input: UpdatePeriodSlotInput) =>
+    http.patch<PeriodSlot>(`/timetable/period-slots/${id}`, input),
+  deletePeriodSlot: (id: string) => http.delete<void>(`/timetable/period-slots/${id}`),
+  getSectionTimetable: (sectionId: string, academicSessionId: string) =>
+    http.get<SectionTimetable>(`/timetable/sections/${sectionId}`, { academic_session_id: academicSessionId }),
+  saveSectionTimetable: (sectionId: string, input: SaveSectionTimetableInput) =>
+    http.put<{ warnings: string[] }>(`/timetable/sections/${sectionId}`, input),
+  getStaffTimetable: (staffId: string, academicSessionId: string) =>
+    http.get<StaffTimetableEntry[]>(`/timetable/staff/${staffId}`, { academic_session_id: academicSessionId }),
+  getMyTimetable: (academicSessionId: string) =>
+    http.get<StaffTimetableEntry[]>("/timetable/me", { academic_session_id: academicSessionId }),
+
+  // QR codes
+  getStudentQrCode: (studentId: string) => http.get<QrCodeToken>(`/students/${studentId}/qr-code`),
+  reissueStudentQrCode: (studentId: string) => http.post<QrCodeToken>(`/students/${studentId}/qr-code/reissue`),
+  getStudentQrCodesBulk: (ids: string[]) =>
+    http.get<StudentQrCodeBulkEntry[]>("/students/qr-codes", { ids: ids.join(",") }),
+  getStaffQrCode: (staffId: string) => http.get<QrCodeToken>(`/staff/${staffId}/qr-code`),
+  reissueStaffQrCode: (staffId: string) => http.post<QrCodeToken>(`/staff/${staffId}/qr-code/reissue`),
+  getStaffQrCodesBulk: (ids: string[]) => http.get<StaffQrCodeBulkEntry[]>("/staff/qr-codes", { ids: ids.join(",") }),
+
+  // Photos -- single slot per person, reusing StorageService like Documents.
+  getStudentPhotoUploadUrl: (studentId: string, fileName: string, contentType: string) =>
+    http.get<PresignedUpload>(`/students/${studentId}/photo/upload-url`, {
+      file_name: fileName,
+      content_type: contentType,
+    }),
+  setStudentPhoto: (studentId: string, storageKey: string) =>
+    http.patch<{ ok: boolean }>(`/students/${studentId}/photo`, { storage_key: storageKey }),
+  getStudentPhotoUrl: (studentId: string) => http.get<PhotoUrl>(`/students/${studentId}/photo-url`),
+  deleteStudentPhoto: (studentId: string) => http.delete<{ ok: boolean }>(`/students/${studentId}/photo`),
+  getStudentPhotoUrlsBulk: (ids: string[]) =>
+    http.get<StudentPhotoUrlBulkEntry[]>("/students/photo-urls", { ids: ids.join(",") }),
+  getStaffPhotoUploadUrl: (staffId: string, fileName: string, contentType: string) =>
+    http.get<PresignedUpload>(`/staff/${staffId}/photo/upload-url`, {
+      file_name: fileName,
+      content_type: contentType,
+    }),
+  setStaffPhoto: (staffId: string, storageKey: string) =>
+    http.patch<{ ok: boolean }>(`/staff/${staffId}/photo`, { storage_key: storageKey }),
+  getStaffPhotoUrl: (staffId: string) => http.get<PhotoUrl>(`/staff/${staffId}/photo-url`),
+  deleteStaffPhoto: (staffId: string) => http.delete<{ ok: boolean }>(`/staff/${staffId}/photo`),
+  getStaffPhotoUrlsBulk: (ids: string[]) =>
+    http.get<StaffPhotoUrlBulkEntry[]>("/staff/photo-urls", { ids: ids.join(",") }),
+
+  // Scan-to-mark attendance
+  scanAttendance: (token: string) => http.post<ScanResult>("/attendance/scan", { token }),
+  scanStaffAttendance: (token: string) => http.post<ScanResult>("/staff-attendance/scan", { token }),
 };

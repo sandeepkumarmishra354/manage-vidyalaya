@@ -8,6 +8,7 @@ import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AttendanceService } from "./attendance.service.js";
 import { BulkMarkAttendanceDto } from "./dto/bulk-mark-attendance.dto.js";
 import { MarkAttendanceDto } from "./dto/mark-attendance.dto.js";
+import { ScanAttendanceDto } from "./dto/scan-attendance.dto.js";
 
 // roster/mark/bulk have no @RequirePermission -- authorization is additive
 // (attendance.view/attendance.mark OR being the section's class teacher),
@@ -62,6 +63,13 @@ export class AttendanceController {
   async markBulk(@CurrentUser() user: JwtPayload, @Body() dto: BulkMarkAttendanceDto) {
     await this.attendanceService.assertCanMark(user.tenant_id, user.sub, dto.section_id);
     return this.attendanceService.markAttendanceBulk(user.tenant_id, user.sub, dto);
+  }
+
+  // Authorization is checked inside scanMark itself (assertCanMark against
+  // the scanned student's own section), same additive pattern as mark/bulk.
+  @Post("scan")
+  async scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanAttendanceDto) {
+    return this.attendanceService.scanMark(user.tenant_id, user.sub, dto.token);
   }
 
   @Get("student/:studentId/history")
