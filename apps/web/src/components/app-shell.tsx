@@ -74,6 +74,7 @@ const navSections: NavSection[] = [
         to: "/attendance",
         label: "Attendance",
         icon: CalendarCheckIcon,
+        end: true,
         module: "attendance",
         permission: "attendance.view",
       },
