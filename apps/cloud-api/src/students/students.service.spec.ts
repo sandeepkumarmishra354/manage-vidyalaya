@@ -1,8 +1,9 @@
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
+import type { FeesService } from "../fees/fees.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
 import { StudentsService } from "./students.service.js";
 
@@ -23,6 +24,8 @@ function makePrismaMock() {
     $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
       cb({
         admission: { update: vi.fn() },
+        student: { findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "student-1", currentClassId: null }) },
+        studentFeeAssignment: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
         studentElectiveChoice: { upsert: vi.fn().mockResolvedValue({ id: "choice-1" }) },
       }),
     ),
@@ -33,6 +36,18 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+// resolveCurrentSessionId rejects by default -- confirmAdmission's fee
+// generation is best-effort and swallows exactly that case, so these tests
+// exercise the admission-number logic without needing to also mock the
+// full fee-generation path.
+function makeFeesMock() {
+  return {
+    resolveCurrentSessionId: vi.fn().mockRejectedValue(new BadRequestException("no current session")),
+    listMatchingStructures: vi.fn().mockResolvedValue([]),
+    generateInvoiceForStudent: vi.fn(),
+  } as unknown as FeesService;
+}
+
 describe("StudentsService.confirmAdmission", () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let audit: ReturnType<typeof makeAuditMock>;
@@ -41,7 +56,7 @@ describe("StudentsService.confirmAdmission", () => {
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StudentsService(prisma, audit);
+    service = new StudentsService(prisma, audit, makeFeesMock());
 
     (prisma.admission.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "admission-1",
@@ -113,7 +128,7 @@ describe("StudentsService.electSubject", () => {
   beforeEach(() => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
-    service = new StudentsService(prisma, audit);
+    service = new StudentsService(prisma, audit, makeFeesMock());
     (prisma.student.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "student-1",
       branchId: "branch-1",
@@ -173,7 +188,7 @@ describe("StudentsService.getGuardian", () => {
 
   beforeEach(() => {
     prisma = { guardian: { findFirst: vi.fn() }, studentGuardian: { findMany: vi.fn() } };
-    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock());
+    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock());
   });
 
   it("throws when the guardian doesn't exist or is soft-deleted", async () => {

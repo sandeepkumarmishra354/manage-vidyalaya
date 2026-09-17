@@ -12,4 +12,10 @@ export class GenerateInvoicesBulkDto {
   @IsArray()
   @IsString({ each: true })
   fee_structure_ids?: string[];
+
+  // See GenerateInvoicesDto -- applied to every monthly/quarterly structure
+  // in this batch.
+  @IsOptional()
+  @IsString()
+  up_to_period?: string;
 }

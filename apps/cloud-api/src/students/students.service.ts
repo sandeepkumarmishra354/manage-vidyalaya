@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
+import { FeesService } from "../fees/fees.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import type { CreateAdmissionDto } from "./dto/create-admission.dto.js";
@@ -18,6 +19,7 @@ export class StudentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly feesService: FeesService,
   ) {}
 
   async listStudents(tenantId: string, branchId: string, search?: string) {
@@ -426,6 +428,40 @@ export class StudentsService {
         },
       });
 
+      // An explicit fee_structure_ids list (even an empty one) means the
+      // admin made real choices on the admission form -- unchecked
+      // structures become "exclude" overrides so they're skipped once
+      // confirmAdmission actually generates invoices. Omitting the field
+      // entirely (undefined) preserves today's behavior: every matching
+      // structure applies, exactly as for admissions predating this
+      // feature.
+      if (dto.fee_structure_ids !== undefined) {
+        const matching = await this.feesService.listMatchingStructures(
+          tenantId,
+          dto.branch_id,
+          dto.applied_class_id ?? null,
+          dto.academic_session_id,
+          tx,
+        );
+        const keepSet = new Set(dto.fee_structure_ids);
+        for (const structure of matching) {
+          if (keepSet.has(structure.id)) continue;
+          await tx.studentFeeAssignment.create({
+            data: {
+              id: randomUUID(),
+              tenantId,
+              branchId: dto.branch_id,
+              studentId,
+              feeStructureId: structure.id,
+              mode: "exclude",
+              reason: "Excluded at admission",
+              updatedAt: now,
+              updatedBy: actorUserId,
+            },
+          });
+        }
+      }
+
       await this.audit.record(tx, {
         tenantId,
         branchId: dto.branch_id,
@@ -529,6 +565,40 @@ export class StudentsService {
         action: "update",
         summary: `Confirmed admission, assigned number ${admissionNumber}`,
       });
+
+      // The first moment a student is genuinely fee-eligible (generateInvoices
+      // requires status: "enrolled", which this transaction just set) --
+      // generate invoices for every matching structure the admin didn't
+      // explicitly exclude at admission time. Best-effort: a branch with no
+      // current academic session configured shouldn't block confirming the
+      // admission itself.
+      const student = await tx.student.findUniqueOrThrow({ where: { id: admission.studentId } });
+      let currentSessionId: string | null = null;
+      try {
+        currentSessionId = await this.feesService.resolveCurrentSessionId(tx, admission.branchId);
+      } catch (error) {
+        if (!(error instanceof BadRequestException)) throw error;
+      }
+
+      if (currentSessionId) {
+        const matching = await this.feesService.listMatchingStructures(
+          tenantId,
+          admission.branchId,
+          student.currentClassId,
+          currentSessionId,
+          tx,
+        );
+        const excluded = await tx.studentFeeAssignment.findMany({
+          where: { studentId: student.id, mode: "exclude", deletedAt: null },
+          select: { feeStructureId: true },
+        });
+        const excludedIds = new Set(excluded.map((e) => e.feeStructureId));
+
+        for (const structure of matching) {
+          if (excludedIds.has(structure.id)) continue;
+          await this.feesService.generateInvoiceForStudent(tenantId, student.id, structure.id, tx);
+        }
+      }
     });
 
     return {

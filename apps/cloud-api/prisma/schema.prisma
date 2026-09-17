@@ -328,18 +328,20 @@ model Student {
   currentClass   Class?   @relation(fields: [currentClassId], references: [id])
   currentSection Section? @relation(fields: [currentSectionId], references: [id])
 
-  studentGuardians    StudentGuardian[]
-  admissions          Admission[]
-  attendanceRecords   AttendanceRecord[]
-  feeInvoices         FeeInvoice[]
-  examMarks           ExamMark[]
-  studentHouse        StudentHouse?
-  housePointEvents    HousePointEvent[]
-  libraryIssues       LibraryIssue[]
-  studentTransport    StudentTransport?
-  studentEnrollments  StudentEnrollment[]
-  promotionBatchItems PromotionBatchItem[]
-  electiveChoices     StudentElectiveChoice[]
+  studentGuardians      StudentGuardian[]
+  admissions            Admission[]
+  attendanceRecords     AttendanceRecord[]
+  feeInvoices           FeeInvoice[]
+  studentFeeAssignments StudentFeeAssignment[]
+  studentFeeDiscounts   StudentFeeDiscount[]
+  examMarks             ExamMark[]
+  studentHouse          StudentHouse?
+  housePointEvents      HousePointEvent[]
+  libraryIssues         LibraryIssue[]
+  studentTransport      StudentTransport?
+  studentEnrollments    StudentEnrollment[]
+  promotionBatchItems   PromotionBatchItem[]
+  electiveChoices       StudentElectiveChoice[]
 
   @@unique([tenantId, admissionNumber])
   @@index([tenantId, branchId])
@@ -472,7 +474,12 @@ model FeeStructure {
   id                String    @id
   tenantId          String    @map("tenant_id")
   branchId          String    @map("branch_id")
-  academicSessionId String    @map("academic_session_id")
+  // Nullable: a "session-independent" structure (e.g. a flat library fee
+  // that never changes) applies until explicitly changed, with no need to
+  // recreate it every session. When null, classId must also be null -- a
+  // class only exists within one session, so a class-scoped fee inherently
+  // needs a session (enforced in the service layer).
+  academicSessionId String?   @map("academic_session_id")
   classId           String?   @map("class_id")
   name              String
   amount            Int
@@ -483,12 +490,38 @@ model FeeStructure {
   deletedAt         DateTime? @map("deleted_at")
   version           Int       @default(1)
 
-  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
-  class           Class?          @relation(fields: [classId], references: [id])
-  feeInvoices     FeeInvoice[]
+  academicSession       AcademicSession?       @relation(fields: [academicSessionId], references: [id])
+  class                 Class?                 @relation(fields: [classId], references: [id])
+  feeInvoices           FeeInvoice[]
+  studentFeeAssignments StudentFeeAssignment[]
 
   @@index([branchId, academicSessionId])
   @@map("fee_structures")
+}
+
+// Per-student opt-out of a class/branch-wide fee structure ("exclude"), or
+// a one-off assignment of a structure to a student it wouldn't normally
+// match ("include"). generateInvoices' eligible-student set is derived as
+// (class/branch-wide enrolled students UNION "include" rows) MINUS
+// "exclude" rows.
+model StudentFeeAssignment {
+  id             String    @id
+  tenantId       String    @map("tenant_id")
+  branchId       String    @map("branch_id")
+  studentId      String    @map("student_id")
+  feeStructureId String    @map("fee_structure_id")
+  mode           String
+  reason         String?
+  updatedAt      DateTime  @map("updated_at")
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at")
+  version        Int       @default(1)
+
+  student      Student      @relation(fields: [studentId], references: [id])
+  feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id])
+
+  @@unique([studentId, feeStructureId])
+  @@map("student_fee_assignments")
 }
 
 model FeeInvoice {
@@ -498,6 +531,11 @@ model FeeInvoice {
   studentId         String    @map("student_id")
   feeStructureId    String    @map("fee_structure_id")
   academicSessionId String    @map("academic_session_id")
+  // "" for one_time/annual structures; a period label ("Apr 2026", "Q1
+  // 2026-27") for monthly/quarterly, one invoice per period.
+  periodLabel       String    @default("") @map("period_label")
+  grossAmount       Int       @default(0) @map("gross_amount")
+  discountAmount    Int       @default(0) @map("discount_amount")
   amountDue         Int       @map("amount_due")
   amountPaid        Int       @default(0) @map("amount_paid")
   dueDate           DateTime? @map("due_date")
@@ -507,11 +545,13 @@ model FeeInvoice {
   deletedAt         DateTime? @map("deleted_at")
   version           Int       @default(1)
 
-  student         Student         @relation(fields: [studentId], references: [id])
-  feeStructure    FeeStructure    @relation(fields: [feeStructureId], references: [id])
-  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id])
-  feePayments     FeePayment[]
+  student             Student              @relation(fields: [studentId], references: [id])
+  feeStructure        FeeStructure         @relation(fields: [feeStructureId], references: [id])
+  academicSession     AcademicSession      @relation(fields: [academicSessionId], references: [id])
+  feePayments         FeePayment[]
+  feeInvoiceDiscounts FeeInvoiceDiscount[]
 
+  @@unique([feeStructureId, studentId, periodLabel])
   @@index([studentId])
   @@index([branchId, status])
   @@map("fee_invoices")
@@ -536,7 +576,74 @@ model FeePayment {
   recordedByUser User?      @relation(fields: [recordedBy], references: [id])
 
   @@index([invoiceId])
+  @@index([tenantId, receiptNumber])
   @@map("fee_payments")
+}
+
+// A tenant-extensible discount/waiver definition (e.g. "Sibling discount",
+// "Staff ward concession"). Optionally scoped to one FeeCategory and/or a
+// validity window.
+model FeeDiscount {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  name          String
+  key           String
+  discountType  String    @map("discount_type")
+  value         Int
+  feeCategoryId String?   @map("fee_category_id")
+  isActive      Boolean   @default(true) @map("is_active")
+  validFrom     DateTime? @map("valid_from")
+  validTo       DateTime? @map("valid_to")
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  studentFeeDiscounts StudentFeeDiscount[]
+  feeInvoiceDiscounts FeeInvoiceDiscount[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("fee_discounts")
+}
+
+// A discount assigned to a specific student -- applied automatically to
+// every future invoice generated for them (see generateInvoices).
+model StudentFeeDiscount {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  studentId     String    @map("student_id")
+  feeDiscountId String    @map("fee_discount_id")
+  reason        String?
+  updatedAt     DateTime  @map("updated_at")
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at")
+  version       Int       @default(1)
+
+  student     Student     @relation(fields: [studentId], references: [id])
+  feeDiscount FeeDiscount @relation(fields: [feeDiscountId], references: [id])
+
+  @@unique([studentId, feeDiscountId])
+  @@map("student_fee_discounts")
+}
+
+// Audit trail of which discounts hit which invoice, and for how much --
+// amountDue on FeeInvoice stays the single source of truth
+// (grossAmount - discountAmount); this table just explains how
+// discountAmount was composed.
+model FeeInvoiceDiscount {
+  id            String   @id
+  tenantId      String   @map("tenant_id")
+  feeInvoiceId  String   @map("fee_invoice_id")
+  feeDiscountId String   @map("fee_discount_id")
+  amount        Int
+  createdAt     DateTime @map("created_at")
+
+  feeInvoice  FeeInvoice  @relation(fields: [feeInvoiceId], references: [id])
+  feeDiscount FeeDiscount @relation(fields: [feeDiscountId], references: [id])
+
+  @@index([feeInvoiceId])
+  @@map("fee_invoice_discounts")
 }
 
 // ============================================================================

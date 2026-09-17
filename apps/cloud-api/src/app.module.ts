@@ -12,6 +12,7 @@ import { CommonModule } from "./common/common.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { ExamsModule } from "./exams/exams.module.js";
 import { FeeCategoriesModule } from "./fee-categories/fee-categories.module.js";
+import { FeeDiscountsModule } from "./fee-discounts/fee-discounts.module.js";
 import { FeesModule } from "./fees/fees.module.js";
 import { HousesModule } from "./houses/houses.module.js";
 import { LibraryModule } from "./library/library.module.js";
@@ -42,6 +43,7 @@ import { UsersModule } from "./users/users.module.js";
     AttendanceModule,
     FeesModule,
     FeeCategoriesModule,
+    FeeDiscountsModule,
     ExamsModule,
     ClassSubjectsModule,
     HousesModule,

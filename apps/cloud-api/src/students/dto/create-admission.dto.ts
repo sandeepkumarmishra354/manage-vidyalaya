@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
+import { IsArray, IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
 
 export class CreateAdmissionDto {
   @IsString()
@@ -108,4 +108,13 @@ export class CreateAdmissionDto {
   @IsOptional()
   @IsInt()
   guardian_annual_income?: number | null;
+
+  // Which normally-matching fee structures to actually apply -- omit the
+  // field entirely for "everything matches" (today's behavior); an
+  // explicit list (even empty) excludes anything left unchecked. See
+  // StudentsService.createAdmission.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  fee_structure_ids?: string[];
 }
