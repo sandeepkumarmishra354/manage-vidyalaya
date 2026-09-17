@@ -20,6 +20,8 @@ import { TransportPage } from "@/routes/transport/transport-page";
 import { IdCardsPage } from "@/routes/id-cards/id-cards-page";
 import { StaffListPage } from "@/routes/staff/staff-list";
 import { StaffDetailPage } from "@/routes/staff/staff-detail";
+import { MyLeavePage } from "@/routes/staff/my-leave-page";
+import { LeaveRequestsPage } from "@/routes/staff/leave-requests-page";
 import { PayrollPage } from "@/routes/payroll/payroll-page";
 import { PayrollRunDetailPage } from "@/routes/payroll/payroll-run-detail";
 import { RolesPage } from "@/routes/admin/roles-page";
@@ -191,6 +193,15 @@ export default function App() {
           element={
             <RequirePermission permission="staff.view">
               <StaffDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route path="my-leave" element={<MyLeavePage />} />
+        <Route
+          path="admin/leave-requests"
+          element={
+            <RequirePermission permission="staff_leave.manage">
+              <LeaveRequestsPage />
             </RequirePermission>
           }
         />

@@ -278,6 +278,112 @@ describe("FeesService.setStudentFeeAssignment", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.__tx.feeInvoice.update).not.toHaveBeenCalled();
   });
+
+  // Regression coverage for the "one-time fee override" 500: including a
+  // student against a session-independent structure used to crash with a
+  // PrismaClientValidationError because resolveCurrentSessionId queried
+  // AcademicSession by a branchId column that doesn't exist on that model
+  // (it's tenant-scoped, not branch-scoped). These two tests lock in the
+  // include-path shape (generateInvoiceForStudent gets called and an
+  // invoice is created) for both a session-scoped and a session-independent
+  // structure -- the mocked Prisma client here can't itself catch an
+  // unknown-argument error the way the real client did, so the fix above
+  // was verified separately against a live dev database.
+  it("immediately generates an invoice when mode is 'include' against a session-scoped structure", async () => {
+    (prisma as unknown as { feeStructure: { findFirst: ReturnType<typeof vi.fn> } }).feeStructure.findFirst = vi
+      .fn()
+      .mockResolvedValue({ id: "struct-1", name: "Sports Kit", branchId: "branch-1" });
+    prisma.__tx.studentFeeAssignment.create.mockResolvedValueOnce({ id: "assignment-1" });
+    prisma.__tx.feeStructure.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "struct-1",
+      branchId: "branch-1",
+      academicSessionId: "session-1",
+      amount: 50000,
+      frequency: "one_time",
+      feeType: "tuition",
+    });
+    prisma.__tx.academicSession.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "session-1",
+      startDate: new Date("2026-04-01"),
+      endDate: new Date("2027-03-31"),
+    });
+    prisma.__tx.feeInvoice.findMany.mockResolvedValueOnce([]); // no existing periods for this student
+
+    await service.setStudentFeeAssignment("tenant-1", "actor-1", {
+      student_id: "student-1",
+      fee_structure_id: "struct-1",
+      mode: "include",
+    });
+
+    expect(prisma.__tx.academicSession.findFirst).not.toHaveBeenCalled();
+    expect(prisma.__tx.feeInvoice.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ studentId: "student-1", feeStructureId: "struct-1", academicSessionId: "session-1" }),
+      }),
+    );
+  });
+
+  it("immediately generates an invoice when mode is 'include' against a session-independent structure, resolving the tenant's current session", async () => {
+    (prisma as unknown as { feeStructure: { findFirst: ReturnType<typeof vi.fn> } }).feeStructure.findFirst = vi
+      .fn()
+      .mockResolvedValue({ id: "struct-1", name: "Late Admission Fee", branchId: "branch-1" });
+    prisma.__tx.studentFeeAssignment.create.mockResolvedValueOnce({ id: "assignment-1" });
+    prisma.__tx.feeStructure.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "struct-1",
+      branchId: "branch-1",
+      academicSessionId: null,
+      amount: 50000,
+      frequency: "one_time",
+      feeType: "tuition",
+    });
+    prisma.__tx.academicSession.findFirst.mockResolvedValueOnce({ id: "current-session" });
+    prisma.__tx.academicSession.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "current-session",
+      startDate: new Date("2026-04-01"),
+      endDate: new Date("2027-03-31"),
+    });
+    prisma.__tx.feeInvoice.findMany.mockResolvedValueOnce([]);
+
+    await service.setStudentFeeAssignment("tenant-1", "actor-1", {
+      student_id: "student-1",
+      fee_structure_id: "struct-1",
+      mode: "include",
+    });
+
+    expect(prisma.__tx.academicSession.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: "tenant-1", isCurrent: true, deletedAt: null } }),
+    );
+    expect(prisma.__tx.feeInvoice.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ studentId: "student-1", feeStructureId: "struct-1", academicSessionId: "current-session" }),
+      }),
+    );
+  });
+
+  it("surfaces a clear error instead of generating an invoice when no current session exists for a session-independent structure", async () => {
+    (prisma as unknown as { feeStructure: { findFirst: ReturnType<typeof vi.fn> } }).feeStructure.findFirst = vi
+      .fn()
+      .mockResolvedValue({ id: "struct-1", name: "Late Admission Fee", branchId: "branch-1" });
+    prisma.__tx.studentFeeAssignment.create.mockResolvedValueOnce({ id: "assignment-1" });
+    prisma.__tx.feeStructure.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "struct-1",
+      branchId: "branch-1",
+      academicSessionId: null,
+      amount: 50000,
+      frequency: "one_time",
+      feeType: "tuition",
+    });
+    prisma.__tx.academicSession.findFirst.mockResolvedValueOnce(null);
+
+    await expect(
+      service.setStudentFeeAssignment("tenant-1", "actor-1", {
+        student_id: "student-1",
+        fee_structure_id: "struct-1",
+        mode: "include",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.__tx.feeInvoice.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("FeesService.recordPaymentBatch", () => {

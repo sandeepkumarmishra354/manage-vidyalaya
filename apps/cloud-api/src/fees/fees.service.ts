@@ -98,13 +98,18 @@ export class FeesService {
     });
   }
 
-  // Resolves a branch's current academic session -- used when a fee
+  // Resolves the tenant's current academic session -- used when a fee
   // structure is session-independent (academicSessionId: null) and a
   // concrete session still needs to be stamped onto each generated invoice.
-  async resolveCurrentSessionId(tx: Prisma.TransactionClient | PrismaService, branchId: string): Promise<string> {
-    const session = await tx.academicSession.findFirst({ where: { branchId, isCurrent: true, deletedAt: null } });
+  // AcademicSession is tenant-scoped, not branch-scoped (one set of
+  // sessions applies across every branch of a tenant) -- a previous version
+  // of this filtered by a nonexistent branchId column, which Prisma
+  // rejected with a PrismaClientValidationError surfaced to callers as a
+  // raw 500.
+  async resolveCurrentSessionId(tx: Prisma.TransactionClient | PrismaService, tenantId: string): Promise<string> {
+    const session = await tx.academicSession.findFirst({ where: { tenantId, isCurrent: true, deletedAt: null } });
     if (!session) {
-      throw new BadRequestException("no current academic session set for this branch");
+      throw new BadRequestException("no current academic session set for this tenant");
     }
     return session.id;
   }
@@ -284,7 +289,7 @@ export class FeesService {
     upToPeriod?: string,
   ): Promise<number> {
     const structure = await tx.feeStructure.findUniqueOrThrow({ where: { id: feeStructureId } });
-    const sessionId = structure.academicSessionId ?? (await this.resolveCurrentSessionId(tx, structure.branchId));
+    const sessionId = structure.academicSessionId ?? (await this.resolveCurrentSessionId(tx, tenantId));
     const session = await tx.academicSession.findUniqueOrThrow({ where: { id: sessionId } });
     const feeCategory = await tx.feeCategory.findFirst({ where: { tenantId, key: structure.feeType } });
 
@@ -1043,10 +1048,10 @@ export class FeesService {
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
     const run = async (client: Prisma.TransactionClient) => {
-      const student = await client.student.findUniqueOrThrow({ where: { id: studentId } });
+      await client.student.findUniqueOrThrow({ where: { id: studentId } });
       let currentSessionId: string;
       try {
-        currentSessionId = await this.resolveCurrentSessionId(client, student.branchId);
+        currentSessionId = await this.resolveCurrentSessionId(client, tenantId);
       } catch {
         return;
       }

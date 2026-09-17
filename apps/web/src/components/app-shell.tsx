@@ -4,6 +4,7 @@ import {
   BookOpenIcon,
   BusIcon,
   CalendarCheckIcon,
+  CalendarOffIcon,
   ClipboardListIcon,
   DatabaseIcon,
   GraduationCapIcon,
@@ -15,6 +16,7 @@ import {
   ScrollTextIcon,
   ShieldCheckIcon,
   TrophyIcon,
+  UserCheckIcon,
   UserCogIcon,
   UserSquareIcon,
   UsersIcon,
@@ -83,6 +85,13 @@ const navSections: NavSection[] = [
     items: [
       { to: "/staff", label: "Staff", icon: UserSquareIcon, permission: "staff.view" },
       { to: "/payroll", label: "Payroll", icon: WalletIcon, module: "payroll", permission: "payroll.view" },
+      { to: "/my-leave", label: "My Leave", icon: CalendarOffIcon },
+      {
+        to: "/admin/leave-requests",
+        label: "Leave Requests",
+        icon: UserCheckIcon,
+        permission: "staff_leave.manage",
+      },
     ],
   },
   {

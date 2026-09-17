@@ -132,6 +132,8 @@ model User {
   payrollRunsGenerated     PayrollRun[]
   promotionBatchesExecuted PromotionBatch[]
   staffAttendanceMarked    StaffAttendance[]
+  staffLeaveRequestsFiled  StaffLeaveRequest[] @relation("StaffLeaveRequestedBy")
+  staffLeaveRequestsDecided StaffLeaveRequest[] @relation("StaffLeaveDecidedBy")
   auditLogsActor           AuditLog[]
 
   @@unique([tenantId, email])
@@ -1113,6 +1115,7 @@ model Staff {
   sectionsAsClassTeacher Section[]
   teacherAssignments     TeacherSubjectAssignment[]
   staffAttendance        StaffAttendance[]
+  leaveRequests          StaffLeaveRequest[]
   salaryStructures       SalaryStructure[]
   payslips               Payslip[]
 
@@ -1172,6 +1175,41 @@ model StaffAttendance {
   @@index([staffId, attendanceDate])
   @@index([branchId, attendanceDate])
   @@map("staff_attendance")
+}
+
+// Self-service staff leave requests: a staff member applies for their own
+// leave (status starts "pending"), or HR/admin files one directly on a
+// staff member's behalf (status starts "approved" since the filer already
+// holds approval authority). Approval writes StaffAttendance rows with
+// status "leave" for every date in the range -- payroll's LOP calculation
+// already treats "leave" as a fully paid, non-deducted day, so no payroll
+// changes are needed.
+model StaffLeaveRequest {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  staffId           String    @map("staff_id")
+  startDate         DateTime  @map("start_date")
+  endDate           DateTime  @map("end_date")
+  reason            String?
+  status            String    @default("pending")
+  requestedByUserId String    @map("requested_by_user_id")
+  decidedByUserId   String?   @map("decided_by_user_id")
+  decidedAt         DateTime? @map("decided_at")
+  decisionNote      String?   @map("decision_note")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  staff       Staff @relation(fields: [staffId], references: [id])
+  requestedBy User  @relation("StaffLeaveRequestedBy", fields: [requestedByUserId], references: [id])
+  decidedBy   User? @relation("StaffLeaveDecidedBy", fields: [decidedByUserId], references: [id])
+
+  @@index([staffId, status])
+  @@index([branchId, status])
+  @@map("staff_leave_requests")
 }
 
 // ============================================================================
