@@ -475,6 +475,21 @@ export interface LibraryIssueListItem {
   status: "issued" | "returned" | "lost";
 }
 
+export interface LibraryIssueFilters {
+  status?: string | null;
+  student_id?: string | null;
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface LibraryStats {
+  total_books: number;
+  total_copies: number;
+  available_copies: number;
+  issued_count: number;
+  overdue_count: number;
+}
+
 // ============================================================================
 // Transport
 // ============================================================================
@@ -1434,8 +1449,15 @@ export const api = {
   issueBook: (bookId: string, studentId: string, dueDate: string) =>
     http.post<void>("/library/issues", { book_id: bookId, student_id: studentId, due_date: dueDate }),
   returnBook: (issueId: string) => http.post<void>(`/library/issues/${issueId}/return`),
-  listIssues: (branchId: string, status?: string | null) =>
-    http.get<LibraryIssueListItem[]>("/library/issues", { branch_id: branchId, status }),
+  listIssues: (branchId: string, filters?: LibraryIssueFilters) =>
+    http.get<LibraryIssueListItem[]>("/library/issues", {
+      branch_id: branchId,
+      status: filters?.status,
+      student_id: filters?.student_id,
+      from: filters?.from,
+      to: filters?.to,
+    }),
+  getLibraryStats: (branchId: string) => http.get<LibraryStats>("/library/stats", { branch_id: branchId }),
 
   createRoute: (input: NewTransportRouteInput) => http.post<TransportRoute>("/transport/routes", input),
   updateRoute: (input: UpdateTransportRouteInput) => http.patch<void>(`/transport/routes/${input.id}`, input),
