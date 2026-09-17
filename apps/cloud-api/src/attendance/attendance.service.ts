@@ -5,7 +5,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
-import { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
+import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { BulkMarkAttendanceDto } from "./dto/bulk-mark-attendance.dto.js";
 import type { MarkAttendanceDto } from "./dto/mark-attendance.dto.js";
 
@@ -262,9 +262,10 @@ export class AttendanceService {
   }
 
   // Per-student present/absent/late/half_day/leave counts over a date
-  // range, plus working days in that range (holiday=0, half_day=0.5,
-  // working=1 -- same weighting payroll already uses) and a percent-present
-  // figure. Backs the on-screen attendance report + its CSV export.
+  // range, plus working days in that range (holiday=0, everything else=1 --
+  // a school-defined half-day still counts as a full working day, same
+  // weighting payroll already uses) and a percent-present figure. Backs the
+  // on-screen attendance report + its CSV export.
   async getReport(
     tenantId: string,
     branchId: string,
@@ -295,10 +296,7 @@ export class AttendanceService {
     });
 
     const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, branchId, startDate, endDate);
-    const workingDays = Object.values(dayTypes).reduce(
-      (sum, t) => sum + (t === "holiday" ? 0 : t === "half_day" ? 0.5 : 1),
-      0,
-    );
+    const workingDays = Object.values(dayTypes).reduce((sum, t) => sum + dayWeight(t), 0);
 
     const countsByStudent = new Map<string, Record<string, number>>();
     for (const record of records) {

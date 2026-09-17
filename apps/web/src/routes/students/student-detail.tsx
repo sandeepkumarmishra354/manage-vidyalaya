@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   CalendarCheckIcon,
@@ -19,7 +19,9 @@ import {
   type ElectiveGroup,
   type House,
   type InvoiceStatus,
+  type StudentDiscount,
   type StudentElectiveChoice,
+  type StudentFeeAssignment,
   type StudentFeeSummary,
   type StudentGuardianLink,
   type StudentTransportInfo,
@@ -48,6 +50,7 @@ import { formatPaise } from "@/lib/money";
 import { DetailSection } from "@/components/detail-section";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
+import { PersonLink } from "@/components/person-link";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
@@ -205,7 +208,9 @@ export function StudentDetailPage() {
                 <div key={g.id}>
                   {i > 0 && <Separator className="my-3" />}
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">{g.full_name}</p>
+                    <p className="font-medium">
+                      <PersonLink type="guardian" id={g.id} name={g.full_name} />
+                    </p>
                     <div className="flex items-center gap-2">
                       {g.is_primary_contact && <Badge variant="success">Primary</Badge>}
                       <Badge variant="outline">{g.relation}</Badge>
@@ -288,7 +293,7 @@ export function StudentDetailPage() {
 
         {canViewFees && (
           <TabsContent value="fees">
-            <FeesTab summary={feeSummary} />
+            <FeesTab summary={feeSummary} studentId={student.id} canManage={hasPermission("fees.manage_structures")} />
           </TabsContent>
         )}
       </Tabs>
@@ -296,7 +301,81 @@ export function StudentDetailPage() {
   );
 }
 
-function FeesTab({ summary }: { summary?: StudentFeeSummary }) {
+function FeeOverridesSection({ studentId, canManage }: { studentId: string; canManage: boolean }) {
+  const [assignments, setAssignments] = useState<StudentFeeAssignment[]>([]);
+
+  const refresh = useCallback(() => {
+    api.listStudentFeeAssignments(studentId).then(setAssignments);
+  }, [studentId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (assignments.length === 0) return null;
+
+  const handleRemove = async (id: string) => {
+    await api.removeStudentFeeAssignment(id);
+    refresh();
+  };
+
+  return (
+    <DetailSection title="Fee structure overrides" icon={ReceiptIndianRupeeIcon} accent="var(--color-finance)">
+      <div className="flex flex-col gap-2">
+        {assignments.map((a) => (
+          <div key={a.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+            <div>
+              <span className="font-medium">{a.fee_structure_name}</span>{" "}
+              <Badge variant={a.mode === "include" ? "success" : "destructive"}>{a.mode}</Badge>
+              {a.reason && <span className="ml-2 text-muted-foreground">{a.reason}</span>}
+            </div>
+            {canManage && (
+              <Button variant="ghost" size="sm" onClick={() => handleRemove(a.id)}>
+                Remove
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </DetailSection>
+  );
+}
+
+function FeeDiscountsSection({ studentId }: { studentId: string }) {
+  const [discounts, setDiscounts] = useState<StudentDiscount[]>([]);
+
+  useEffect(() => {
+    api.listStudentFeeDiscounts(studentId).then(setDiscounts);
+  }, [studentId]);
+
+  if (discounts.length === 0) return null;
+
+  return (
+    <DetailSection title="Discounts" icon={ReceiptIndianRupeeIcon} accent="var(--color-finance)">
+      <div className="flex flex-col gap-2">
+        {discounts.map((d) => (
+          <div key={d.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+            <span className="font-medium">{d.fee_discount_name}</span>
+            <span className="text-muted-foreground">
+              {d.discount_type === "percentage" ? `${d.value}%` : formatPaise(d.value)}
+              {d.reason ? ` -- ${d.reason}` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+    </DetailSection>
+  );
+}
+
+function FeesTab({
+  summary,
+  studentId,
+  canManage,
+}: {
+  summary?: StudentFeeSummary;
+  studentId: string;
+  canManage: boolean;
+}) {
   if (!summary) {
     return <p className="text-muted-foreground">Loading...</p>;
   }
@@ -316,6 +395,8 @@ function FeesTab({ summary }: { summary?: StudentFeeSummary }) {
           </CardContent>
         </Card>
       </div>
+      <FeeOverridesSection studentId={studentId} canManage={canManage} />
+      <FeeDiscountsSection studentId={studentId} />
       <DetailSection title="Invoices" icon={ReceiptIndianRupeeIcon} accent="var(--color-finance)">
         <Table>
           <TableHeader>

@@ -25,6 +25,7 @@ export function PayrollRunDetailPage() {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const [detail, setDetail] = useState<PayrollRunDetailType | null>(null);
   const [selectedPayslip, setSelectedPayslip] = useState<Payslip | null>(null);
+  const [principalSignatureUrl, setPrincipalSignatureUrl] = useState<string | null | undefined>(undefined);
 
   const refresh = useCallback(() => {
     if (runId) api.getPayrollRun(runId).then(setDetail);
@@ -35,6 +36,12 @@ export function PayrollRunDetailPage() {
   }, [refresh]);
 
   const branch = branches.find((b) => b.id === detail?.run.branch_id);
+
+  useEffect(() => {
+    if (branch?.id) {
+      api.getPrincipalSignature(branch.id).then((r) => setPrincipalSignatureUrl(r.signature_url));
+    }
+  }, [branch?.id]);
   const template = (branch?.print_template as PrintTemplate) || "classic";
   const paperColor = (branch?.print_paper_color as PrintPaperColor) || "white";
 
@@ -163,7 +170,12 @@ export function PayrollRunDetailPage() {
               />
               <PayslipLines payslip={selectedPayslip} />
               <div className="mt-16 flex justify-end">
-                <SignatureBlock branch={branch} template={template} accent="var(--color-staff)" />
+                <SignatureBlock
+                  branch={branch}
+                  signatureUrl={principalSignatureUrl}
+                  template={template}
+                  accent="var(--color-staff)"
+                />
               </div>
             </PrintFrame>
           </div>

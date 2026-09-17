@@ -297,9 +297,10 @@ describe("PayrollService.generatePayrollRun", () => {
     service = new PayrollService(prisma, audit, schoolCalendar);
   });
 
-  it("skips holiday days entirely and weights half-days at 0.5 for both working-days and LOP", async () => {
+  it("skips holiday days entirely and still counts a school-defined half-day as a full working day", async () => {
     // A 3-day period: an ordinary working day, a full holiday, and a
-    // school half-day. workingDaysInPeriod = 1 + 0 + 0.5 = 1.5.
+    // school-defined half-day. workingDaysInPeriod = 1 + 0 + 1 = 2 -- the
+    // school half-day counts as a full day, only the holiday is excluded.
     schoolCalendar.getDayTypesInRange.mockResolvedValueOnce({
       "2026-02-01": "working",
       "2026-02-02": "holiday",
@@ -316,7 +317,10 @@ describe("PayrollService.generatePayrollRun", () => {
       { staffId: "staff-1", attendanceDate: new Date("2026-02-01T00:00:00.000Z"), status: "absent" },
       // Present on the holiday -- must be ignored entirely, never present or LOP.
       { staffId: "staff-1", attendanceDate: new Date("2026-02-02T00:00:00.000Z"), status: "present" },
-      // Half-day status on the calendar's half-day -> half of the 0.5 weight each way.
+      // The staff member's own half_day attendance status (left early) on
+      // the calendar's (now full-weight) half-day -> half of the 1.0
+      // weight each way. This is the person-level half_day, distinct from
+      // the calendar's half_day day-type.
       { staffId: "staff-1", attendanceDate: new Date("2026-02-03T00:00:00.000Z"), status: "half_day" },
     ]);
 
@@ -334,18 +338,18 @@ describe("PayrollService.generatePayrollRun", () => {
     );
 
     const payslip = result.payslips[0];
-    expect(payslip.days_in_month).toBe(1.5); // workingDaysInPeriod
-    expect(payslip.days_present).toBe(0.25); // half of the half-day's 0.5 weight
-    expect(payslip.days_lop).toBe(1.25); // 1 (absent) + half of the half-day's 0.5 weight
+    expect(payslip.days_in_month).toBe(2); // workingDaysInPeriod
+    expect(payslip.days_present).toBe(0.5); // half of the half-day's full 1.0 weight
+    expect(payslip.days_lop).toBe(1.5); // 1 (absent) + half of the half-day's full 1.0 weight
 
     // lopAmount = round(grossBeforeLop / workingDaysInPeriod * daysLop)
-    //           = round(300000 / 1.5 * 1.25) = round(250000) = 250000
-    expect(payslip.gross_earnings).toBe(50_000); // 300000 - 250000
-    expect(payslip.net_pay).toBe(50_000);
+    //           = round(300000 / 2 * 1.5) = round(225000) = 225000
+    expect(payslip.gross_earnings).toBe(75_000); // 300000 - 225000
+    expect(payslip.net_pay).toBe(75_000);
 
     expect(prisma.__tx.payslip.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ daysInMonth: 1.5, daysPresent: 0.25, daysLop: 1.25 }),
+        data: expect.objectContaining({ daysInMonth: 2, daysPresent: 0.5, daysLop: 1.5 }),
       }),
     );
   });

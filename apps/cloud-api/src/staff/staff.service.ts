@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -58,9 +59,47 @@ export class StaffService {
     return this.prisma.staff.findUniqueOrThrow({ where: { id, deletedAt: null } });
   }
 
+  // Employee code: uses whatever the caller supplied, or auto-generates
+  // "{branch code}-{sequence}" (padded to 4 digits) when left blank. The
+  // whole creation transaction is retried a few times on a unique clash
+  // (@@unique([tenantId, employeeCode])) rather than caught mid-transaction
+  // -- a Postgres transaction can't recover from a failed statement and
+  // keep going, so each attempt is its own fresh $transaction, same shape
+  // as StudentsService.confirmAdmission's admission-number retry loop.
   async createStaff(tenantId: string, actorUserId: string, dto: CreateStaffDto) {
-    const id = randomUUID();
     const now = new Date();
+    const suppliedCode = dto.employee_code?.trim();
+    if (suppliedCode) {
+      return this.insertStaff(tenantId, actorUserId, dto, suppliedCode, now);
+    }
+
+    const branch = await this.prisma.branch.findUniqueOrThrow({ where: { id: dto.branch_id } });
+    const baseCount = await this.prisma.staff.count({ where: { tenantId, branchId: dto.branch_id } });
+
+    const maxAttempts = 5;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const candidate = `${branch.code}-${String(baseCount + 1 + attempt).padStart(4, "0")}`;
+      try {
+        return await this.insertStaff(tenantId, actorUserId, dto, candidate, now);
+      } catch (error) {
+        const isUniqueClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+        if (isUniqueClash && attempt < maxAttempts - 1) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new BadRequestException("could not generate a unique employee code, please retry");
+  }
+
+  private async insertStaff(
+    tenantId: string,
+    actorUserId: string,
+    dto: CreateStaffDto,
+    employeeCode: string,
+    now: Date,
+  ) {
+    const id = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
       const staff = await tx.staff.create({
@@ -68,7 +107,7 @@ export class StaffService {
           id,
           tenantId,
           branchId: dto.branch_id,
-          employeeCode: dto.employee_code,
+          employeeCode,
           firstName: dto.first_name,
           lastName: dto.last_name ?? null,
           dateOfBirth: toDateOrNull(dto.date_of_birth),
@@ -120,6 +159,16 @@ export class StaffService {
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      // At most one principal per branch -- clear any other staff's flag
+      // in this branch first, mirroring setClassTeacher's exclusivity
+      // pattern below.
+      if (dto.is_principal) {
+        await tx.staff.updateMany({
+          where: { branchId: dto.branch_id, isPrincipal: true, id: { not: id }, deletedAt: null },
+          data: { isPrincipal: false, updatedAt: now, updatedBy: actorUserId },
+        });
+      }
+
       const updated = await tx.staff.update({
         where: { id },
         data: {
@@ -141,6 +190,8 @@ export class StaffService {
           dateOfJoining: new Date(dto.date_of_joining),
           qualification: dto.qualification ?? null,
           bloodGroup: dto.blood_group ?? null,
+          signatureUrl: dto.signature_url ?? null,
+          isPrincipal: dto.is_principal ?? false,
           panNumber: dto.pan_number ?? null,
           aadhaarNumber: dto.aadhaar_number ?? null,
           bankAccountNumber: dto.bank_account_number ?? null,
@@ -170,6 +221,23 @@ export class StaffService {
 
       return updated;
     });
+  }
+
+  // Lightweight, permission-free reads for print pages -- resolving a
+  // signature to render doesn't need broad staff.view, and every logged-in
+  // user (e.g. a teacher printing their own class's register) should be
+  // able to fetch one.
+  async getStaffSignature(id: string) {
+    const staff = await this.prisma.staff.findUnique({ where: { id }, select: { signatureUrl: true } });
+    return { signature_url: staff?.signatureUrl ?? null };
+  }
+
+  async getPrincipalSignature(branchId: string) {
+    const principal = await this.prisma.staff.findFirst({
+      where: { branchId, isPrincipal: true, deletedAt: null },
+      select: { signatureUrl: true },
+    });
+    return { signature_url: principal?.signatureUrl ?? null };
   }
 
   // Deactivates (or reactivates) a staff member -- the soft-delete

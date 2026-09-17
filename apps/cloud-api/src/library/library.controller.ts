@@ -41,8 +41,14 @@ export class LibraryIssuesController {
 
   @Get()
   @RequirePermission("library.view")
-  list(@Query("branch_id") branchId: string, @Query("status") status?: string) {
-    return this.libraryService.listIssues(branchId, status);
+  list(
+    @Query("branch_id") branchId: string,
+    @Query("status") status?: string,
+    @Query("student_id") studentId?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.libraryService.listIssues(branchId, { status, studentId, from, to });
   }
 
   @Post()
@@ -55,5 +61,17 @@ export class LibraryIssuesController {
   @RequirePermission("library.manage_issues")
   return_(@Param("id") id: string) {
     return this.libraryService.returnBook(id);
+  }
+}
+
+@Controller("library/stats")
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+export class LibraryStatsController {
+  constructor(private readonly libraryService: LibraryService) {}
+
+  @Get()
+  @RequirePermission("library.view")
+  stats(@Query("branch_id") branchId: string) {
+    return this.libraryService.getLibraryStats(branchId);
   }
 }

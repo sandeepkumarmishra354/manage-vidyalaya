@@ -19,11 +19,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { StaffCategorySelect } from "./staff-category-select";
 
+const SIGNATURE_MAX_BYTES = 200 * 1024;
+
 export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated: () => void }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(staff);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setForm(staff);
@@ -31,6 +34,21 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
 
   const update = (field: keyof Staff) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSignatureFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setSignatureError(null);
+    if (file.size > SIGNATURE_MAX_BYTES) {
+      setSignatureError(`Image is too large (max ${SIGNATURE_MAX_BYTES / 1024}KB).`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, signature_url: reader.result as string }));
+    reader.onerror = () => setSignatureError("Could not read that file. Please try again.");
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +87,8 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
         emergency_contact_name: form.emergency_contact_name,
         emergency_contact_phone: form.emergency_contact_phone,
         notes: form.notes,
+        signature_url: form.signature_url || null,
+        is_principal: form.is_principal,
       });
       setOpen(false);
       onUpdated();
@@ -99,6 +119,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
               <TabsTrigger value="employment">Employment</TabsTrigger>
               <TabsTrigger value="contact">Contact</TabsTrigger>
               <TabsTrigger value="statutory">Statutory &amp; Bank</TabsTrigger>
+              <TabsTrigger value="signature">Signature</TabsTrigger>
             </TabsList>
 
             <TabsContent value="basic" className="grid grid-cols-2 gap-4">
@@ -250,6 +271,53 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
                 <Label htmlFor="edit-bankIfsc">IFSC</Label>
                 <Input id="edit-bankIfsc" value={form.bank_ifsc ?? ""} onChange={update("bank_ifsc")} />
               </div>
+            </TabsContent>
+
+            <TabsContent value="signature" className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-signature">Signature</Label>
+                <p className="text-xs text-muted-foreground">
+                  Used on the attendance register and report card when this person is a class teacher, and on
+                  payslips/receipts/report cards when marked Principal below (falling back to the branch's own
+                  signature if not set).
+                </p>
+                <div className="flex items-center gap-3">
+                  {form.signature_url && (
+                    <img
+                      src={form.signature_url}
+                      alt="Signature preview"
+                      className="h-14 rounded border object-contain p-1"
+                    />
+                  )}
+                  <Input
+                    id="edit-signature"
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    onChange={handleSignatureFile}
+                    className="max-w-64"
+                  />
+                  {form.signature_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setForm((f) => ({ ...f, signature_url: "" }))}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                {signatureError && <p className="text-sm text-destructive">{signatureError}</p>}
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.is_principal}
+                  onChange={(e) => setForm((f) => ({ ...f, is_principal: e.target.checked }))}
+                  className="size-4 rounded border-input"
+                />
+                Principal (at most one per branch -- setting this clears any other principal)
+              </label>
             </TabsContent>
           </Tabs>
 

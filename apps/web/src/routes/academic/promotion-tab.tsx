@@ -31,6 +31,8 @@ export function PromotionTab() {
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [batch, setBatch] = useState<PromotionBatch | null>(null);
   const [isWorking, setIsWorking] = useState(false);
+  const [carryForwardFees, setCarryForwardFees] = useState(false);
+  const [carryForwardMessage, setCarryForwardMessage] = useState<string | null>(null);
 
   useEffect(() => {
     api.listAcademicSessions().then(setSessions);
@@ -56,6 +58,7 @@ export function PromotionTab() {
   const handleCreateBatch = async () => {
     if (!selectedBranchId || !fromSessionId || !toSessionId) return;
     setIsWorking(true);
+    setCarryForwardMessage(null);
     try {
       const created = await api.createPromotionBatch({
         branch_id: selectedBranchId,
@@ -64,6 +67,11 @@ export function PromotionTab() {
         class_mapping: mapping,
       });
       setBatch(created);
+
+      if (carryForwardFees) {
+        const result = await api.carryForwardFeeStructures(fromSessionId, toSessionId, mapping);
+        setCarryForwardMessage(`Carried forward ${result.created} fee structure(s) to the new session.`);
+      }
     } finally {
       setIsWorking(false);
     }
@@ -151,9 +159,14 @@ export function PromotionTab() {
                   </TableBody>
                 </Table>
               </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={carryForwardFees} onChange={(e) => setCarryForwardFees(e.target.checked)} />
+                Also carry forward fee structures to the new session
+              </label>
               <Button onClick={handleCreateBatch} disabled={isWorking} className="w-fit">
                 {isWorking ? "Preparing..." : "Review students"}
               </Button>
+              {carryForwardMessage && <p className="text-sm text-muted-foreground">{carryForwardMessage}</p>}
             </div>
           )}
         </CardContent>

@@ -18,4 +18,8 @@ export class UpdateFeeStructureDto {
   @IsOptional()
   @IsString()
   class_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  academic_session_id?: string | null;
 }

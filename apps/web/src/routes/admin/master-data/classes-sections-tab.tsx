@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PencilIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type AcademicSession, type SchoolClass, type Section } from "@/lib/api";
+import { api, type AcademicSession, type SchoolClass, type Section, type StaffListItem } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,14 +11,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+const NO_CLASS_TEACHER = "__none__";
+
 export function ClassesAndSectionsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const hasPermission = useAppStore((s) => s.hasPermission);
   const canManageClasses = hasPermission("academic_setup.manage_classes");
   const canManageSections = hasPermission("academic_setup.manage_sections");
+  const canManageClassTeacher = hasPermission("staff.manage_assignments");
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [sectionsByClass, setSectionsByClass] = useState<Record<string, Section[]>>({});
+  const [staffList, setStaffList] = useState<StaffListItem[]>([]);
 
   const [className, setClassName] = useState("");
   const [sortOrder, setSortOrder] = useState("");
@@ -45,6 +49,17 @@ export function ClassesAndSectionsTab() {
     });
     refreshClasses();
   }, [refreshClasses]);
+
+  useEffect(() => {
+    if (canManageClassTeacher && selectedBranchId) {
+      api.listStaff(selectedBranchId).then((list) => setStaffList(list.filter((s) => s.status === "active")));
+    }
+  }, [canManageClassTeacher, selectedBranchId]);
+
+  const handleSetClassTeacher = async (sectionId: string, staffId: string) => {
+    await api.setClassTeacher({ section_id: sectionId, staff_id: staffId === NO_CLASS_TEACHER ? null : staffId });
+    refreshClasses();
+  };
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,17 +223,46 @@ export function ClassesAndSectionsTab() {
             {classes.map((c) => (
               <TableRow key={c.id}>
                 <TableCell className="font-medium">{c.name}</TableCell>
-                <TableCell className="flex flex-wrap gap-1.5">
-                  {(sectionsByClass[c.id] ?? []).map((sec) => (
-                    <Badge key={sec.id} variant="outline" className="gap-1">
-                      {sec.name}
-                      {canManageSections && (
-                        <button onClick={() => handleDeleteSection(sec)} className="text-muted-foreground hover:text-destructive">
-                          <XIcon className="size-3" />
-                        </button>
-                      )}
-                    </Badge>
-                  ))}
+                <TableCell className="flex flex-wrap gap-2">
+                  {(sectionsByClass[c.id] ?? []).map((sec) => {
+                    const classTeacher = staffList.find((s) => s.id === sec.class_teacher_staff_id);
+                    return (
+                      <div key={sec.id} className="flex flex-col gap-1 rounded-md border p-1.5">
+                        <Badge variant="outline" className="w-fit gap-1">
+                          {sec.name}
+                          {canManageSections && (
+                            <button onClick={() => handleDeleteSection(sec)} className="text-muted-foreground hover:text-destructive">
+                              <XIcon className="size-3" />
+                            </button>
+                          )}
+                        </Badge>
+                        {canManageClassTeacher ? (
+                          <Select
+                            value={sec.class_teacher_staff_id ?? NO_CLASS_TEACHER}
+                            onValueChange={(v) => handleSetClassTeacher(sec.id, v)}
+                          >
+                            <SelectTrigger size="sm" className="h-6 w-40 text-xs">
+                              <SelectValue placeholder="Class teacher" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NO_CLASS_TEACHER}>No class teacher</SelectItem>
+                              {staffList.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.first_name} {s.last_name ?? ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          classTeacher && (
+                            <span className="text-xs text-muted-foreground">
+                              {classTeacher.first_name} {classTeacher.last_name ?? ""}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
                   {(sectionsByClass[c.id] ?? []).length === 0 && (
                     <span className="text-muted-foreground">No sections yet</span>
                   )}

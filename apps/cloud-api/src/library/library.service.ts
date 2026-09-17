@@ -77,7 +77,13 @@ export class LibraryService {
         branchId,
         deletedAt: null,
         ...(term
-          ? { OR: [{ title: { contains: term, mode: "insensitive" } }, { author: { contains: term, mode: "insensitive" } }] }
+          ? {
+              OR: [
+                { title: { contains: term, mode: "insensitive" } },
+                { author: { contains: term, mode: "insensitive" } },
+                { isbn: { contains: term, mode: "insensitive" } },
+              ],
+            }
           : {}),
       },
       orderBy: { title: "asc" },
@@ -139,9 +145,26 @@ export class LibraryService {
     });
   }
 
-  async listIssues(branchId: string, status?: string) {
+  async listIssues(
+    branchId: string,
+    filters?: { status?: string; studentId?: string; from?: string; to?: string },
+  ) {
+    const { status, studentId, from, to } = filters ?? {};
     const issues = await this.prisma.libraryIssue.findMany({
-      where: { branchId, deletedAt: null, ...(status ? { status } : {}) },
+      where: {
+        branchId,
+        deletedAt: null,
+        ...(status ? { status } : {}),
+        ...(studentId ? { studentId } : {}),
+        ...(from || to
+          ? {
+              issuedDate: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+      },
       include: { book: true, student: true },
       orderBy: { issuedDate: "desc" },
     });
@@ -157,5 +180,28 @@ export class LibraryService {
       returned_date: i.returnedDate,
       status: i.status,
     }));
+  }
+
+  // Aggregate stats for the History & Reports tab. Overdue means an issue
+  // that's still outstanding ("issued") with a due_date already in the past.
+  async getLibraryStats(branchId: string) {
+    const [books, issuedCount, overdueCount] = await Promise.all([
+      this.prisma.libraryBook.findMany({
+        where: { branchId, deletedAt: null },
+        select: { totalCopies: true, availableCopies: true },
+      }),
+      this.prisma.libraryIssue.count({ where: { branchId, deletedAt: null, status: "issued" } }),
+      this.prisma.libraryIssue.count({
+        where: { branchId, deletedAt: null, status: "issued", dueDate: { lt: new Date() } },
+      }),
+    ]);
+
+    return {
+      total_books: books.length,
+      total_copies: books.reduce((sum, b) => sum + b.totalCopies, 0),
+      available_copies: books.reduce((sum, b) => sum + b.availableCopies, 0),
+      issued_count: issuedCount,
+      overdue_count: overdueCount,
+    };
   }
 }

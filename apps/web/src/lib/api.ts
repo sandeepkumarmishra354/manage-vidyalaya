@@ -174,6 +174,20 @@ export interface GuardianSearchResult extends Guardian {
   linked_students: { id: string; name: string; class_name?: string | null }[];
 }
 
+export interface GuardianChild {
+  id: string;
+  first_name: string;
+  last_name?: string | null;
+  admission_number?: string | null;
+  class_name?: string | null;
+  section_name?: string | null;
+  status: string;
+}
+
+export interface GuardianDetail extends Guardian {
+  children: GuardianChild[];
+}
+
 export interface Sibling {
   id: string;
   first_name: string;
@@ -260,6 +274,10 @@ export interface NewAdmissionInput {
   guardian_address?: string | null;
   guardian_aadhaar_number?: string | null;
   guardian_annual_income?: number | null;
+  // Which normally-matching fee structures to actually charge this family
+  // for -- omit for "everything matches" (today's behavior); an explicit
+  // list (even empty) excludes anything left unchecked.
+  fee_structure_ids?: string[];
 }
 
 export interface Admission {
@@ -461,6 +479,21 @@ export interface LibraryIssueListItem {
   status: "issued" | "returned" | "lost";
 }
 
+export interface LibraryIssueFilters {
+  status?: string | null;
+  student_id?: string | null;
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface LibraryStats {
+  total_books: number;
+  total_copies: number;
+  available_copies: number;
+  issued_count: number;
+  overdue_count: number;
+}
+
 // ============================================================================
 // Transport
 // ============================================================================
@@ -625,7 +658,8 @@ export interface FeeCategory {
 export interface FeeStructure {
   id: string;
   branch_id: string;
-  academic_session_id: string;
+  // null means "session-independent" -- applies until explicitly changed.
+  academic_session_id: string | null;
   class_id?: string | null;
   name: string;
   /** minor units (paise) */
@@ -636,7 +670,7 @@ export interface FeeStructure {
 
 export interface NewFeeStructureInput {
   branch_id: string;
-  academic_session_id: string;
+  academic_session_id: string | null;
   class_id?: string | null;
   name: string;
   amount: number;
@@ -651,6 +685,7 @@ export interface UpdateFeeStructureInput {
   frequency: FeeFrequency;
   fee_type: FeeType;
   class_id?: string | null;
+  academic_session_id: string | null;
 }
 
 export interface VoidInvoiceInput {
@@ -658,8 +693,24 @@ export interface VoidInvoiceInput {
   reason: string;
 }
 
+export interface EditInvoiceInput {
+  invoice_id: string;
+  amount_due: number;
+  due_date?: string | null;
+  reason: string;
+}
+
 export interface ReversePaymentInput {
   payment_id: string;
+  reason: string;
+}
+
+export interface EditPaymentInput {
+  payment_id: string;
+  amount: number;
+  payment_method: PaymentMethod;
+  payment_date: string;
+  remarks?: string | null;
   reason: string;
 }
 
@@ -674,6 +725,9 @@ export interface FeeInvoiceListItem {
   guardian_name?: string | null;
   fee_structure_name: string;
   fee_type: FeeType;
+  period_label: string;
+  gross_amount: number;
+  discount_amount: number;
   amount_due: number;
   amount_paid: number;
   due_date?: string | null;
@@ -687,6 +741,7 @@ export interface FeePayment {
   payment_method: PaymentMethod;
   payment_date: string;
   receipt_number?: string | null;
+  remarks?: string | null;
 }
 
 export interface RecordPaymentInput {
@@ -711,6 +766,99 @@ export interface StudentFeeSummary {
   payments: FeePayment[];
   total_due: number;
   total_paid: number;
+}
+
+export interface PaymentListItem {
+  id: string;
+  invoice_id: string;
+  student_id: string;
+  student_name: string;
+  fee_structure_name: string;
+  amount: number;
+  payment_method: PaymentMethod;
+  payment_date: string;
+  receipt_number?: string | null;
+  remarks?: string | null;
+}
+
+export interface ReceiptLine {
+  payment: {
+    id: string;
+    amount: number;
+    payment_method: PaymentMethod;
+    payment_date: string;
+    receipt_number?: string | null;
+    remarks?: string | null;
+  };
+  invoice: FeeInvoiceListItem;
+}
+
+export interface StudentFeeAssignment {
+  id: string;
+  student_id?: string;
+  student_name?: string;
+  class_name?: string | null;
+  fee_structure_id?: string;
+  fee_structure_name?: string;
+  mode: "include" | "exclude";
+  reason?: string | null;
+}
+
+export interface SetStudentFeeAssignmentInput {
+  student_id: string;
+  fee_structure_id: string;
+  mode: "include" | "exclude";
+  reason?: string | null;
+}
+
+export interface FeeDiscount {
+  id: string;
+  name: string;
+  key: string;
+  discount_type: "percentage" | "flat";
+  /** percentage points, or minor units (paise) when flat */
+  value: number;
+  fee_category_id?: string | null;
+  is_active: boolean;
+  valid_from?: string | null;
+  valid_to?: string | null;
+}
+
+export interface NewFeeDiscountInput {
+  name: string;
+  discount_type: "percentage" | "flat";
+  value: number;
+  fee_category_id?: string | null;
+  valid_from?: string | null;
+  valid_to?: string | null;
+}
+
+export interface UpdateFeeDiscountInput {
+  id: string;
+  name: string;
+  discount_type: "percentage" | "flat";
+  value: number;
+  fee_category_id?: string | null;
+  is_active?: boolean;
+  valid_from?: string | null;
+  valid_to?: string | null;
+}
+
+export interface DiscountAssignee {
+  id: string;
+  student_id: string;
+  student_name: string;
+  class_name?: string | null;
+  reason?: string | null;
+}
+
+export interface StudentDiscount {
+  id: string;
+  fee_discount_id: string;
+  fee_discount_name: string;
+  discount_type: "percentage" | "flat";
+  value: number;
+  reason?: string | null;
 }
 
 // ============================================================================
@@ -1004,6 +1152,8 @@ export interface Staff {
   qualification?: string | null;
   blood_group?: string | null;
   photo_path?: string | null;
+  signature_url?: string | null;
+  is_principal: boolean;
   pan_number?: string | null;
   aadhaar_number?: string | null;
   bank_account_number?: string | null;
@@ -1019,7 +1169,8 @@ export interface Staff {
 
 export interface NewStaffInput {
   branch_id: string;
-  employee_code: string;
+  /** Leave blank to auto-generate "{branch code}-{sequence}". */
+  employee_code?: string;
   first_name: string;
   last_name?: string | null;
   date_of_birth?: string | null;
@@ -1052,6 +1203,8 @@ export interface NewStaffInput {
 
 export interface UpdateStaffInput extends NewStaffInput {
   id: string;
+  signature_url?: string | null;
+  is_principal?: boolean;
 }
 
 export interface SetStaffStatusInput {
@@ -1386,6 +1539,7 @@ export const api = {
   deleteStudent: (id: string) => http.delete<void>(`/students/${id}`),
   updateGuardian: (input: UpdateGuardianInput) => http.patch<void>(`/guardians/${input.id}`, input),
   searchGuardians: (search: string) => http.get<GuardianSearchResult[]>("/guardians", { search }),
+  getGuardian: (id: string) => http.get<GuardianDetail>(`/guardians/${id}`),
   addGuardianToStudent: (studentId: string, input: AddGuardianInput) =>
     http.post<{ guardian_id: string; student_guardian_id: string }>(`/students/${studentId}/guardians`, input),
   getSiblings: (studentId: string) => http.get<Sibling[]>(`/students/${studentId}/siblings`),
@@ -1414,8 +1568,15 @@ export const api = {
   issueBook: (bookId: string, studentId: string, dueDate: string) =>
     http.post<void>("/library/issues", { book_id: bookId, student_id: studentId, due_date: dueDate }),
   returnBook: (issueId: string) => http.post<void>(`/library/issues/${issueId}/return`),
-  listIssues: (branchId: string, status?: string | null) =>
-    http.get<LibraryIssueListItem[]>("/library/issues", { branch_id: branchId, status }),
+  listIssues: (branchId: string, filters?: LibraryIssueFilters) =>
+    http.get<LibraryIssueListItem[]>("/library/issues", {
+      branch_id: branchId,
+      status: filters?.status,
+      student_id: filters?.student_id,
+      from: filters?.from,
+      to: filters?.to,
+    }),
+  getLibraryStats: (branchId: string) => http.get<LibraryStats>("/library/stats", { branch_id: branchId }),
 
   createRoute: (input: NewTransportRouteInput) => http.post<TransportRoute>("/transport/routes", input),
   updateRoute: (input: UpdateTransportRouteInput) => http.patch<void>(`/transport/routes/${input.id}`, input),
@@ -1485,16 +1646,32 @@ export const api = {
     http.patch<void>(`/fee-structures/${input.id}`, input),
   listFeeStructures: (branchId: string, feeType?: FeeType | null, classId?: string | null) =>
     http.get<FeeStructure[]>("/fee-structures", { branch_id: branchId, fee_type: feeType, class_id: classId }),
-  generateInvoices: async (feeStructureId: string) => {
-    const { created } = await http.post<{ created: number }>(`/fee-structures/${feeStructureId}/generate-invoices`);
+  generateInvoices: async (feeStructureId: string, upToPeriod?: string) => {
+    const { created } = await http.post<{ created: number }>(`/fee-structures/${feeStructureId}/generate-invoices`, {
+      up_to_period: upToPeriod,
+    });
     return created;
   },
-  generateInvoicesBulk: (branchId: string, academicSessionId: string, feeStructureIds?: string[]) =>
+  generateInvoicesBulk: (branchId: string, academicSessionId: string, feeStructureIds?: string[], upToPeriod?: string) =>
     http.post<{ created: number; by_structure: { fee_structure_id: string; created: number }[] }>(
       "/fee-structures/generate-invoices-bulk",
-      { branch_id: branchId, academic_session_id: academicSessionId, fee_structure_ids: feeStructureIds },
+      { branch_id: branchId, academic_session_id: academicSessionId, fee_structure_ids: feeStructureIds, up_to_period: upToPeriod },
     ),
+  carryForwardFeeStructures: (fromSessionId: string, toSessionId: string, classMapping: Record<string, string>) =>
+    http.post<{ created: number }>("/fee-structures/carry-forward", {
+      from_session_id: fromSessionId,
+      to_session_id: toSessionId,
+      class_mapping: classMapping,
+    }),
+  listFeeStructureAssignments: (feeStructureId: string) =>
+    http.get<StudentFeeAssignment[]>(`/fee-structures/${feeStructureId}/student-assignments`),
+  listStudentFeeAssignments: (studentId: string) =>
+    http.get<StudentFeeAssignment[]>(`/students/${studentId}/fee-assignments`),
+  setStudentFeeAssignment: (input: SetStudentFeeAssignmentInput) =>
+    http.post<StudentFeeAssignment>("/student-fee-assignments", input),
+  removeStudentFeeAssignment: (id: string) => http.delete<void>(`/student-fee-assignments/${id}`),
   voidInvoice: (input: VoidInvoiceInput) => http.post<void>(`/fee-invoices/${input.invoice_id}/void`, input),
+  editInvoice: (input: EditInvoiceInput) => http.patch<void>(`/fee-invoices/${input.invoice_id}`, input),
   listInvoices: (branchId: string, status?: InvoiceStatus | null, feeType?: FeeType | null, classId?: string | null) =>
     http.get<FeeInvoiceListItem[]>("/fee-invoices", { branch_id: branchId, status, fee_type: feeType, class_id: classId }),
   getStudentFeeSummary: (studentId: string) =>
@@ -1502,6 +1679,36 @@ export const api = {
   recordPayment: (input: RecordPaymentInput) => http.post<FeePayment>("/fee-payments", input),
   recordPaymentBatch: (input: RecordPaymentBatchInput) => http.post<FeePayment[]>("/fee-payments/batch", input),
   reversePayment: (input: ReversePaymentInput) => http.post<void>(`/fee-payments/${input.payment_id}/reverse`, input),
+  editPayment: (input: EditPaymentInput) => http.patch<FeePayment>(`/fee-payments/${input.payment_id}`, input),
+  listPayments: (branchId: string, filters?: { from?: string; to?: string; studentId?: string; receiptNumber?: string }) =>
+    http.get<PaymentListItem[]>("/fee-payments", {
+      branch_id: branchId,
+      from: filters?.from,
+      to: filters?.to,
+      student_id: filters?.studentId,
+      receipt_number: filters?.receiptNumber,
+    }),
+  getPaymentReceipt: (receiptNumber: string) => http.get<ReceiptLine[]>(`/fee-payments/receipt/${receiptNumber}`),
+
+  listFeeDiscounts: () => http.get<FeeDiscount[]>("/fee-discounts"),
+  createFeeDiscount: (input: NewFeeDiscountInput) => http.post<FeeDiscount>("/fee-discounts", input),
+  updateFeeDiscount: (input: UpdateFeeDiscountInput) => http.patch<FeeDiscount>(`/fee-discounts/${input.id}`, input),
+  deleteFeeDiscount: (id: string) => http.delete<void>(`/fee-discounts/${id}`),
+  listFeeDiscountAssignees: (feeDiscountId: string) => http.get<DiscountAssignee[]>(`/fee-discounts/${feeDiscountId}/assignees`),
+  assignFeeDiscount: (
+    feeDiscountId: string,
+    studentIds: string[],
+    applyToExistingInvoices: boolean,
+    reason?: string | null,
+  ) =>
+    http.post<{ assigned: number }>(`/fee-discounts/${feeDiscountId}/assign`, {
+      student_ids: studentIds,
+      apply_to_existing_invoices: applyToExistingInvoices,
+      reason,
+    }),
+  removeFeeDiscountAssignment: (assignmentId: string) => http.delete<void>(`/fee-discounts/assignments/${assignmentId}`),
+  suggestSiblingsForDiscount: (studentId: string) => http.get<Sibling[]>(`/fee-discounts/suggest-siblings/${studentId}`),
+  listStudentFeeDiscounts: (studentId: string) => http.get<StudentDiscount[]>(`/students/${studentId}/fee-discounts`),
 
   createSubject: (input: NewSubjectInput) => http.post<Subject>("/subjects", input),
   updateSubject: (input: UpdateSubjectInput) => http.patch<void>(`/subjects/${input.id}`, input),
@@ -1574,6 +1781,9 @@ export const api = {
   getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
   createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
   updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
+  getStaffSignature: (id: string) => http.get<{ signature_url: string | null }>(`/staff/${id}/signature`),
+  getPrincipalSignature: (branchId: string) =>
+    http.get<{ signature_url: string | null }>("/staff/principal", { branch_id: branchId }),
   listStaffCategories: () => http.get<StaffCategory[]>("/staff-categories"),
   createStaffCategory: (name: string) => http.post<StaffCategory>("/staff-categories", { name }),
   updateStaffCategory: (id: string, name: string) => http.patch<StaffCategory>(`/staff-categories/${id}`, { name }),

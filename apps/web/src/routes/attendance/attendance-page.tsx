@@ -126,6 +126,16 @@ export function AttendancePage() {
 
   const className = classes.find((c) => c.id === classId)?.name;
   const sectionName = sections.find((s) => s.id === sectionId)?.name;
+  const classTeacherStaffId = sections.find((s) => s.id === sectionId)?.class_teacher_staff_id;
+
+  const [classTeacherSignatureUrl, setClassTeacherSignatureUrl] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (classTeacherStaffId) {
+      api.getStaffSignature(classTeacherStaffId).then((r) => setClassTeacherSignatureUrl(r.signature_url));
+    } else {
+      setClassTeacherSignatureUrl(undefined);
+    }
+  }, [classTeacherStaffId]);
 
   // Staff branch state
   const canMarkStaff = hasPermission("staff_attendance.mark");
@@ -367,7 +377,13 @@ export function AttendancePage() {
                         </tbody>
                       </table>
                       <div className="mt-16 flex justify-end">
-                        <SignatureBlock branch={branch} label="Class Teacher Signature" template={template} accent="var(--color-academics)" />
+                        <SignatureBlock
+                          branch={branch}
+                          signatureUrl={classTeacherSignatureUrl}
+                          label="Class Teacher Signature"
+                          template={template}
+                          accent="var(--color-academics)"
+                        />
                       </div>
                     </PrintFrame>
                   </div>
