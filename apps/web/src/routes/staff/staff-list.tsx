@@ -15,11 +15,12 @@ const ALL = "__all__";
 const statusVariant: Record<StaffStatus, "success" | "warning" | "secondary" | "outline"> = {
   active: "success",
   on_leave: "warning",
-  inactive: "secondary",
+  relieved: "secondary",
   terminated: "outline",
+  inactive: "secondary",
 };
 
-const STATUS_OPTIONS: StaffStatus[] = ["active", "on_leave", "inactive", "terminated"];
+const STATUS_OPTIONS: StaffStatus[] = ["active", "on_leave", "relieved", "terminated", "inactive"];
 
 export function StaffListPage() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);

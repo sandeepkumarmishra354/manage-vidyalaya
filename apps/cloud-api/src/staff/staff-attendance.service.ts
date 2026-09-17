@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import type { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
+import { staffAllowsAccess } from "./staff-status.js";
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -90,6 +91,7 @@ export class StaffAttendanceService {
     if (dto.entries.some((e) => e.attendance_date > today)) {
       throw new BadRequestException("cannot mark attendance for a future date");
     }
+    await this.assertTargetsAllowAttendance(dto.entries.map((e) => e.staff_id));
     const now = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -142,6 +144,7 @@ export class StaffAttendanceService {
     if (dto.attendance_date > todayIso()) {
       throw new BadRequestException("cannot mark attendance for a future date");
     }
+    await this.assertTargetsAllowAttendance(dto.entries.map((e) => e.staff_id));
     const now = new Date();
     const attendanceDate = new Date(dto.attendance_date);
 
@@ -222,6 +225,23 @@ export class StaffAttendanceService {
         percent_present: workingDays > 0 ? Math.round((present / workingDays) * 1000) / 10 : 0,
       };
     });
+  }
+
+  // Marking attendance goes straight from staff_id to an upsert, bypassing
+  // getRoster's status:"active" filter -- so a relieved/terminated staff id
+  // (submitted directly rather than via the roster UI) needs its own check
+  // here.
+  private async assertTargetsAllowAttendance(staffIds: string[]) {
+    const uniqueIds = [...new Set(staffIds)];
+    const staff = await this.prisma.staff.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, status: true, firstName: true, lastName: true },
+    });
+    const blocked = staff.filter((s) => !staffAllowsAccess(s.status));
+    if (blocked.length > 0) {
+      const names = blocked.map((s) => `${s.firstName} ${s.lastName ?? ""}`.trim()).join(", ");
+      throw new BadRequestException(`Cannot mark attendance for staff who aren't active: ${names}`);
+    }
   }
 
   async getStaffHistory(staffId: string) {

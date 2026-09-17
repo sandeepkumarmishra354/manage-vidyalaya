@@ -1,7 +1,9 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsIn, IsOptional, IsString } from "class-validator";
+
+import { STAFF_STATUS_VALUES } from "../staff-status.js";
 
 export class SetStaffStatusDto {
-  @IsString()
+  @IsIn(STAFF_STATUS_VALUES)
   status!: string;
 
   @IsOptional()

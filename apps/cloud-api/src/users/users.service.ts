@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { staffAllowsAccess } from "../staff/staff-status.js";
 import type { CreateStaffLoginDto } from "./dto/create-staff-login.dto.js";
 import type { CreateUserDto } from "./dto/create-user.dto.js";
 
@@ -148,6 +149,14 @@ export class UsersService {
   // because the desktop app couldn't set password_hash itself; cloud-api
   // is the only writer now, so that split no longer applies.
   async createStaffLogin(tenantId: string, actorUserId: string, dto: CreateStaffLoginDto) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: dto.staff_id, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    if (!staffAllowsAccess(staff.status)) {
+      throw new ForbiddenException("Cannot create a login for a staff member who isn't active.");
+    }
+
     const passwordHash = await bcrypt.hash(dto.initial_password, 10);
     const now = new Date();
     const userId = randomUUID();

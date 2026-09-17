@@ -9,6 +9,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import type { ApplyStaffLeaveDto } from "./dto/apply-staff-leave.dto.js";
 import type { DecideStaffLeaveDto } from "./dto/decide-staff-leave.dto.js";
 import type { FileStaffLeaveDto } from "./dto/file-staff-leave.dto.js";
+import { staffAllowsAccess } from "./staff-status.js";
 
 function toListItem(r: {
   id: string;
@@ -60,6 +61,9 @@ export class StaffLeaveService {
 
   async apply(tenantId: string, actorUserId: string, dto: ApplyStaffLeaveDto) {
     const staff = await this.requireActingStaff(tenantId, actorUserId);
+    if (!staffAllowsAccess(staff.status)) {
+      throw new ForbiddenException("Only active staff can apply for leave.");
+    }
     if (dto.end_date < dto.start_date) {
       throw new BadRequestException("end date must be on or after the start date");
     }
@@ -121,6 +125,9 @@ export class StaffLeaveService {
     const staff = await this.prisma.staff.findFirst({ where: { id: dto.staff_id, tenantId, deletedAt: null } });
     if (!staff) {
       throw new NotFoundException("staff member not found");
+    }
+    if (!staffAllowsAccess(staff.status)) {
+      throw new ForbiddenException("Cannot file leave for a staff member who isn't active.");
     }
     const now = new Date();
 
