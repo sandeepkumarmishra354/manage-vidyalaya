@@ -40,7 +40,7 @@
   }
 
   // Contact form -> mailto submission (no backend API)
-  var CONTACT_EMAIL = "hello@vidyalaya.app";
+  var CONTACT_EMAIL = "hello@managevidya.in";
   var form = document.getElementById("contactForm");
   if (form) {
     form.addEventListener("submit", function (e) {
@@ -52,7 +52,7 @@
       var school = (form.querySelector("#cf-school") || {}).value || "";
       var message = (form.querySelector("#cf-message") || {}).value || "";
 
-      var subject = "Vidyalaya inquiry from " + name;
+      var subject = "ManageVidya inquiry from " + name;
       var bodyLines = [
         "Name: " + name,
         "Email: " + email,
@@ -80,6 +80,6 @@
   // Footer year
   var yearEl = document.getElementById("footerYear");
   if (yearEl) {
-    yearEl.textContent = "© " + new Date().getFullYear() + " Vidyalaya. All rights reserved.";
+    yearEl.textContent = "© " + new Date().getFullYear() + " ManageVidya. All rights reserved.";
   }
 })();
