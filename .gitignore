@@ -13,6 +13,9 @@ build/
 # Prisma
 apps/cloud-api/generated/
 
+# Local dummy storage driver's file bytes (see src/storage/local-storage.driver.ts)
+apps/cloud-api/storage-data/
+
 # OS
 .DS_Store
 Thumbs.db

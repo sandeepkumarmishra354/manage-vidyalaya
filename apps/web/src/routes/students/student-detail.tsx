@@ -6,6 +6,7 @@ import {
   GraduationCapIcon,
   PencilIcon,
   ReceiptIndianRupeeIcon,
+  StarIcon,
   UserIcon,
   UsersIcon,
 } from "lucide-react";
@@ -49,12 +50,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { DetailSection } from "@/components/detail-section";
+import { DocumentsTab } from "@/components/documents-tab";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
 import { PersonLink } from "@/components/person-link";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
 import { EditStudentDialog } from "./edit-student-dialog";
+import { TransferCertificateDialog } from "./transfer-certificate-dialog";
 
 const feeStatusVariant: Record<InvoiceStatus, "info" | "warning" | "success" | "destructive" | "secondary"> = {
   pending: "info",
@@ -134,9 +137,12 @@ export function StudentDetailPage() {
           },
         ]}
         actions={
-          hasPermission("students.edit") ? (
-            <EditStudentDialog student={student} branchId={student.branch_id} onUpdated={refresh} />
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {hasPermission("students.edit") && <TransferCertificateDialog studentId={student.id} />}
+            {hasPermission("students.edit") && (
+              <EditStudentDialog student={student} branchId={student.branch_id} onUpdated={refresh} />
+            )}
+          </div>
         }
       />
 
@@ -166,9 +172,10 @@ export function StudentDetailPage() {
           <TabsTrigger value="academic">Academic</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           {canViewFees && <TabsTrigger value="fees">Fees</TabsTrigger>}
+          <TabsTrigger value="documents">Documents</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
+        <TabsContent value="overview" className="flex flex-col gap-4">
           <DetailSection
             title="Student details"
             icon={UserIcon}
@@ -194,6 +201,21 @@ export function StudentDetailPage() {
               ...(student.notes ? [{ label: "Notes", value: student.notes, span: true }] : []),
             ]}
           />
+
+          {student.status === "alumni" && (
+            <DetailSection
+              title="Alumni details"
+              icon={StarIcon}
+              accent="var(--color-academics)"
+              fields={[
+                { label: "Graduation year", value: student.graduation_year ?? "—" },
+                { label: "Higher education", value: student.higher_education ?? "—" },
+                { label: "Current occupation", value: student.current_occupation ?? "—" },
+                { label: "Contact email", value: student.alumni_contact_email ?? "—" },
+                ...(student.alumni_notes ? [{ label: "Notes", value: student.alumni_notes, span: true }] : []),
+              ]}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="guardians" className="flex flex-col gap-4">
@@ -297,6 +319,10 @@ export function StudentDetailPage() {
             <FeesTab summary={feeSummary} studentId={student.id} canManage={hasPermission("fees.manage_structures")} />
           </TabsContent>
         )}
+
+        <TabsContent value="documents">
+          <DocumentsTab ownerType="student" ownerId={student.id} canManage={hasPermission("students.edit")} />
+        </TabsContent>
       </Tabs>
     </div>
   );

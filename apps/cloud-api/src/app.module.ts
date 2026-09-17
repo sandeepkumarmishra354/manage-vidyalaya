@@ -10,7 +10,9 @@ import { AuthModule } from "./auth/auth.module.js";
 import { ClassSubjectsModule } from "./class-subjects/class-subjects.module.js";
 import { CommonModule } from "./common/common.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
+import { DocumentsModule } from "./documents/documents.module.js";
 import { ExamsModule } from "./exams/exams.module.js";
+import { ExpensesModule } from "./expenses/expenses.module.js";
 import { FeeCategoriesModule } from "./fee-categories/fee-categories.module.js";
 import { FeeDiscountsModule } from "./fee-discounts/fee-discounts.module.js";
 import { FeesModule } from "./fees/fees.module.js";
@@ -25,6 +27,7 @@ import { RolesModule } from "./roles/roles.module.js";
 import { SchoolCalendarModule } from "./school-calendar/school-calendar.module.js";
 import { StaffModule } from "./staff/staff.module.js";
 import { StaffCategoriesModule } from "./staff-categories/staff-categories.module.js";
+import { StorageModule } from "./storage/storage.module.js";
 import { StudentsModule } from "./students/students.module.js";
 import { TransportModule } from "./transport/transport.module.js";
 import { UsersModule } from "./users/users.module.js";
@@ -58,6 +61,9 @@ import { UsersModule } from "./users/users.module.js";
     ModuleSettingsModule,
     AuditLogModule,
     DashboardModule,
+    StorageModule,
+    DocumentsModule,
+    ExpensesModule,
   ],
   controllers: [AppController],
 })

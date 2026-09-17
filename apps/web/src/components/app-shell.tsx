@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
+  BanknoteIcon,
   BookOpenIcon,
   BusIcon,
   CalendarCheckIcon,
@@ -15,6 +16,7 @@ import {
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
+  StarIcon,
   TrophyIcon,
   UserCheckIcon,
   UserCogIcon,
@@ -63,6 +65,7 @@ const navSections: NavSection[] = [
     accent: "academics",
     items: [
       { to: "/students", label: "Students & Admissions", icon: UsersIcon, permission: "students.view" },
+      { to: "/alumni", label: "Alumni", icon: StarIcon, permission: "students.view" },
       {
         to: "/attendance",
         label: "Attendance",
@@ -99,6 +102,7 @@ const navSections: NavSection[] = [
     accent: "finance",
     items: [
       { to: "/fees", label: "Fees & Billing", icon: ReceiptIndianRupeeIcon, module: "fees", permission: "fees.view" },
+      { to: "/expenses", label: "Expenses", icon: BanknoteIcon, module: "expenses", permission: "expenses.view" },
     ],
   },
   {

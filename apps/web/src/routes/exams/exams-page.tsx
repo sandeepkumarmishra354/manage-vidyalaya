@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type Exam, type SchoolClass, type Subject } from "@/lib/api";
+import { api, type AcademicSession, type Exam, type SchoolClass, type Subject } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -206,12 +206,15 @@ function SubjectsTab() {
   );
 }
 
+const ALL = "__all__";
+
 function ExamsTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const hasPermission = useAppStore((s) => s.hasPermission);
   const canManage = hasPermission("exams.manage_exams");
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [name, setName] = useState("");
   const [classId, setClassId] = useState("");
@@ -219,6 +222,8 @@ function ExamsTab() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [mode, setMode] = useState<"marks" | "submission_status" | "report_card">("marks");
+  const [classFilter, setClassFilter] = useState(ALL);
+  const [sessionFilter, setSessionFilter] = useState(ALL);
 
   const handleExamUpdated = (updated: Exam) => {
     setSelectedExam(updated);
@@ -226,14 +231,23 @@ function ExamsTab() {
   };
 
   const refresh = useCallback(() => {
-    if (selectedBranchId) api.listExams(selectedBranchId).then(setExams);
-  }, [selectedBranchId]);
+    if (selectedBranchId) {
+      api
+        .listExams(
+          selectedBranchId,
+          classFilter === ALL ? undefined : classFilter,
+          sessionFilter === ALL ? undefined : sessionFilter,
+        )
+        .then(setExams);
+    }
+  }, [selectedBranchId, classFilter, sessionFilter]);
 
   useEffect(() => {
     if (selectedBranchId) {
       api.listClasses(selectedBranchId).then(setClasses);
       api.listSubjects(selectedBranchId).then(setSubjects);
     }
+    api.listAcademicSessions().then(setSessions);
     refresh();
   }, [selectedBranchId, refresh]);
 
@@ -299,6 +313,36 @@ function ExamsTab() {
         </CardContent>
       </Card>
       )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={classFilter} onValueChange={setClassFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Class" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All classes</SelectItem>
+            {classes.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={sessionFilter} onValueChange={setSessionFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Session" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All sessions</SelectItem>
+            {sessions.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="rounded-lg border">
         <Table>

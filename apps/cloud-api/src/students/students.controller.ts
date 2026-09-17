@@ -8,6 +8,7 @@ import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import { ElectSubjectDto } from "./dto/elect-subject.dto.js";
+import { IssueTransferCertificateDto } from "./dto/issue-transfer-certificate.dto.js";
 import { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import { UpdateStudentDto } from "./dto/update-student.dto.js";
 import { StudentsService } from "./students.service.js";
@@ -19,8 +20,16 @@ export class StudentsController {
 
   @Get()
   @RequirePermission("students.view")
-  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string, @Query("search") search?: string) {
-    return this.studentsService.listStudents(user.tenant_id, branchId, search);
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("search") search?: string,
+    @Query("status") status?: string,
+    @Query("class_id") classId?: string,
+    @Query("section_id") sectionId?: string,
+    @Query("gender") gender?: string,
+  ) {
+    return this.studentsService.listStudents(user.tenant_id, branchId, search, { status, classId, sectionId, gender });
   }
 
   @Get("in-class/:classId")
@@ -69,6 +78,22 @@ export class StudentsController {
   @RequirePermission("students.edit")
   elect(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ElectSubjectDto) {
     return this.studentsService.electSubject(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Get(":id/transfer-certificate")
+  @RequirePermission("students.view")
+  getTransferCertificate(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getTransferCertificate(user.tenant_id, id);
+  }
+
+  @Post(":id/transfer-certificate")
+  @RequirePermission("students.edit")
+  issueTransferCertificate(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: IssueTransferCertificateDto,
+  ) {
+    return this.studentsService.issueTransferCertificate(user.tenant_id, user.sub, id, dto);
   }
 }
 

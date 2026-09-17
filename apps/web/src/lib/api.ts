@@ -150,6 +150,17 @@ export interface StudentListItem {
   status: StudentStatus;
   class_name?: string | null;
   section_name?: string | null;
+  graduation_year?: number | null;
+  higher_education?: string | null;
+  current_occupation?: string | null;
+}
+
+export interface ListStudentsFilters {
+  search?: string;
+  status?: StudentStatus;
+  class_id?: string;
+  section_id?: string;
+  gender?: string;
 }
 
 export interface Guardian {
@@ -241,6 +252,16 @@ export interface StudentDetail {
   medical_notes?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
+  date_of_leaving?: string | null;
+  reason_for_leaving?: string | null;
+  tc_number?: string | null;
+  tc_issue_date?: string | null;
+  conduct_remark?: string | null;
+  graduation_year?: number | null;
+  higher_education?: string | null;
+  current_occupation?: string | null;
+  alumni_contact_email?: string | null;
+  alumni_notes?: string | null;
   updated_at: string;
   version: number;
   guardians: StudentGuardianLink[];
@@ -305,6 +326,7 @@ export interface UpdateStudentInput {
   blood_group?: string | null;
   current_class_id?: string | null;
   current_section_id?: string | null;
+  status?: StudentStatus;
   address?: string | null;
   city?: string | null;
   state?: string | null;
@@ -319,6 +341,11 @@ export interface UpdateStudentInput {
   medical_notes?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
+  graduation_year?: number | null;
+  higher_education?: string | null;
+  current_occupation?: string | null;
+  alumni_contact_email?: string | null;
+  alumni_notes?: string | null;
 }
 
 export interface UpdateGuardianInput {
@@ -377,7 +404,8 @@ export type ModuleKey =
   | "transport"
   | "houses"
   | "id_cards"
-  | "payroll";
+  | "payroll"
+  | "expenses";
 
 export interface ModuleSetting {
   module_key: ModuleKey;
@@ -1101,6 +1129,7 @@ export const MASTER_DATA_TYPES = [
   "mother_tongue",
   "student_category",
   "guardian_relation",
+  "expense_category",
 ] as const;
 
 export type MasterDataType = (typeof MASTER_DATA_TYPES)[number];
@@ -1113,6 +1142,7 @@ export const MASTER_DATA_TYPE_LABELS: Record<MasterDataType, string> = {
   mother_tongue: "Mother Tongue",
   student_category: "Student Category",
   guardian_relation: "Guardian Relation",
+  expense_category: "Expense Category",
 };
 
 export interface StaffListItem {
@@ -1125,6 +1155,12 @@ export interface StaffListItem {
   department?: string | null;
   status: StaffStatus;
   has_login: boolean;
+}
+
+export interface ListStaffFilters {
+  category_id?: string;
+  department?: string;
+  status?: StaffStatus;
 }
 
 export interface Staff {
@@ -1306,6 +1342,109 @@ export interface ApplyStaffLeaveInput {
 
 export interface FileStaffLeaveInput extends ApplyStaffLeaveInput {
   staff_id: string;
+}
+
+export interface TransferCertificate {
+  student_id: string;
+  admission_number?: string | null;
+  first_name: string;
+  last_name?: string | null;
+  date_of_birth?: string | null;
+  class_name?: string | null;
+  section_name?: string | null;
+  date_of_admission?: string | null;
+  date_of_leaving?: string | null;
+  reason_for_leaving?: string | null;
+  conduct_remark?: string | null;
+  tc_number?: string | null;
+  tc_issue_date?: string | null;
+  status: StudentStatus;
+}
+
+export interface IssueTransferCertificateInput {
+  reason_for_leaving: string;
+  date_of_leaving: string;
+  conduct_remark?: string | null;
+}
+
+export interface ExperienceLetter {
+  staff_id: string;
+  employee_code: string;
+  first_name: string;
+  last_name?: string | null;
+  designation: string;
+  department?: string | null;
+  date_of_joining: string;
+  date_of_leaving?: string | null;
+  reason_for_leaving?: string | null;
+  conduct_remark?: string | null;
+  experience_letter_number?: string | null;
+  experience_letter_issue_date?: string | null;
+  status: string;
+}
+
+export interface IssueExperienceLetterInput {
+  reason_for_leaving: string;
+  date_of_leaving: string;
+  conduct_remark?: string | null;
+}
+
+export interface Expense {
+  id: string;
+  branch_id: string;
+  category_id?: string | null;
+  description: string;
+  amount: number;
+  expense_date: string;
+  payment_mode?: string | null;
+  vendor_name?: string | null;
+  has_receipt: boolean;
+  recorded_by_user_id: string;
+  created_at: string;
+}
+
+export interface CreateExpenseInput {
+  branch_id: string;
+  category_id?: string | null;
+  description: string;
+  amount: number;
+  expense_date: string;
+  payment_mode?: string | null;
+  vendor_name?: string | null;
+}
+
+export interface UpdateExpenseInput {
+  category_id?: string | null;
+  description: string;
+  amount: number;
+  expense_date: string;
+  payment_mode?: string | null;
+  vendor_name?: string | null;
+}
+
+export interface ExpenseSummary {
+  total: number;
+  by_category: { category_id: string | null; amount: number }[];
+  by_month: { month: string; amount: number }[];
+}
+
+export type DocumentOwnerType = "student" | "staff";
+
+export interface PersonDocument {
+  id: string;
+  label: string;
+  file_name: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_by_user_id: string;
+  created_at: string;
+}
+
+export interface PresignedUpload {
+  url: string;
+  method: "PUT";
+  expires_at: string;
+  storage_key: string;
 }
 
 // ============================================================================
@@ -1556,8 +1695,15 @@ export const api = {
   updateSection: (input: UpdateSectionInput) => http.patch<void>(`/sections/${input.id}`, input),
   deleteSection: (id: string) => http.delete<void>(`/sections/${id}`),
 
-  listStudents: (branchId: string, search?: string) =>
-    http.get<StudentListItem[]>("/students", { branch_id: branchId, search }),
+  listStudents: (branchId: string, filters?: ListStudentsFilters) =>
+    http.get<StudentListItem[]>("/students", {
+      branch_id: branchId,
+      search: filters?.search,
+      status: filters?.status,
+      class_id: filters?.class_id,
+      section_id: filters?.section_id,
+      gender: filters?.gender,
+    }),
   listStudentsInClass: (classId: string) => http.get<StudentListItem[]>(`/students/in-class/${classId}`),
   getStudent: (id: string) => http.get<StudentDetail>(`/students/${id}`),
   createAdmission: (input: NewAdmissionInput) => http.post<Admission>("/admissions", input),
@@ -1745,8 +1891,8 @@ export const api = {
   listSubjects: (branchId: string) => http.get<Subject[]>("/subjects", { branch_id: branchId }),
   createExam: (input: NewExamInput) => http.post<Exam>("/exams", input),
   updateExam: (input: UpdateExamInput) => http.patch<void>(`/exams/${input.id}`, input),
-  listExams: (branchId: string, classId?: string | null) =>
-    http.get<Exam[]>("/exams", { branch_id: branchId, class_id: classId }),
+  listExams: (branchId: string, classId?: string | null, academicSessionId?: string | null) =>
+    http.get<Exam[]>("/exams", { branch_id: branchId, class_id: classId, academic_session_id: academicSessionId }),
   listStudentsPendingBackpaper: (examId: string, subjectId: string) =>
     http.get<BackpaperCandidate[]>(`/exams/${examId}/subjects/${subjectId}/pending-backpaper`),
   getMarksRoster: (examId: string, subjectId: string) =>
@@ -1792,7 +1938,8 @@ export const api = {
   listRolePermissions: (roleId: string) => http.get<string[]>(`/roles/${roleId}/permissions`),
   setRolePermissions: (input: SetRolePermissionsInput) =>
     http.put<void>(`/roles/${input.role_id}/permissions`, { permission_keys: input.permission_keys }),
-  listUsers: () => http.get<UserSummary[]>("/users"),
+  listUsers: (search?: string, roleId?: string) =>
+    http.get<UserSummary[]>("/users", { search, role_id: roleId }),
   assignUserRole: (userId: string, roleId: string) =>
     http.post<void>(`/users/${userId}/roles`, { role_id: roleId }),
   removeUserRole: (userId: string, roleId: string) => http.delete<void>(`/users/${userId}/roles/${roleId}`),
@@ -1806,8 +1953,14 @@ export const api = {
     http.post<void>(`/users/${input.user_id}/reset-password`, { password: input.new_password }),
 
   // Staff / HR
-  listStaff: (branchId: string, search?: string) =>
-    http.get<StaffListItem[]>("/staff", { branch_id: branchId, search }),
+  listStaff: (branchId: string, search?: string, filters?: ListStaffFilters) =>
+    http.get<StaffListItem[]>("/staff", {
+      branch_id: branchId,
+      search,
+      category_id: filters?.category_id,
+      department: filters?.department,
+      status: filters?.status,
+    }),
   getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
   createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
   updateStaff: (input: UpdateStaffInput) => http.patch<void>(`/staff/${input.id}`, input),
@@ -1867,6 +2020,57 @@ export const api = {
     http.get<StaffLeaveRequestListItem[]>("/staff-leave", { branch_id: branchId, status }),
   decideStaffLeave: (id: string, decision: "approved" | "rejected", note?: string) =>
     http.post<StaffLeaveRequest>(`/staff-leave/${id}/decide`, { decision, note }),
+
+  // Documents -- shared upload/list/download/delete for student & staff owners
+  listDocuments: (ownerType: DocumentOwnerType, ownerId: string) =>
+    http.get<PersonDocument[]>(`/${ownerType === "student" ? "students" : "staff"}/${ownerId}/documents`),
+  getDocumentUploadUrl: (ownerType: DocumentOwnerType, ownerId: string, fileName: string, contentType: string) =>
+    http.post<PresignedUpload>(`/${ownerType === "student" ? "students" : "staff"}/${ownerId}/documents/upload-url`, {
+      file_name: fileName,
+      content_type: contentType,
+    }),
+  createDocument: (
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    input: { label: string; storage_key: string; file_name: string; mime_type: string; file_size: number },
+  ) => http.post<PersonDocument>(`/${ownerType === "student" ? "students" : "staff"}/${ownerId}/documents`, input),
+  getDocumentDownloadUrl: (ownerType: DocumentOwnerType, ownerId: string, docId: string) =>
+    http.get<{ url: string; expires_at: string }>(
+      `/${ownerType === "student" ? "students" : "staff"}/${ownerId}/documents/${docId}/download-url`,
+    ),
+  deleteDocument: (ownerType: DocumentOwnerType, ownerId: string, docId: string) =>
+    http.delete<{ ok: boolean }>(`/${ownerType === "student" ? "students" : "staff"}/${ownerId}/documents/${docId}`),
+
+  // Transfer certificate
+  getTransferCertificate: (studentId: string) =>
+    http.get<TransferCertificate>(`/students/${studentId}/transfer-certificate`),
+  issueTransferCertificate: (studentId: string, input: IssueTransferCertificateInput) =>
+    http.post<TransferCertificate>(`/students/${studentId}/transfer-certificate`, input),
+
+  // Experience letter
+  getExperienceLetter: (staffId: string) => http.get<ExperienceLetter>(`/staff/${staffId}/experience-letter`),
+  issueExperienceLetter: (staffId: string, input: IssueExperienceLetterInput) =>
+    http.post<ExperienceLetter>(`/staff/${staffId}/experience-letter`, input),
+
+  // Expenses
+  listExpenses: (branchId: string, opts?: { from?: string; to?: string; category_id?: string }) =>
+    http.get<Expense[]>("/expenses", {
+      branch_id: branchId,
+      from: opts?.from,
+      to: opts?.to,
+      category_id: opts?.category_id,
+    }),
+  getExpenseSummary: (branchId: string, opts?: { from?: string; to?: string }) =>
+    http.get<ExpenseSummary>("/expenses/reports/summary", { branch_id: branchId, from: opts?.from, to: opts?.to }),
+  createExpense: (input: CreateExpenseInput) => http.post<Expense>("/expenses", input),
+  updateExpense: (id: string, input: UpdateExpenseInput) => http.patch<Expense>(`/expenses/${id}`, input),
+  deleteExpense: (id: string) => http.delete<{ ok: boolean }>(`/expenses/${id}`),
+  getExpenseReceiptUploadUrl: (id: string, fileName: string, contentType: string) =>
+    http.post<PresignedUpload>(`/expenses/${id}/receipt-upload-url`, { file_name: fileName, content_type: contentType }),
+  attachExpenseReceipt: (id: string, storageKey: string) =>
+    http.patch<Expense>(`/expenses/${id}/receipt`, { storage_key: storageKey }),
+  getExpenseReceiptDownloadUrl: (id: string) =>
+    http.get<{ url: string; expires_at: string }>(`/expenses/${id}/receipt-download-url`),
 
   // Payroll
   getSalaryStructure: (staffId: string) =>

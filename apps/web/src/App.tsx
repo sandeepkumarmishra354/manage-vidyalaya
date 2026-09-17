@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/routes/login";
 import { DashboardPage } from "@/routes/dashboard";
 import { StudentListPage } from "@/routes/students/student-list";
+import { AlumniPage } from "@/routes/students/alumni-page";
 import { StudentDetailPage } from "@/routes/students/student-detail";
 import { GuardianDetailPage } from "@/routes/students/guardian-detail";
 import { AttendancePage } from "@/routes/attendance/attendance-page";
@@ -23,6 +24,7 @@ import { StaffDetailPage } from "@/routes/staff/staff-detail";
 import { MyLeavePage } from "@/routes/staff/my-leave-page";
 import { LeaveRequestsPage } from "@/routes/staff/leave-requests-page";
 import { PayrollPage } from "@/routes/payroll/payroll-page";
+import { ExpensesPage } from "@/routes/expenses/expenses-page";
 import { PayrollRunDetailPage } from "@/routes/payroll/payroll-run-detail";
 import { RolesPage } from "@/routes/admin/roles-page";
 import { UsersPage } from "@/routes/admin/users-page";
@@ -93,6 +95,14 @@ export default function App() {
           element={
             <RequirePermission permission="students.view">
               <StudentDetailPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="alumni"
+          element={
+            <RequirePermission permission="students.view">
+              <AlumniPage />
             </RequirePermission>
           }
         />
@@ -211,6 +221,16 @@ export default function App() {
             <RequireModule module="payroll">
               <RequirePermission permission="payroll.view">
                 <PayrollPage />
+              </RequirePermission>
+            </RequireModule>
+          }
+        />
+        <Route
+          path="expenses"
+          element={
+            <RequireModule module="expenses">
+              <RequirePermission permission="expenses.view">
+                <ExpensesPage />
               </RequirePermission>
             </RequireModule>
           }

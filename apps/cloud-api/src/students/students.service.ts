@@ -9,10 +9,18 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import type { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import type { ElectSubjectDto } from "./dto/elect-subject.dto.js";
+import type { IssueTransferCertificateDto } from "./dto/issue-transfer-certificate.dto.js";
 import type { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import type { UpdateStudentDto } from "./dto/update-student.dto.js";
 
 const MAX_ADMISSION_NUMBER_ATTEMPTS = 20;
+
+// Same convention as generateReceiptNumber in fees.service.ts.
+function generateTcNumber(branchId: string): string {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const rand = randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase();
+  return `TC-${branchId.slice(0, 4).toUpperCase()}-${datePart}-${rand}`;
+}
 
 @Injectable()
 export class StudentsService {
@@ -22,7 +30,12 @@ export class StudentsService {
     private readonly feesService: FeesService,
   ) {}
 
-  async listStudents(tenantId: string, branchId: string, search?: string) {
+  async listStudents(
+    tenantId: string,
+    branchId: string,
+    search?: string,
+    filters?: { status?: string; classId?: string; sectionId?: string; gender?: string },
+  ) {
     const term = (search ?? "").trim();
 
     const students = await this.prisma.student.findMany({
@@ -30,6 +43,10 @@ export class StudentsService {
         tenantId,
         branchId,
         deletedAt: null,
+        ...(filters?.status ? { status: filters.status } : {}),
+        ...(filters?.classId ? { currentClassId: filters.classId } : {}),
+        ...(filters?.sectionId ? { currentSectionId: filters.sectionId } : {}),
+        ...(filters?.gender ? { gender: filters.gender } : {}),
         ...(term
           ? {
               OR: [
@@ -53,6 +70,9 @@ export class StudentsService {
       status: s.status,
       class_name: s.currentClass?.name ?? null,
       section_name: s.currentSection?.name ?? null,
+      graduation_year: s.graduationYear,
+      higher_education: s.higherEducation,
+      current_occupation: s.currentOccupation,
     }));
   }
 
@@ -118,6 +138,16 @@ export class StudentsService {
       medical_notes: student.medicalNotes,
       emergency_contact_name: student.emergencyContactName,
       emergency_contact_phone: student.emergencyContactPhone,
+      date_of_leaving: student.dateOfLeaving,
+      reason_for_leaving: student.reasonForLeaving,
+      tc_number: student.tcNumber,
+      tc_issue_date: student.tcIssueDate,
+      conduct_remark: student.conductRemark,
+      graduation_year: student.graduationYear,
+      higher_education: student.higherEducation,
+      current_occupation: student.currentOccupation,
+      alumni_contact_email: student.alumniContactEmail,
+      alumni_notes: student.alumniNotes,
       updated_at: student.updatedAt,
       version: student.version,
       guardians: student.studentGuardians
@@ -624,6 +654,7 @@ export class StudentsService {
           bloodGroup: dto.blood_group ?? null,
           currentClassId: dto.current_class_id ?? null,
           currentSectionId: dto.current_section_id ?? null,
+          ...(dto.status ? { status: dto.status } : {}),
           address: dto.address ?? null,
           city: dto.city ?? null,
           state: dto.state ?? null,
@@ -638,6 +669,11 @@ export class StudentsService {
           medicalNotes: dto.medical_notes ?? null,
           emergencyContactName: dto.emergency_contact_name ?? null,
           emergencyContactPhone: dto.emergency_contact_phone ?? null,
+          graduationYear: dto.graduation_year ?? null,
+          higherEducation: dto.higher_education ?? null,
+          currentOccupation: dto.current_occupation ?? null,
+          alumniContactEmail: dto.alumni_contact_email ?? null,
+          alumniNotes: dto.alumni_notes ?? null,
           updatedAt: now,
           updatedBy: actorUserId,
           version: { increment: 1 },
@@ -655,6 +691,87 @@ export class StudentsService {
 
       return updated;
     });
+  }
+
+  // Issues (or re-issues the mutable fields of) a Transfer Certificate.
+  // Idempotent on the number itself -- called again for the same student it
+  // updates reason/date/remark but never regenerates tcNumber once set.
+  // Sets status to "withdrawn" unless the student is already "alumni" (a
+  // graduating student can still receive a TC without losing alumni status).
+  async issueTransferCertificate(
+    tenantId: string,
+    actorUserId: string,
+    studentId: string,
+    dto: IssueTransferCertificateDto,
+  ) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    const now = new Date();
+    const tcNumber = student.tcNumber ?? generateTcNumber(student.branchId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.student.update({
+        where: { id: studentId },
+        data: {
+          reasonForLeaving: dto.reason_for_leaving,
+          dateOfLeaving: new Date(dto.date_of_leaving),
+          conductRemark: dto.conduct_remark ?? null,
+          tcNumber,
+          tcIssueDate: student.tcIssueDate ?? now,
+          status: student.status === "alumni" ? student.status : "withdrawn",
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: student.branchId,
+        actorUserId,
+        entityTable: "students",
+        entityId: studentId,
+        action: "update",
+        summary: `Issued Transfer Certificate ${tcNumber}`,
+      });
+
+      return updated;
+    });
+  }
+
+  async getTransferCertificate(tenantId: string, studentId: string) {
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, tenantId, deletedAt: null },
+      include: { currentClass: true, currentSection: true },
+    });
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+    const admissions = await this.prisma.admission.findMany({
+      where: { studentId, deletedAt: null },
+      orderBy: { appliedAt: "asc" },
+    });
+    const confirmed = admissions.find((a) => a.stage === "enrolled");
+    const dateOfAdmission = confirmed?.decidedAt ?? admissions[0]?.appliedAt ?? null;
+
+    return {
+      student_id: student.id,
+      admission_number: student.admissionNumber,
+      first_name: student.firstName,
+      last_name: student.lastName,
+      date_of_birth: student.dateOfBirth,
+      class_name: student.currentClass?.name ?? null,
+      section_name: student.currentSection?.name ?? null,
+      date_of_admission: dateOfAdmission,
+      date_of_leaving: student.dateOfLeaving,
+      reason_for_leaving: student.reasonForLeaving,
+      conduct_remark: student.conductRemark,
+      tc_number: student.tcNumber,
+      tc_issue_date: student.tcIssueDate,
+      status: student.status,
+    };
   }
 
   // Soft-delete only; a student leaving the school normally goes through

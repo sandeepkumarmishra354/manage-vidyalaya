@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
@@ -18,8 +18,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  list(@CurrentUser() user: JwtPayload) {
-    return this.usersService.listUsers(user.tenant_id);
+  list(@CurrentUser() user: JwtPayload, @Query("search") search?: string, @Query("role_id") roleId?: string) {
+    return this.usersService.listUsers(user.tenant_id, search, roleId);
   }
 
   @Post()

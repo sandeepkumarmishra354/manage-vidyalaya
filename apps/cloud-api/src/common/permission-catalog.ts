@@ -59,9 +59,12 @@ export const PERMISSION_CATALOG = [
   "master_data.manage_guardian_relation",
   "master_data.manage_staff_category",
   "master_data.manage_fee_category",
+  "master_data.manage_expense_category",
   "roles.manage",
   "users.manage",
   "audit.view",
+  "expenses.view",
+  "expenses.manage",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_CATALOG)[number];
@@ -128,9 +131,12 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   "master_data.manage_guardian_relation": { label: "Manage master data: Guardian relation" },
   "master_data.manage_staff_category": { label: "Manage master data: Staff category" },
   "master_data.manage_fee_category": { label: "Manage master data: Fee category" },
+  "master_data.manage_expense_category": { label: "Manage master data: Expense category" },
   "roles.manage": { label: "Manage roles & permissions" },
   "users.manage": { label: "Manage user logins" },
   "audit.view": { label: "View audit log" },
+  "expenses.view": { label: "View expenses & reports" },
+  "expenses.manage": { label: "Record, edit, and delete expenses" },
 };
 
 export const TOGGLEABLE_MODULES = [
@@ -142,6 +148,7 @@ export const TOGGLEABLE_MODULES = [
   "houses",
   "id_cards",
   "payroll",
+  "expenses",
 ] as const;
 
 export type ToggleableModule = (typeof TOGGLEABLE_MODULES)[number];
@@ -164,6 +171,8 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly PermissionKey[]> =
     "payroll.generate",
     "payroll.finalize",
     "students.view",
+    "expenses.view",
+    "expenses.manage",
   ],
   teacher: [
     "attendance.mark",

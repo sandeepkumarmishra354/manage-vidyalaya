@@ -262,3 +262,140 @@ describe("StudentsService.getGuardian", () => {
     );
   });
 });
+
+describe("StudentsService.issueTransferCertificate", () => {
+  let prisma: {
+    student: { findFirst: ReturnType<typeof vi.fn> };
+    $transaction: ReturnType<typeof vi.fn>;
+    __tx: { student: { update: ReturnType<typeof vi.fn> } };
+  };
+  let service: StudentsService;
+
+  beforeEach(() => {
+    const tx = { student: { update: vi.fn() } };
+    prisma = {
+      student: { findFirst: vi.fn() },
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
+      __tx: tx,
+    };
+    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock());
+  });
+
+  it("404s for a student outside the tenant", async () => {
+    prisma.student.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
+        reason_for_leaving: "Relocation",
+        date_of_leaving: "2026-04-01",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("generates a TC number and sets status to withdrawn on first issue", async () => {
+    prisma.student.findFirst.mockResolvedValueOnce({
+      id: "student-1",
+      branchId: "branch-1",
+      status: "enrolled",
+      tcNumber: null,
+      tcIssueDate: null,
+    });
+    prisma.__tx.student.update.mockResolvedValueOnce({ id: "student-1", tcNumber: "TC-BRAN-20260401-ABCD" });
+
+    await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
+      reason_for_leaving: "Relocation",
+      date_of_leaving: "2026-04-01",
+    });
+
+    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "withdrawn",
+          tcNumber: expect.stringMatching(/^TC-BRAN-\d{8}-[0-9A-F]{4}$/),
+        }),
+      }),
+    );
+  });
+
+  it("does not regenerate the TC number on a second issue, and preserves alumni status", async () => {
+    prisma.student.findFirst.mockResolvedValueOnce({
+      id: "student-1",
+      branchId: "branch-1",
+      status: "alumni",
+      tcNumber: "TC-BRAN-20260101-AAAA",
+      tcIssueDate: new Date("2026-01-01"),
+    });
+    prisma.__tx.student.update.mockResolvedValueOnce({ id: "student-1" });
+
+    await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
+      reason_for_leaving: "Graduated",
+      date_of_leaving: "2026-04-01",
+      conduct_remark: "Excellent",
+    });
+
+    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "alumni",
+          tcNumber: "TC-BRAN-20260101-AAAA",
+          tcIssueDate: new Date("2026-01-01"),
+        }),
+      }),
+    );
+  });
+});
+
+describe("StudentsService.listStudents", () => {
+  let prisma: { student: { findMany: ReturnType<typeof vi.fn> } };
+  let service: StudentsService;
+
+  beforeEach(() => {
+    prisma = { student: { findMany: vi.fn().mockResolvedValue([]) } };
+    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock());
+  });
+
+  it("scopes to tenant/branch with no extra filters when none are given", async () => {
+    await service.listStudents("tenant-a", "branch-1");
+    expect(prisma.student.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: "tenant-a", branchId: "branch-1", deletedAt: null },
+      }),
+    );
+  });
+
+  it("combines status/class/section/gender filters with AND", async () => {
+    await service.listStudents("tenant-a", "branch-1", undefined, {
+      status: "alumni",
+      classId: "class-1",
+      sectionId: "section-1",
+      gender: "Female",
+    });
+    expect(prisma.student.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: "tenant-a",
+          branchId: "branch-1",
+          deletedAt: null,
+          status: "alumni",
+          currentClassId: "class-1",
+          currentSectionId: "section-1",
+          gender: "Female",
+        },
+      }),
+    );
+  });
+
+  it("leaves existing search behavior unchanged when no filter is set", async () => {
+    await service.listStudents("tenant-a", "branch-1", "ravi");
+    expect(prisma.student.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { firstName: { contains: "ravi", mode: "insensitive" } },
+            { lastName: { contains: "ravi", mode: "insensitive" } },
+            { admissionNumber: { contains: "ravi", mode: "insensitive" } },
+          ],
+        }),
+      }),
+    );
+  });
+});

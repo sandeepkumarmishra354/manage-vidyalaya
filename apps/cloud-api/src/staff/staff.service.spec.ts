@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
@@ -199,6 +199,137 @@ describe("StaffService.createStaff", () => {
     expect(prisma.__tx.staff.create).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ data: expect.objectContaining({ employeeCode: "MAIN-0009" }) }),
+    );
+  });
+});
+
+describe("StaffService.issueExperienceLetter", () => {
+  let prisma: {
+    staff: { findFirst: ReturnType<typeof vi.fn> };
+    $transaction: ReturnType<typeof vi.fn>;
+    __tx: { staff: { update: ReturnType<typeof vi.fn> } };
+  };
+  let service: StaffService;
+
+  beforeEach(() => {
+    const tx = { staff: { update: vi.fn() } };
+    prisma = {
+      staff: { findFirst: vi.fn() },
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
+      __tx: tx,
+    };
+    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock());
+  });
+
+  it("404s for a staff member outside the tenant", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
+        reason_for_leaving: "Resigned",
+        date_of_leaving: "2026-04-01",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("generates a letter number and sets status to relieved on first issue", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({
+      id: "staff-1",
+      branchId: "branch-1",
+      experienceLetterNumber: null,
+      experienceLetterIssueDate: null,
+    });
+    prisma.__tx.staff.update.mockResolvedValueOnce({ id: "staff-1" });
+
+    await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
+      reason_for_leaving: "Resigned",
+      date_of_leaving: "2026-04-01",
+    });
+
+    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "relieved",
+          experienceLetterNumber: expect.stringMatching(/^EXP-BRAN-\d{8}-[0-9A-F]{4}$/),
+        }),
+      }),
+    );
+  });
+
+  it("does not regenerate the letter number on a second issue", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({
+      id: "staff-1",
+      branchId: "branch-1",
+      experienceLetterNumber: "EXP-BRAN-20260101-AAAA",
+      experienceLetterIssueDate: new Date("2026-01-01"),
+    });
+    prisma.__tx.staff.update.mockResolvedValueOnce({ id: "staff-1" });
+
+    await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
+      reason_for_leaving: "Resigned again",
+      date_of_leaving: "2026-05-01",
+    });
+
+    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          experienceLetterNumber: "EXP-BRAN-20260101-AAAA",
+          experienceLetterIssueDate: new Date("2026-01-01"),
+        }),
+      }),
+    );
+  });
+});
+
+describe("StaffService.listStaff", () => {
+  let prisma: { staff: { findMany: ReturnType<typeof vi.fn> } };
+  let service: StaffService;
+
+  beforeEach(() => {
+    prisma = { staff: { findMany: vi.fn().mockResolvedValue([]) } };
+    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock());
+  });
+
+  it("scopes to the branch with no extra filters when none are given", async () => {
+    await service.listStaff("branch-1");
+    expect(prisma.staff.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { branchId: "branch-1", deletedAt: null },
+      }),
+    );
+  });
+
+  it("combines category/department/status filters with AND", async () => {
+    await service.listStaff("branch-1", undefined, {
+      categoryId: "cat-1",
+      department: "Science",
+      status: "active",
+    });
+    expect(prisma.staff.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          branchId: "branch-1",
+          deletedAt: null,
+          categoryId: "cat-1",
+          department: "Science",
+          status: "active",
+        },
+      }),
+    );
+  });
+
+  it("leaves existing search behavior unchanged when no filter is set", async () => {
+    await service.listStaff("branch-1", "asha");
+    expect(prisma.staff.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { firstName: { contains: "asha", mode: "insensitive" } },
+            { lastName: { contains: "asha", mode: "insensitive" } },
+            { employeeCode: { contains: "asha", mode: "insensitive" } },
+            { designation: { contains: "asha", mode: "insensitive" } },
+          ],
+        }),
+      }),
     );
   });
 });

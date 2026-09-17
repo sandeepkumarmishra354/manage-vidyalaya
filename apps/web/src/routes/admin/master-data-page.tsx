@@ -18,6 +18,7 @@ const MASTER_DATA_MANAGE_PERMISSION: Record<MasterDataType, string> = {
   mother_tongue: "master_data.manage_mother_tongue",
   student_category: "master_data.manage_student_category",
   guardian_relation: "master_data.manage_guardian_relation",
+  expense_category: "master_data.manage_expense_category",
 };
 
 function MasterDataLookupTab({ type }: { type: MasterDataType }) {
@@ -171,7 +172,7 @@ export function MasterDataPage() {
       {
         label: "People",
         entries: [
-          ...MASTER_DATA_TYPES.map((type) => ({
+          ...MASTER_DATA_TYPES.filter((type) => type !== "expense_category").map((type) => ({
             key: type,
             label: MASTER_DATA_TYPE_LABELS[type],
             permission: MASTER_DATA_MANAGE_PERMISSION[type],
@@ -193,6 +194,12 @@ export function MasterDataPage() {
             label: "Fee Category",
             permission: "master_data.manage_fee_category",
             render: () => <FeeCategoryTab />,
+          },
+          {
+            key: "expense_category",
+            label: "Expense Category",
+            permission: "master_data.manage_expense_category",
+            render: () => <MasterDataLookupTab type="expense_category" />,
           },
         ],
       },

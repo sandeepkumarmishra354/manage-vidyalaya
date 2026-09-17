@@ -11,6 +11,7 @@ function makePrismaMock() {
       create: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
     },
   } as unknown as PrismaService;
 }
@@ -104,6 +105,34 @@ describe("UsersService", () => {
       expect(updateCall.where).toEqual({ id: "user-1" });
       expect(updateCall.data.passwordHash).not.toBe("brand-new-password");
       expect(updateCall.data.passwordHash.length).toBeGreaterThan(20);
+    });
+  });
+
+  describe("listUsers", () => {
+    it("scopes to the tenant with no extra filters when none are given", async () => {
+      await service.listUsers("tenant-a");
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId: "tenant-a", deletedAt: null },
+        }),
+      );
+    });
+
+    it("combines search and role filters with AND", async () => {
+      await service.listUsers("tenant-a", "jane", "role-1");
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: "tenant-a",
+            deletedAt: null,
+            userRoles: { some: { roleId: "role-1" } },
+            OR: [
+              { fullName: { contains: "jane", mode: "insensitive" } },
+              { email: { contains: "jane", mode: "insensitive" } },
+            ],
+          },
+        }),
+      );
     });
   });
 });

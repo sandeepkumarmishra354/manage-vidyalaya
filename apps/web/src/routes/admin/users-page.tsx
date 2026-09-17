@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
+import { SearchIcon } from "lucide-react";
 
 import { api, type Role, type UserSummary } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+const ALL = "__all__";
 
 export function UsersPage() {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState(ALL);
 
   const refresh = useCallback(() => {
-    api.listUsers().then(setUsers);
+    api.listUsers(search || undefined, roleFilter === ALL ? undefined : roleFilter).then(setUsers);
     api.listRoles().then(setRoles);
-  }, []);
+  }, [search, roleFilter]);
 
   useEffect(() => {
     refresh();
@@ -45,6 +51,31 @@ export function UsersPage() {
           Manage logins and role assignments. To create a new login, go to a staff member's profile
           and click "Create login".
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-sm flex-1 min-w-[220px]">
+          <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by name or email..."
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Role" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All roles</SelectItem>
+            {roles.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="rounded-lg border">

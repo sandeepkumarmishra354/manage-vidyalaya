@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PencilIcon } from "lucide-react";
 
-import { api, type SchoolClass, type Section, type StudentDetail } from "@/lib/api";
+import { api, type SchoolClass, type Section, type StudentDetail, type StudentStatus } from "@/lib/api";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,6 +64,7 @@ export function EditStudentDialog({
         blood_group: form.blood_group,
         current_class_id: form.current_class_id,
         current_section_id: form.current_section_id,
+        status: form.status,
         address: form.address,
         city: form.city,
         state: form.state,
@@ -78,6 +79,11 @@ export function EditStudentDialog({
         medical_notes: form.medical_notes,
         emergency_contact_name: form.emergency_contact_name,
         emergency_contact_phone: form.emergency_contact_phone,
+        graduation_year: form.graduation_year,
+        higher_education: form.higher_education,
+        current_occupation: form.current_occupation,
+        alumni_contact_email: form.alumni_contact_email,
+        alumni_notes: form.alumni_notes,
       });
       setOpen(false);
       onUpdated();
@@ -106,6 +112,7 @@ export function EditStudentDialog({
               <TabsTrigger value="basic">Basic Info</TabsTrigger>
               <TabsTrigger value="address">Address</TabsTrigger>
               <TabsTrigger value="additional">Additional Details</TabsTrigger>
+              {form.status === "alumni" && <TabsTrigger value="alumni">Alumni</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="basic" className="grid grid-cols-2 gap-4">
@@ -156,6 +163,19 @@ export function EditStudentDialog({
                   <SelectTrigger className="w-full"><SelectValue placeholder="Select section" /></SelectTrigger>
                   <SelectContent>
                     {sections.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Status</Label>
+                <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as StudentStatus }))}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="enquiry">Enquiry</SelectItem>
+                    <SelectItem value="applied">Applied</SelectItem>
+                    <SelectItem value="enrolled">Enrolled</SelectItem>
+                    <SelectItem value="withdrawn">Withdrawn / not continuing</SelectItem>
+                    <SelectItem value="alumni">Alumni</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -240,6 +260,36 @@ export function EditStudentDialog({
                 <Textarea id="edit-notes" value={form.notes ?? ""} onChange={update("notes")} />
               </div>
             </TabsContent>
+
+            {form.status === "alumni" && (
+              <TabsContent value="alumni" className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="edit-graduationYear">Graduation year</Label>
+                  <Input
+                    id="edit-graduationYear"
+                    type="number"
+                    value={form.graduation_year ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, graduation_year: e.target.value ? Number(e.target.value) : null }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="edit-higherEducation">Higher education</Label>
+                  <Input id="edit-higherEducation" value={form.higher_education ?? ""} onChange={update("higher_education")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="edit-currentOccupation">Current occupation</Label>
+                  <Input id="edit-currentOccupation" value={form.current_occupation ?? ""} onChange={update("current_occupation")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="edit-alumniContactEmail">Contact email</Label>
+                  <Input id="edit-alumniContactEmail" type="email" value={form.alumni_contact_email ?? ""} onChange={update("alumni_contact_email")} />
+                </div>
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <Label htmlFor="edit-alumniNotes">Notes</Label>
+                  <Textarea id="edit-alumniNotes" value={form.alumni_notes ?? ""} onChange={update("alumni_notes")} />
+                </div>
+              </TabsContent>
+            )}
           </Tabs>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsInt, IsOptional, IsString } from "class-validator";
 
 export class UpdateStudentDto {
   @IsString()
@@ -31,6 +31,10 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsString()
   current_section_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
 
   @IsOptional()
   @IsString()
@@ -87,4 +91,24 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsString()
   emergency_contact_phone?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  graduation_year?: number | null;
+
+  @IsOptional()
+  @IsString()
+  higher_education?: string | null;
+
+  @IsOptional()
+  @IsString()
+  current_occupation?: string | null;
+
+  @IsOptional()
+  @IsString()
+  alumni_contact_email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  alumni_notes?: string | null;
 }

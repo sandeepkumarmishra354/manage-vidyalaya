@@ -43,9 +43,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/date";
 import { DetailSection } from "@/components/detail-section";
+import { DocumentsTab } from "@/components/documents-tab";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
 import { ProfileHeader } from "@/components/profile-header";
 import { EditStaffDialog } from "./edit-staff-dialog";
+import { ExperienceLetterDialog } from "./experience-letter-dialog";
 import { SalaryStructureTab } from "./salary-structure-tab";
 
 export function StaffDetailPage() {
@@ -81,7 +83,14 @@ export function StaffDetailPage() {
           { label: "Designation", value: staff.designation },
           { label: "Branch", value: branches.find((b) => b.id === staff.branch_id)?.name ?? "—" },
         ]}
-        actions={hasPermission("staff.manage_profile") ? <EditStaffDialog staff={staff} onUpdated={refresh} /> : undefined}
+        actions={
+          hasPermission("staff.manage_profile") ? (
+            <div className="flex items-center gap-2">
+              <ExperienceLetterDialog staffId={staff.id} />
+              <EditStaffDialog staff={staff} onUpdated={refresh} />
+            </div>
+          ) : undefined
+        }
       />
 
       <Tabs defaultValue="profile">
@@ -91,6 +100,7 @@ export function StaffDetailPage() {
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           {hasPermission("payroll.view") && <TabsTrigger value="salary">Salary</TabsTrigger>}
           {hasPermission("staff_leave.manage") && <TabsTrigger value="leave">Leave</TabsTrigger>}
+          <TabsTrigger value="documents">Documents</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -114,6 +124,9 @@ export function StaffDetailPage() {
             <StaffLeaveTab staff={staff} />
           </TabsContent>
         )}
+        <TabsContent value="documents">
+          <DocumentsTab ownerType="staff" ownerId={staff.id} canManage={hasPermission("staff.manage_profile")} />
+        </TabsContent>
       </Tabs>
     </div>
   );
