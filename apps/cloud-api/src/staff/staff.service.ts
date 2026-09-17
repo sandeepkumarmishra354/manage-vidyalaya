@@ -5,6 +5,8 @@ import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { QrTokenService } from "../qr/qr-token.service.js";
+import { StorageService } from "../storage/storage.service.js";
 import type { CreateStaffDto } from "./dto/create-staff.dto.js";
 import type { CreateTeacherAssignmentDto } from "./dto/create-teacher-assignment.dto.js";
 import type { IssueExperienceLetterDto } from "./dto/issue-experience-letter.dto.js";
@@ -23,11 +25,24 @@ function generateExperienceLetterNumber(branchId: string): string {
   return `EXP-${branchId.slice(0, 4).toUpperCase()}-${datePart}-${rand}`;
 }
 
+// Same convention as DocumentsService's sanitizeExtension.
+function sanitizePhotoExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  if (dot < 0 || dot === fileName.length - 1) return "";
+  const ext = fileName
+    .slice(dot + 1)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return ext.slice(0, 10);
+}
+
 @Injectable()
 export class StaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly qrToken: QrTokenService,
+    private readonly storage: StorageService,
   ) {}
 
   async listStaff(
@@ -349,6 +364,157 @@ export class StaffService {
       experience_letter_issue_date: staff.experienceLetterIssueDate,
       status: staff.status,
     };
+  }
+
+  async getQrCode(tenantId: string, staffId: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    return { token: this.qrToken.generate("staff", tenantId, staff.id, staff.qrCodeVersion) };
+  }
+
+  // Bumping qrCodeVersion instantly invalidates every previously-printed
+  // code for this staff member -- see Student.qrCodeVersion for the same
+  // scheme on the student side.
+  async reissueQrCode(tenantId: string, actorUserId: string, staffId: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.staff.update({
+        where: { id: staffId },
+        data: {
+          qrCodeVersion: { increment: 1 },
+          updatedAt: new Date(),
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: staff.branchId,
+        actorUserId,
+        entityTable: "staff",
+        entityId: staffId,
+        action: "update",
+        summary: "Reissued QR code",
+      });
+
+      return { token: this.qrToken.generate("staff", tenantId, updated.id, updated.qrCodeVersion) };
+    });
+  }
+
+  async getQrCodesBulk(tenantId: string, ids: string[]) {
+    const staff = await this.prisma.staff.findMany({ where: { id: { in: ids }, tenantId, deletedAt: null } });
+    return staff.map((s) => ({
+      staff_id: s.id,
+      token: this.qrToken.generate("staff", tenantId, s.id, s.qrCodeVersion),
+    }));
+  }
+
+  async getPhotoUploadUrl(tenantId: string, staffId: string, fileName: string, contentType: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    const ext = sanitizePhotoExtension(fileName);
+    const key = `photo-staff-${randomUUID()}${ext ? `.${ext}` : ""}`;
+    const upload = await this.storage.createUploadUrl(key, contentType);
+    return { ...upload, storage_key: key };
+  }
+
+  // Single slot, not a list -- see StudentsService.setPhoto for the same pattern.
+  async setPhoto(tenantId: string, actorUserId: string, staffId: string, storageKey: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    const previousPath = staff.photoPath;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staff.update({
+        where: { id: staffId },
+        data: {
+          photoPath: storageKey,
+          updatedAt: new Date(),
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: staff.branchId,
+        actorUserId,
+        entityTable: "staff",
+        entityId: staffId,
+        action: "update",
+        summary: "Updated photo",
+      });
+    });
+
+    if (previousPath && previousPath !== storageKey) {
+      await this.storage.deleteObject(previousPath);
+    }
+
+    return { ok: true };
+  }
+
+  async getPhotoUrl(tenantId: string, staffId: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    if (!staff.photoPath) {
+      return { url: null };
+    }
+    return this.storage.createDownloadUrl(staff.photoPath);
+  }
+
+  async deletePhoto(tenantId: string, actorUserId: string, staffId: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    if (!staff.photoPath) {
+      return { ok: true };
+    }
+    const previousPath = staff.photoPath;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staff.update({
+        where: { id: staffId },
+        data: { photoPath: null, updatedAt: new Date(), updatedBy: actorUserId, version: { increment: 1 } },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: staff.branchId,
+        actorUserId,
+        entityTable: "staff",
+        entityId: staffId,
+        action: "update",
+        summary: "Removed photo",
+      });
+    });
+
+    await this.storage.deleteObject(previousPath);
+
+    return { ok: true };
+  }
+
+  async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
+    const staff = await this.prisma.staff.findMany({
+      where: { id: { in: ids }, tenantId, deletedAt: null, photoPath: { not: null } },
+    });
+    const entries = await Promise.all(
+      staff.map(async (s) => ({ staff_id: s.id, ...(await this.storage.createDownloadUrl(s.photoPath!)) })),
+    );
+    return entries;
   }
 
   async listTeacherAssignments(branchId: string, staffId?: string) {

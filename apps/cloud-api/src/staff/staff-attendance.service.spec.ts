@@ -1,8 +1,9 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
 import type { PrismaService } from "../prisma/prisma.service.js";
+import { QrTokenService } from "../qr/qr-token.service.js";
 import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
 
@@ -15,12 +16,16 @@ function makePrismaMock() {
       Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(tx),
     ),
     __tx: tx,
-    staff: { findMany: vi.fn() },
-    staffAttendance: { findMany: vi.fn(), upsert: vi.fn() },
+    staff: { findMany: vi.fn(), findFirst: vi.fn() },
+    staffAttendance: { findMany: vi.fn(), upsert: vi.fn(), findUnique: vi.fn() },
   } as unknown as PrismaService & {
     __tx: typeof tx;
-    staff: { findMany: ReturnType<typeof vi.fn> };
-    staffAttendance: { findMany: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
+    staff: { findMany: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
+    staffAttendance: {
+      findMany: ReturnType<typeof vi.fn>;
+      upsert: ReturnType<typeof vi.fn>;
+      findUnique: ReturnType<typeof vi.fn>;
+    };
   };
 }
 
@@ -42,7 +47,7 @@ describe("StaffAttendanceService.getRosterRange", () => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar);
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
   });
 
   it("groups records into a per-staff, per-ISO-date map", async () => {
@@ -83,7 +88,7 @@ describe("StaffAttendanceService.markAttendanceBulk", () => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar);
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
   });
 
   it("upserts one row per entry, each keyed by its own date, in one audited batch", async () => {
@@ -133,7 +138,7 @@ describe("StaffAttendanceService.markAttendance", () => {
     prisma = makePrismaMock();
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar);
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
   });
 
   it("upserts one row per entry for the given date", async () => {
@@ -161,5 +166,96 @@ describe("StaffAttendanceService.markAttendance", () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.staffAttendance.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("StaffAttendanceService.scanMark", () => {
+  let prisma: ReturnType<typeof makePrismaMock>;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
+  let qrToken: QrTokenService;
+  let service: StaffAttendanceService;
+
+  const staff = {
+    id: "staff-1",
+    tenantId: "tenant-1",
+    branchId: "branch-1",
+    firstName: "Asha",
+    lastName: "Rao",
+    designation: "Teacher",
+    status: "active",
+    photoPath: null,
+    qrCodeVersion: 1,
+  };
+
+  beforeEach(() => {
+    prisma = makePrismaMock();
+    audit = makeAuditMock();
+    schoolCalendar = makeSchoolCalendarMock();
+    qrToken = new QrTokenService();
+    service = new StaffAttendanceService(prisma, audit, schoolCalendar, qrToken);
+
+    (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValue("working");
+  });
+
+  it("marks a fresh scan as present and audits it", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce(staff);
+    prisma.staffAttendance.findUnique.mockResolvedValueOnce(null);
+    prisma.__tx.staffAttendance.upsert.mockResolvedValueOnce({});
+
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const result = await service.scanMark("tenant-1", "actor-1", token);
+
+    expect(result).toEqual(expect.objectContaining({ status: "marked", staff_id: "staff-1" }));
+    expect(prisma.__tx.staffAttendance.upsert).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("is idempotent -- a second scan the same day never overwrites the existing record", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce(staff);
+    prisma.staffAttendance.findUnique.mockResolvedValueOnce({ status: "half_day", deletedAt: null });
+
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const result = await service.scanMark("tenant-1", "actor-1", token);
+
+    expect(result).toEqual(
+      expect.objectContaining({ status: "already_marked", existing_status: "half_day", staff_id: "staff-1" }),
+    );
+    expect(prisma.__tx.staffAttendance.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects on a declared holiday", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce(staff);
+    (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValueOnce("holiday");
+
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects a relieved/terminated staff member", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ ...staff, status: "relieved" });
+
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects a stale token after the staff member's QR code has been reissued", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({ ...staff, qrCodeVersion: 2 });
+
+    const staleToken = qrToken.generate("staff", "tenant-1", staff.id, 1);
+    await expect(service.scanMark("tenant-1", "actor-1", staleToken)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects a student-type QR code", async () => {
+    const token = qrToken.generate("student", "tenant-1", "student-1", 1);
+    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.staff.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the staff member doesn't exist in this tenant", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce(null);
+
+    const token = qrToken.generate("staff", "tenant-1", "ghost-staff", 1);
+    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -46,6 +46,7 @@ import { formatDate } from "@/lib/date";
 import { DetailSection } from "@/components/detail-section";
 import { DocumentsTab } from "@/components/documents-tab";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
+import { PersonIdTab } from "@/components/person-id-tab";
 import { ProfileHeader } from "@/components/profile-header";
 import { EditStaffDialog } from "./edit-staff-dialog";
 import { ExperienceLetterDialog } from "./experience-letter-dialog";
@@ -117,6 +118,7 @@ export function StaffDetailPage() {
           {hasPermission("payroll.view") && <TabsTrigger value="salary">Salary</TabsTrigger>}
           {hasPermission("staff_leave.manage") && <TabsTrigger value="leave">Leave</TabsTrigger>}
           <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="id-qr">ID / QR Code</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -142,6 +144,15 @@ export function StaffDetailPage() {
         )}
         <TabsContent value="documents">
           <DocumentsTab ownerType="staff" ownerId={staff.id} canManage={hasPermission("staff.manage_profile")} />
+        </TabsContent>
+
+        <TabsContent value="id-qr">
+          <PersonIdTab
+            ownerType="staff"
+            ownerId={staff.id}
+            name={`${staff.first_name} ${staff.last_name ?? ""}`.trim()}
+            canManage={hasPermission("staff.manage_profile")}
+          />
         </TabsContent>
       </Tabs>
     </div>

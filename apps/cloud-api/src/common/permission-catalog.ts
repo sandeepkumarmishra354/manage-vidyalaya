@@ -65,6 +65,8 @@ export const PERMISSION_CATALOG = [
   "audit.view",
   "expenses.view",
   "expenses.manage",
+  "timetable.view",
+  "timetable.manage",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_CATALOG)[number];
@@ -137,6 +139,8 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   "audit.view": { label: "View audit log" },
   "expenses.view": { label: "View expenses & reports" },
   "expenses.manage": { label: "Record, edit, and delete expenses" },
+  "timetable.view": { label: "View timetable" },
+  "timetable.manage": { label: "Manage period slots & timetable" },
 };
 
 export const TOGGLEABLE_MODULES = [
@@ -149,6 +153,7 @@ export const TOGGLEABLE_MODULES = [
   "id_cards",
   "payroll",
   "expenses",
+  "timetable",
 ] as const;
 
 export type ToggleableModule = (typeof TOGGLEABLE_MODULES)[number];
@@ -182,6 +187,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly PermissionKey[]> =
     "students.view",
     "staff_attendance.view",
     "payroll.view_own",
+    "timetable.view",
   ],
   front_desk: [
     "admissions.view",

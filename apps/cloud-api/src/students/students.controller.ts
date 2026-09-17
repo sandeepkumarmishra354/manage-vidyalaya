@@ -9,6 +9,7 @@ import { AddGuardianDto } from "./dto/add-guardian.dto.js";
 import { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import { ElectSubjectDto } from "./dto/elect-subject.dto.js";
 import { IssueTransferCertificateDto } from "./dto/issue-transfer-certificate.dto.js";
+import { SetPhotoDto } from "./dto/set-photo.dto.js";
 import { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import { UpdateStudentDto } from "./dto/update-student.dto.js";
 import { StudentsService } from "./students.service.js";
@@ -36,6 +37,32 @@ export class StudentsController {
   @RequirePermission("students.view")
   listInClass(@Param("classId") classId: string) {
     return this.studentsService.listStudentsInClass(classId);
+  }
+
+  // Must be registered before :id so "qr-codes"/"photo-urls" aren't
+  // swallowed as an id.
+  @Get("qr-codes")
+  @RequirePermission("students.view")
+  getQrCodesBulk(@CurrentUser() user: JwtPayload, @Query("ids") ids: string) {
+    return this.studentsService.getQrCodesBulk(
+      user.tenant_id,
+      ids
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
+  }
+
+  @Get("photo-urls")
+  @RequirePermission("students.view")
+  getPhotoUrlsBulk(@CurrentUser() user: JwtPayload, @Query("ids") ids: string) {
+    return this.studentsService.getPhotoUrlsBulk(
+      user.tenant_id,
+      ids
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
   }
 
   @Get(":id")
@@ -94,6 +121,47 @@ export class StudentsController {
     @Body() dto: IssueTransferCertificateDto,
   ) {
     return this.studentsService.issueTransferCertificate(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Get(":id/qr-code")
+  @RequirePermission("students.view")
+  getQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getQrCode(user.tenant_id, id);
+  }
+
+  @Post(":id/qr-code/reissue")
+  @RequirePermission("students.edit")
+  reissueQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.reissueQrCode(user.tenant_id, user.sub, id);
+  }
+
+  @Get(":id/photo/upload-url")
+  @RequirePermission("students.edit")
+  getPhotoUploadUrl(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Query("file_name") fileName: string,
+    @Query("content_type") contentType: string,
+  ) {
+    return this.studentsService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType);
+  }
+
+  @Patch(":id/photo")
+  @RequirePermission("students.edit")
+  setPhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPhotoDto) {
+    return this.studentsService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key);
+  }
+
+  @Get(":id/photo-url")
+  @RequirePermission("students.view")
+  getPhotoUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getPhotoUrl(user.tenant_id, id);
+  }
+
+  @Delete(":id/photo")
+  @RequirePermission("students.edit")
+  deletePhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.deletePhoto(user.tenant_id, user.sub, id);
   }
 }
 

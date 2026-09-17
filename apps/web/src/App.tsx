@@ -11,6 +11,7 @@ import { AlumniPage } from "@/routes/students/alumni-page";
 import { StudentDetailPage } from "@/routes/students/student-detail";
 import { GuardianDetailPage } from "@/routes/students/guardian-detail";
 import { AttendancePage } from "@/routes/attendance/attendance-page";
+import { ScanAttendancePage } from "@/routes/attendance/scan-attendance-page";
 import { FeesPage } from "@/routes/fees/fees-page";
 import { ExamsPage } from "@/routes/exams/exams-page";
 import { AcademicSetupPage } from "@/routes/academic/academic-setup-page";
@@ -20,6 +21,7 @@ import { LibraryPage } from "@/routes/library/library-page";
 import { TransportPage } from "@/routes/transport/transport-page";
 import { IdCardsPage } from "@/routes/id-cards/id-cards-page";
 import { StaffListPage } from "@/routes/staff/staff-list";
+import { TimetablePage } from "@/routes/timetable/timetable-page";
 import { StaffDetailPage } from "@/routes/staff/staff-detail";
 import { MyLeavePage } from "@/routes/staff/my-leave-page";
 import { LeaveRequestsPage } from "@/routes/staff/leave-requests-page";
@@ -51,6 +53,15 @@ function RequireModule({ module, children }: { module: ModuleKey; children: Reac
 function RequirePermission({ permission, children }: { permission: string; children: React.ReactNode }) {
   const hasPermission = useAppStore((s) => s.hasPermission);
   if (!hasPermission(permission)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/** Same as RequirePermission, but passes if the user holds ANY of the given
+ * permissions -- for pages that serve more than one role (e.g. the scan
+ * page works for whoever holds attendance.mark OR staff_attendance.mark). */
+function RequireAnyPermission({ permissions, children }: { permissions: string[]; children: React.ReactNode }) {
+  const hasPermission = useAppStore((s) => s.hasPermission);
+  if (!permissions.some((p) => hasPermission(p))) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -125,6 +136,16 @@ export default function App() {
           }
         />
         <Route
+          path="attendance/scan"
+          element={
+            <RequireModule module="attendance">
+              <RequireAnyPermission permissions={["attendance.mark", "staff_attendance.mark"]}>
+                <ScanAttendancePage />
+              </RequireAnyPermission>
+            </RequireModule>
+          }
+        />
+        <Route
           path="fees"
           element={
             <RequireModule module="fees">
@@ -140,6 +161,16 @@ export default function App() {
             <RequireModule module="exams">
               <RequirePermission permission="exams.view">
                 <ExamsPage />
+              </RequirePermission>
+            </RequireModule>
+          }
+        />
+        <Route
+          path="timetable"
+          element={
+            <RequireModule module="timetable">
+              <RequirePermission permission="timetable.view">
+                <TimetablePage />
               </RequirePermission>
             </RequireModule>
           }

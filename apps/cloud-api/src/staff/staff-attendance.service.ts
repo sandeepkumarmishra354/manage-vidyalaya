@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { QrTokenService } from "../qr/qr-token.service.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import type { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
@@ -19,6 +20,7 @@ export class StaffAttendanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly schoolCalendar: SchoolCalendarService,
+    private readonly qrToken: QrTokenService,
   ) {}
 
   async getRoster(branchId: string, date: string) {
@@ -252,5 +254,89 @@ export class StaffAttendanceService {
     });
 
     return records.map((r) => ({ attendance_date: r.attendanceDate, status: r.status, remarks: r.remarks }));
+  }
+
+  // Scan-to-mark, mirroring AttendanceService.scanMark for students. No
+  // class-teacher concept for staff -- authorization is flat
+  // (staff_attendance.mark), enforced by @RequirePermission on the
+  // controller route rather than in here.
+  async scanMark(tenantId: string, actorUserId: string, token: string) {
+    const parsed = this.qrToken.parse(token);
+    if (parsed.type !== "staff") {
+      throw new BadRequestException("not a staff QR code");
+    }
+
+    const staff = await this.prisma.staff.findFirst({ where: { id: parsed.entityId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    if (!this.qrToken.verifySignature(token, parsed, tenantId, staff.qrCodeVersion)) {
+      if (parsed.version < staff.qrCodeVersion) {
+        throw new UnauthorizedException("QR code has been reissued");
+      }
+      throw new UnauthorizedException("invalid QR code");
+    }
+    if (!staffAllowsAccess(staff.status)) {
+      throw new BadRequestException("cannot mark attendance for staff who aren't active");
+    }
+
+    const today = todayIso();
+    const dayType = await this.schoolCalendar.getDayType(tenantId, staff.branchId, today);
+    if (dayType === "holiday") {
+      throw new BadRequestException("cannot mark attendance on a holiday");
+    }
+
+    const name = [staff.firstName, staff.lastName].filter(Boolean).join(" ");
+    const personInfo = {
+      staff_id: staff.id,
+      name,
+      designation: staff.designation,
+      photo_path: staff.photoPath,
+    };
+
+    const attendanceDate = new Date(today);
+    const existing = await this.prisma.staffAttendance.findUnique({
+      where: { tenantId_staffId_attendanceDate: { tenantId, staffId: staff.id, attendanceDate } },
+    });
+    if (existing && !existing.deletedAt) {
+      return { status: "already_marked" as const, existing_status: existing.status, ...personInfo };
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staffAttendance.upsert({
+        where: { tenantId_staffId_attendanceDate: { tenantId, staffId: staff.id, attendanceDate } },
+        create: {
+          id: randomUUID(),
+          tenantId,
+          branchId: staff.branchId,
+          staffId: staff.id,
+          attendanceDate,
+          status: "present",
+          markedBy: actorUserId,
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        update: {
+          status: "present",
+          markedBy: actorUserId,
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: staff.branchId,
+        actorUserId,
+        entityTable: "staff_attendance",
+        entityId: staff.id,
+        action: "create",
+        summary: `Marked attendance for ${name} via QR scan`,
+      });
+    });
+
+    return { status: "marked" as const, ...personInfo };
   }
 }

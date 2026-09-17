@@ -53,6 +53,7 @@ import { DetailSection } from "@/components/detail-section";
 import { DocumentsTab } from "@/components/documents-tab";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { PersonAttendanceCalendar } from "@/components/person-attendance-calendar";
+import { PersonIdTab } from "@/components/person-id-tab";
 import { PersonLink } from "@/components/person-link";
 import { ProfileHeader } from "@/components/profile-header";
 import { AddGuardianDialog } from "./add-guardian-dialog";
@@ -173,6 +174,7 @@ export function StudentDetailPage() {
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           {canViewFees && <TabsTrigger value="fees">Fees</TabsTrigger>}
           <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="id-qr">ID / QR Code</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="flex flex-col gap-4">
@@ -322,6 +324,15 @@ export function StudentDetailPage() {
 
         <TabsContent value="documents">
           <DocumentsTab ownerType="student" ownerId={student.id} canManage={hasPermission("students.edit")} />
+        </TabsContent>
+
+        <TabsContent value="id-qr">
+          <PersonIdTab
+            ownerType="student"
+            ownerId={student.id}
+            name={`${student.first_name} ${student.last_name ?? ""}`.trim()}
+            canManage={hasPermission("students.edit")}
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -1,4 +1,5 @@
 import { GraduationCapIcon } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 import type { Branch, StudentListItem } from "@/lib/api";
 
@@ -18,7 +19,27 @@ function initials(first: string, last?: string | null) {
   return `${first[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
 }
 
-function PhotoPlaceholder({ initialsText, className }: { initialsText: string; className?: string }) {
+// Renders the student's real photo when a URL is available, falling back
+// to the initials circle otherwise -- same slot, so callers never need to
+// branch on whether a photo has been uploaded.
+function PersonPhoto({
+  initialsText,
+  photoUrl,
+  className,
+}: {
+  initialsText: string;
+  photoUrl?: string | null;
+  className?: string;
+}) {
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        className={`rounded-md border-2 border-white/60 object-cover ${className ?? ""}`}
+      />
+    );
+  }
   return (
     <div
       className={`flex items-center justify-center rounded-md bg-white/25 font-bold text-white backdrop-blur-sm ${className ?? ""}`}
@@ -28,18 +49,27 @@ function PhotoPlaceholder({ initialsText, className }: { initialsText: string; c
   );
 }
 
+function CardQrCode({ token, size }: { token?: string | null; size: number }) {
+  if (!token) return null;
+  return <QRCodeSVG value={token} size={size} className="shrink-0 rounded-sm bg-white p-0.5" />;
+}
+
 export function IdCardPreview({
   template,
   student,
   branch,
   className: extraClassName,
   validTill,
+  qrToken,
+  photoUrl,
 }: {
   template: IdCardTemplate;
   student: StudentListItem;
   branch: Branch | undefined;
   className?: string;
   validTill?: string | null;
+  qrToken?: string | null;
+  photoUrl?: string | null;
 }) {
   const name = `${student.first_name} ${student.last_name ?? ""}`.trim();
   const initialsText = initials(student.first_name, student.last_name);
@@ -56,12 +86,13 @@ export function IdCardPreview({
           <p className="text-[9px] font-bold tracking-wide uppercase">{branch?.name ?? "Vidyalaya School"}</p>
         </div>
         <div className="flex flex-1 flex-col items-center gap-2 px-3 py-3">
-          <PhotoPlaceholder initialsText={initialsText} className="brand-gradient size-16 text-xl" />
+          <PersonPhoto initialsText={initialsText} photoUrl={photoUrl} className="brand-gradient size-16 text-xl" />
           <p className="text-center text-sm font-bold">{name}</p>
           <div className="w-full space-y-1 text-[10px]">
             <Row label="Class" value={classLine} />
             <Row label="Admission No." value={student.admission_number ?? "—"} />
           </div>
+          <CardQrCode token={qrToken} size={40} />
         </div>
         <div className="border-t bg-slate-50 px-3 py-1.5 text-center text-[8px] text-slate-500">
           Valid till {validTill ?? "—"}
@@ -83,9 +114,14 @@ export function IdCardPreview({
           <p className="text-[9px] font-bold tracking-wide uppercase">{branch?.name ?? "Vidyalaya School"}</p>
         </div>
         <div className="relative flex flex-1 flex-col items-center justify-center gap-2 px-3">
-          <PhotoPlaceholder initialsText={initialsText} className="size-16 border-2 border-white/60 text-xl" />
+          <PersonPhoto
+            initialsText={initialsText}
+            photoUrl={photoUrl}
+            className="size-16 border-2 border-white/60 text-xl"
+          />
           <p className="text-center text-sm font-bold">{name}</p>
           <p className="text-[10px] text-white/85">{classLine}</p>
+          <CardQrCode token={qrToken} size={40} />
         </div>
         <div className="relative border-t border-white/20 px-3 py-1.5 text-center text-[8px] text-white/80">
           Adm. No. {student.admission_number ?? "—"} · Valid till {validTill ?? "—"}
@@ -107,11 +143,16 @@ export function IdCardPreview({
           </p>
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3">
-          <div className="flex size-16 items-center justify-center rounded-full border-2 border-primary/30 text-lg font-bold text-primary">
-            {initialsText}
-          </div>
+          {photoUrl ? (
+            <img src={photoUrl} alt="" className="size-16 rounded-full border-2 border-primary/30 object-cover" />
+          ) : (
+            <div className="flex size-16 items-center justify-center rounded-full border-2 border-primary/30 text-lg font-bold text-primary">
+              {initialsText}
+            </div>
+          )}
           <p className="text-center text-sm font-bold">{name}</p>
           <p className="text-[10px] text-slate-500">{classLine}</p>
+          <CardQrCode token={qrToken} size={40} />
         </div>
         <div className="flex items-center justify-between border-t px-3 py-1.5 text-[8px] text-slate-500">
           <span>{student.admission_number ?? "—"}</span>
@@ -138,13 +179,16 @@ export function IdCardPreview({
           <p className="text-sm font-bold">{name}</p>
           <p className="text-[10px] text-slate-500">{classLine}</p>
         </div>
-        <div className="text-[8px] text-slate-500">
-          <p>Adm. No. {student.admission_number ?? "—"}</p>
-          <p>Valid till {validTill ?? "—"}</p>
+        <div className="flex items-end justify-between text-[8px] text-slate-500">
+          <div>
+            <p>Adm. No. {student.admission_number ?? "—"}</p>
+            <p>Valid till {validTill ?? "—"}</p>
+          </div>
+          <CardQrCode token={qrToken} size={32} />
         </div>
       </div>
       <div className="brand-gradient flex w-20 shrink-0 items-center justify-center">
-        <PhotoPlaceholder initialsText={initialsText} className="size-14 text-lg" />
+        <PersonPhoto initialsText={initialsText} photoUrl={photoUrl} className="size-14 text-lg" />
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 
 import { AuditModule } from "../audit/audit.module.js";
+import { QrModule } from "../qr/qr.module.js";
+import { StorageModule } from "../storage/storage.module.js";
 import { StaffAttendanceController } from "./staff-attendance.controller.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
 import { StaffLeaveController } from "./staff-leave.controller.js";
@@ -9,7 +11,7 @@ import { SectionClassTeacherController, StaffController, TeacherAssignmentsContr
 import { StaffService } from "./staff.service.js";
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, QrModule, StorageModule],
   controllers: [
     StaffController,
     TeacherAssignmentsController,
