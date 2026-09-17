@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
@@ -10,6 +10,9 @@ import { SchoolCalendarService } from "../school-calendar/school-calendar.servic
 import type { CreatePeriodSlotDto } from "./dto/create-period-slot.dto.js";
 import type { SaveSectionTimetableDto } from "./dto/save-section-timetable.dto.js";
 import type { UpdatePeriodSlotDto } from "./dto/update-period-slot.dto.js";
+
+// Same convention as MAX_ADMISSION_NUMBER_ATTEMPTS in students.service.ts.
+const MAX_PERIOD_SLOT_SORT_ORDER_ATTEMPTS = 20;
 
 function toPeriodSlot(p: {
   id: string;
@@ -60,39 +63,68 @@ export class TimetableService {
     return slots.map(toPeriodSlot);
   }
 
+  // Same "count, attempt, retry-on-clash" scheme as
+  // StudentsService.confirmAdmission's admissionNumber assignment -- the
+  // server derives sort_order itself rather than trusting a client-computed
+  // value, so it can't collide from a stale client-side count (a rapid
+  // second "Add" before the list refresh lands) or from a soft-deleted
+  // slot that's still occupying its old value in the unique
+  // (branch_id, academic_session_id, sort_order) index.
   async createPeriodSlot(tenantId: string, actorUserId: string, dto: CreatePeriodSlotDto) {
     const now = new Date();
-    const id = randomUUID();
 
-    return this.prisma.$transaction(async (tx) => {
-      const created = await tx.periodSlot.create({
-        data: {
-          id,
-          tenantId,
-          branchId: dto.branch_id,
-          academicSessionId: dto.academic_session_id,
-          name: dto.name,
-          sortOrder: dto.sort_order,
-          startTime: dto.start_time,
-          endTime: dto.end_time,
-          periodType: dto.period_type ?? "teaching",
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
-      });
-
-      await this.audit.record(tx, {
-        tenantId,
-        branchId: dto.branch_id,
-        actorUserId,
-        entityTable: "period_slots",
-        entityId: id,
-        action: "create",
-        summary: `Added period slot '${dto.name}'`,
-      });
-
-      return toPeriodSlot(created);
+    const existingCount = await this.prisma.periodSlot.count({
+      where: { tenantId, branchId: dto.branch_id, academicSessionId: dto.academic_session_id, deletedAt: null },
     });
+    let sortOrder = existingCount;
+    let created: Prisma.PeriodSlotGetPayload<Record<string, never>> | undefined;
+
+    for (let attempt = 1; attempt <= MAX_PERIOD_SLOT_SORT_ORDER_ATTEMPTS; attempt++) {
+      try {
+        created = await this.prisma.periodSlot.create({
+          data: {
+            id: randomUUID(),
+            tenantId,
+            branchId: dto.branch_id,
+            academicSessionId: dto.academic_session_id,
+            name: dto.name,
+            sortOrder,
+            startTime: dto.start_time,
+            endTime: dto.end_time,
+            periodType: dto.period_type ?? "teaching",
+            updatedAt: now,
+            updatedBy: actorUserId,
+          },
+        });
+        break;
+      } catch (error) {
+        const isUniqueClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+        if (!isUniqueClash) {
+          throw error;
+        }
+        // Keep retrying with the next value, including on the final attempt --
+        // falling out of the loop here (rather than re-throwing the raw
+        // Prisma error) lets the ConflictException below actually surface
+        // instead of a raw constraint-violation message.
+        sortOrder += 1;
+      }
+    }
+
+    if (!created) {
+      throw new ConflictException("could not allocate a period slot order, please retry");
+    }
+
+    await this.audit.record(this.prisma, {
+      tenantId,
+      branchId: dto.branch_id,
+      actorUserId,
+      entityTable: "period_slots",
+      entityId: created.id,
+      action: "create",
+      summary: `Added period slot '${dto.name}'`,
+    });
+
+    return toPeriodSlot(created);
   }
 
   async updatePeriodSlot(tenantId: string, actorUserId: string, id: string, dto: UpdatePeriodSlotDto) {
