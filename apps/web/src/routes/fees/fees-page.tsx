@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PencilIcon, PlusIcon, PrinterIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -10,7 +10,6 @@ import {
   type FeeDiscount,
   type FeeFrequency,
   type FeeInvoiceListItem,
-  type FeePayment,
   type FeeStructure,
   type FeeType,
   type InvoiceStatus,
@@ -22,6 +21,7 @@ import {
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { PersonLink } from "@/components/person-link";
+import { ReprintReceiptDialog } from "@/components/reprint-receipt-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +39,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FeeCategorySelect } from "./fee-category-select";
-import { PaymentReceipt } from "./payment-receipt";
 import { RecordPaymentBatchDialog } from "./record-payment-batch-dialog";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 
@@ -235,6 +234,7 @@ function StructureOverridesDialog({ structure }: { structure: FeeStructure }) {
   const [mode, setMode] = useState<"include" | "exclude">("exclude");
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.listFeeStructureAssignments(structure.id).then(setAssignments);
@@ -251,11 +251,14 @@ function StructureOverridesDialog({ structure }: { structure: FeeStructure }) {
     e.preventDefault();
     if (!studentId) return;
     setIsSubmitting(true);
+    setError(null);
     try {
       await api.setStudentFeeAssignment({ student_id: studentId, fee_structure_id: structure.id, mode, reason: reason || null });
       setStudentId("");
       setReason("");
       refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -267,7 +270,13 @@ function StructureOverridesDialog({ structure }: { structure: FeeStructure }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setError(null);
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <UsersIcon />
@@ -325,6 +334,7 @@ function StructureOverridesDialog({ structure }: { structure: FeeStructure }) {
               Add
             </Button>
           </form>
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       </DialogContent>
     </Dialog>
@@ -875,42 +885,6 @@ function EditPaymentDialog({ payment, onUpdated }: { payment: PaymentListItem; o
             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save correction"}</Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ReprintReceiptDialog({ receiptNumber }: { receiptNumber: string }) {
-  const branches = useAppStore((s) => s.branches);
-  const selectedBranchId = useAppStore((s) => s.selectedBranchId);
-  const branch = branches.find((b) => b.id === selectedBranchId);
-  const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<{ payment: FeePayment; invoice: FeeInvoiceListItem }[] | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      api.getPaymentReceipt(receiptNumber).then((data) =>
-        setLines(data.map((d) => ({ payment: { ...d.payment, invoice_id: d.invoice.id }, invoice: d.invoice }))),
-      );
-    } else {
-      setLines(null);
-    }
-  }, [open, receiptNumber]);
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm">
-          <PrinterIcon className="size-3.5" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>Receipt {receiptNumber}</DialogTitle></DialogHeader>
-        {lines && lines.length > 0 ? (
-          <PaymentReceipt entries={lines} branch={branch} />
-        ) : (
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        )}
       </DialogContent>
     </Dialog>
   );

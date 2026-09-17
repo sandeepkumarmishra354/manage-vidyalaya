@@ -28,6 +28,7 @@ import {
   type TransportRoute,
   type TransportStop,
 } from "@/lib/api";
+import { ReprintReceiptDialog } from "@/components/reprint-receipt-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -439,6 +440,7 @@ function FeesTab({
                 <TableHead>Amount</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Receipt #</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -448,6 +450,7 @@ function FeesTab({
                   <TableCell>{formatPaise(p.amount)}</TableCell>
                   <TableCell className="capitalize">{p.payment_method.replace("_", " ")}</TableCell>
                   <TableCell>{p.receipt_number ?? "—"}</TableCell>
+                  <TableCell>{p.receipt_number && <ReprintReceiptDialog receiptNumber={p.receipt_number} />}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

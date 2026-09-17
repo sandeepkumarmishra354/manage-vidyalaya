@@ -1278,6 +1278,36 @@ export interface BulkMarkStaffAttendanceInput {
   entries: { staff_id: string; attendance_date: string; status: AttendanceStatus; remarks?: string | null }[];
 }
 
+export type StaffLeaveStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface StaffLeaveRequest {
+  id: string;
+  staff_id: string;
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+  status: StaffLeaveStatus;
+  requested_by_user_id: string;
+  decided_by_user_id?: string | null;
+  decided_at?: string | null;
+  decision_note?: string | null;
+  created_at: string;
+}
+
+export interface StaffLeaveRequestListItem extends StaffLeaveRequest {
+  staff_name: string;
+}
+
+export interface ApplyStaffLeaveInput {
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+}
+
+export interface FileStaffLeaveInput extends ApplyStaffLeaveInput {
+  staff_id: string;
+}
+
 // ============================================================================
 // Payroll
 // ============================================================================
@@ -1825,6 +1855,18 @@ export const api = {
       start_date: startDate,
       end_date: endDate,
     }),
+
+  // Staff leave -- self-service
+  applyStaffLeave: (input: ApplyStaffLeaveInput) => http.post<StaffLeaveRequest>("/staff-leave/apply", input),
+  getMyStaffLeave: () => http.get<StaffLeaveRequest[]>("/staff-leave/mine"),
+  cancelStaffLeave: (id: string) => http.post<StaffLeaveRequest>(`/staff-leave/${id}/cancel`),
+
+  // Staff leave -- HR/admin
+  fileStaffLeave: (input: FileStaffLeaveInput) => http.post<StaffLeaveRequest>("/staff-leave", input),
+  listStaffLeave: (branchId: string, status?: string) =>
+    http.get<StaffLeaveRequestListItem[]>("/staff-leave", { branch_id: branchId, status }),
+  decideStaffLeave: (id: string, decision: "approved" | "rejected", note?: string) =>
+    http.post<StaffLeaveRequest>(`/staff-leave/${id}/decide`, { decision, note }),
 
   // Payroll
   getSalaryStructure: (staffId: string) =>

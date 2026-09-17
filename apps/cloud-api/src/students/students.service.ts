@@ -575,7 +575,7 @@ export class StudentsService {
       const student = await tx.student.findUniqueOrThrow({ where: { id: admission.studentId } });
       let currentSessionId: string | null = null;
       try {
-        currentSessionId = await this.feesService.resolveCurrentSessionId(tx, admission.branchId);
+        currentSessionId = await this.feesService.resolveCurrentSessionId(tx, tenantId);
       } catch (error) {
         if (!(error instanceof BadRequestException)) throw error;
       }

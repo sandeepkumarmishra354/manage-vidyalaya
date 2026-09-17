@@ -5,12 +5,14 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type AcademicSession, type CalendarHoliday, type DayType, type SchoolCalendarData } from "@/lib/api";
+import { api, type AcademicSession, type Branch, type CalendarHoliday, type DayType, type SchoolCalendarData } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PRINT_PAPER_COLORS, PRINT_TEMPLATES, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
+import { PrintLetterhead } from "@/components/print-letterhead";
+import { PRINT_PAPER_COLORS, PRINT_TEMPLATES, PrintFrame, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
+import { SignatureBlock } from "@/components/signature-block";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -110,6 +112,24 @@ function SchoolDetailsTab() {
   if (!branch) {
     return <p className="text-muted-foreground">Select a branch to edit its details.</p>;
   }
+
+  // Reflects the currently selected (possibly unsaved) template/paper color
+  // and in-progress form fields, so the preview below stays accurate to
+  // what will actually print even before the admin hits Save.
+  const previewBranch: Branch = {
+    ...branch,
+    name: form.name || branch.name,
+    address: form.address || null,
+    city: form.city || null,
+    state: form.state || null,
+    pincode: form.pincode || null,
+    phone: form.phone || null,
+    email: form.email || null,
+    logo_url: form.logo_url || null,
+    signature_url: form.signature_url || null,
+    print_template: printTemplate,
+    print_paper_color: printPaperColor,
+  };
 
   return (
     <Card className="max-w-2xl">
@@ -220,6 +240,27 @@ function SchoolDetailsTab() {
                   <span className="text-sm font-medium">{c.label}</span>
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Preview</Label>
+            <p className="text-xs text-muted-foreground">
+              How this template and paper color look on a printed document.
+            </p>
+            <div className="h-64 overflow-hidden rounded-lg border bg-muted/30">
+              <div className="w-[182%] origin-top-left scale-[0.55]">
+                <PrintFrame template={printTemplate} paperColor={printPaperColor} branch={previewBranch}>
+                  <PrintLetterhead
+                    branch={previewBranch}
+                    documentTitle="Sample Document"
+                    template={printTemplate}
+                    right={<p>Date: 01 Apr 2026</p>}
+                  />
+                  <div className="mt-16 flex justify-end">
+                    <SignatureBlock branch={previewBranch} template={printTemplate} />
+                  </div>
+                </PrintFrame>
+              </div>
             </div>
           </div>
           {message && <p className="text-sm text-muted-foreground">{message}</p>}

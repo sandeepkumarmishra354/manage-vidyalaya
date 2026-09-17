@@ -336,58 +336,6 @@ export function AttendancePage() {
                     {savedMessage && <p className="text-sm text-muted-foreground">{savedMessage}</p>}
                   </div>
                 )}
-
-                {roster.length > 0 && (
-                  <div data-print-area className="hidden print:block">
-                    <PrintFrame template={template} paperColor={paperColor} branch={branch}>
-                      <PrintLetterhead
-                        branch={branch}
-                        documentTitle="Attendance Register"
-                        template={template}
-                        accent="var(--color-academics)"
-                        right={
-                          <>
-                            <p>
-                              Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
-                            </p>
-                            <p>Date: {date}</p>
-                          </>
-                        }
-                      />
-                      <table className="w-full border-collapse text-sm">
-                        <thead>
-                          <tr className="border-b-2">
-                            <th className="py-1.5 text-left">#</th>
-                            <th className="py-1.5 text-left">Student Name</th>
-                            <th className="py-1.5 text-left">Status</th>
-                            <th className="py-1.5 text-left">Signature</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {roster.map((entry, i) => (
-                            <tr key={entry.student_id} className="border-b">
-                              <td className="py-1.5">{i + 1}</td>
-                              <td className="py-1.5">
-                                {entry.first_name} {entry.last_name ?? ""}
-                              </td>
-                              <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
-                              <td className="py-1.5"></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <div className="mt-16 flex justify-end">
-                        <SignatureBlock
-                          branch={branch}
-                          signatureUrl={classTeacherSignatureUrl}
-                          label="Class Teacher Signature"
-                          template={template}
-                          accent="var(--color-academics)"
-                        />
-                      </div>
-                    </PrintFrame>
-                  </div>
-                )}
               </TabsContent>
 
               <TabsContent value="calendar" data-no-print>
@@ -412,6 +360,62 @@ export function AttendancePage() {
                 )}
               </TabsContent>
             </Tabs>
+          )}
+
+          {/* Print area lives outside the Tabs so it stays mounted
+              regardless of which tab is active -- printing after switching
+              to Calendar/Report used to produce a blank page because Radix
+              unmounts inactive TabsContent entirely. */}
+          {roster.length > 0 && (
+            <div data-print-area className="hidden print:block">
+              <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+                <PrintLetterhead
+                  branch={branch}
+                  documentTitle="Attendance Register"
+                  template={template}
+                  accent="var(--color-academics)"
+                  right={
+                    <>
+                      <p>
+                        Class: {className ?? "—"} {sectionName ? `- ${sectionName}` : ""}
+                      </p>
+                      <p>Date: {date}</p>
+                    </>
+                  }
+                />
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b-2">
+                      <th className="py-1.5 text-left">#</th>
+                      <th className="py-1.5 text-left">Student Name</th>
+                      <th className="py-1.5 text-left">Status</th>
+                      <th className="py-1.5 text-left">Signature</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roster.map((entry, i) => (
+                      <tr key={entry.student_id} className="border-b">
+                        <td className="py-1.5">{i + 1}</td>
+                        <td className="py-1.5">
+                          {entry.first_name} {entry.last_name ?? ""}
+                        </td>
+                        <td className="py-1.5 capitalize">{entry.status?.replace("_", " ") ?? ""}</td>
+                        <td className="py-1.5"></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mt-16 flex justify-end">
+                  <SignatureBlock
+                    branch={branch}
+                    signatureUrl={classTeacherSignatureUrl}
+                    label="Class Teacher Signature"
+                    template={template}
+                    accent="var(--color-academics)"
+                  />
+                </div>
+              </PrintFrame>
+            </div>
           )}
         </>
       ) : (

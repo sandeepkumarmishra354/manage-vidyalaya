@@ -3,10 +3,12 @@ import { useParams } from "react-router-dom";
 import {
   BriefcaseIcon,
   CalendarCheckIcon,
+  CalendarOffIcon,
   IdCardIcon,
   KeyIcon,
   LandmarkIcon,
   PhoneIcon,
+  PlusIcon,
   UserIcon,
   UserPlusIcon,
 } from "lucide-react";
@@ -18,9 +20,12 @@ import {
   type Section,
   type Staff,
   type StaffCategory,
+  type StaffLeaveRequestListItem,
+  type StaffLeaveStatus,
   type Subject,
   type TeacherAssignment,
 } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -85,6 +90,7 @@ export function StaffDetailPage() {
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           {hasPermission("payroll.view") && <TabsTrigger value="salary">Salary</TabsTrigger>}
+          {hasPermission("staff_leave.manage") && <TabsTrigger value="leave">Leave</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="profile">
@@ -103,8 +109,142 @@ export function StaffDetailPage() {
             <SalaryStructureTab staffId={staff.id} branchId={staff.branch_id} dateOfJoining={staff.date_of_joining} />
           </TabsContent>
         )}
+        {hasPermission("staff_leave.manage") && (
+          <TabsContent value="leave">
+            <StaffLeaveTab staff={staff} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
+  );
+}
+
+const LEAVE_STATUS_VARIANT: Record<StaffLeaveStatus, "warning" | "success" | "destructive" | "secondary"> = {
+  pending: "warning",
+  approved: "success",
+  rejected: "destructive",
+  cancelled: "secondary",
+};
+
+function AddLeaveDialog({ staff, onAdded }: { staff: Staff; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api.fileStaffLeave({ staff_id: staff.id, start_date: startDate, end_date: endDate, reason: reason || null });
+      setStartDate("");
+      setEndDate("");
+      setReason("");
+      setOpen(false);
+      onAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setError(null); }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <PlusIcon />
+          Add leave
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add leave for {staff.first_name}</DialogTitle>
+        </DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <p className="text-sm text-muted-foreground">
+            Filed by HR, so it's recorded as approved immediately and reflected on the attendance calendar.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="add-leave-start">Start date</Label>
+              <Input id="add-leave-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="add-leave-end">End date</Label>
+              <Input id="add-leave-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="add-leave-reason">Reason (optional)</Label>
+            <Input id="add-leave-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : "Add leave"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StaffLeaveTab({ staff }: { staff: Staff }) {
+  const [requests, setRequests] = useState<StaffLeaveRequestListItem[]>([]);
+
+  const refresh = useCallback(() => {
+    api.listStaffLeave(staff.branch_id).then((all) => setRequests(all.filter((r) => r.staff_id === staff.id)));
+  }, [staff.branch_id, staff.id]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return (
+    <DetailSection
+      title="Leave history"
+      icon={CalendarOffIcon}
+      accent="var(--color-staff)"
+      actions={<AddLeaveDialog staff={staff} onAdded={refresh} />}
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Dates</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Note</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {requests.map((r) => (
+            <TableRow key={r.id}>
+              <TableCell>
+                {formatDate(r.start_date)}
+                {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
+              </TableCell>
+              <TableCell>{r.reason ?? "—"}</TableCell>
+              <TableCell>
+                <Badge variant={LEAVE_STATUS_VARIANT[r.status]}>{r.status}</Badge>
+              </TableCell>
+              <TableCell className="text-muted-foreground">{r.decision_note ?? "—"}</TableCell>
+            </TableRow>
+          ))}
+          {requests.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                No leave records yet.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </DetailSection>
   );
 }
 
