@@ -567,7 +567,6 @@ function ManagePeriodsTab() {
         branch_id: selectedBranchId,
         academic_session_id: academicSessionId,
         name,
-        sort_order: slots.length,
         start_time: startTime,
         end_time: endTime,
         period_type: periodType,

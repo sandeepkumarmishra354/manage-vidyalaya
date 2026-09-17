@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
@@ -7,18 +8,30 @@ import type { PrismaService } from "../prisma/prisma.service.js";
 import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { TimetableService } from "./timetable.service.js";
 
+function uniqueConstraintError() {
+  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed on the fields: (`sort_order`)", {
+    code: "P2002",
+    clientVersion: "6.19.3",
+  });
+}
+
 function makePrismaMock() {
   const tx = { timetableEntry: { updateMany: vi.fn(), create: vi.fn() } };
   return {
     $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
     __tx: tx,
-    periodSlot: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+    periodSlot: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), create: vi.fn() },
     timetableEntry: { count: vi.fn(), findMany: vi.fn() },
     section: { findFirst: vi.fn() },
     staff: { findFirst: vi.fn() },
   } as unknown as PrismaService & {
     __tx: typeof tx;
-    periodSlot: { findMany: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn>; count: ReturnType<typeof vi.fn> };
+    periodSlot: {
+      findMany: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
+      create: ReturnType<typeof vi.fn>;
+    };
     timetableEntry: { count: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     section: { findFirst: ReturnType<typeof vi.fn> };
     staff: { findFirst: ReturnType<typeof vi.fn> };
@@ -121,6 +134,70 @@ describe("TimetableService.saveSectionTimetable", () => {
     expect(result.warnings).toHaveLength(0);
     expect(prisma.__tx.timetableEntry.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.__tx.timetableEntry.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TimetableService.createPeriodSlot", () => {
+  let prisma: ReturnType<typeof makePrismaMock>;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: TimetableService;
+
+  const baseDto = {
+    branch_id: "branch-1",
+    academic_session_id: "session-1",
+    name: "Period 2",
+    start_time: "09:45",
+    end_time: "10:30",
+  };
+
+  beforeEach(() => {
+    prisma = makePrismaMock();
+    audit = makeAuditMock();
+    service = new TimetableService(prisma, audit, makeScopedAccessMock(), makeSchoolCalendarMock());
+  });
+
+  it("assigns sort_order from the current count of non-deleted slots", async () => {
+    prisma.periodSlot.count.mockResolvedValueOnce(1);
+    prisma.periodSlot.create.mockResolvedValueOnce({ id: "slot-2", ...baseDto, sortOrder: 1, periodType: "teaching" });
+
+    const result = await service.createPeriodSlot("tenant-1", "actor-1", baseDto);
+
+    expect(prisma.periodSlot.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sortOrder: 1 }) }),
+    );
+    expect(result.sort_order).toBe(1);
+    expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries with the next sort_order on a unique-constraint clash (stale count or a soft-deleted slot's old value)", async () => {
+    prisma.periodSlot.count.mockResolvedValueOnce(1);
+    prisma.periodSlot.create
+      .mockRejectedValueOnce(uniqueConstraintError())
+      .mockRejectedValueOnce(uniqueConstraintError())
+      .mockResolvedValueOnce({ id: "slot-2", ...baseDto, sortOrder: 3, periodType: "teaching" });
+
+    const result = await service.createPeriodSlot("tenant-1", "actor-1", baseDto);
+
+    expect(result.sort_order).toBe(3);
+    expect(prisma.periodSlot.create).toHaveBeenCalledTimes(3);
+  });
+
+  it("propagates a non-unique-constraint error immediately without retrying", async () => {
+    prisma.periodSlot.count.mockResolvedValueOnce(0);
+    const otherError = new Error("connection lost");
+    prisma.periodSlot.create.mockRejectedValueOnce(otherError);
+
+    await expect(service.createPeriodSlot("tenant-1", "actor-1", baseDto)).rejects.toBe(otherError);
+    expect(prisma.periodSlot.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up with a ConflictException once every attempt clashes", async () => {
+    prisma.periodSlot.count.mockResolvedValueOnce(0);
+    prisma.periodSlot.create.mockRejectedValue(uniqueConstraintError());
+
+    await expect(service.createPeriodSlot("tenant-1", "actor-1", baseDto)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });
 

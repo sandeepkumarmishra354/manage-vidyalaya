@@ -1727,7 +1727,6 @@ export interface NewPeriodSlotInput {
   branch_id: string;
   academic_session_id: string;
   name: string;
-  sort_order: number;
   start_time: string;
   end_time: string;
   period_type?: PeriodType;
