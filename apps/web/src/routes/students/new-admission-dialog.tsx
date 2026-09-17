@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { PlusIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type SchoolClass, type Section } from "@/lib/api";
+import { api, type FeeStructure, type SchoolClass, type Section } from "@/lib/api";
+import { formatPaise } from "@/lib/money";
 import { MasterDataSelect } from "@/components/master-data-select";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,12 +50,29 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
   const [guardian, setGuardian] = useState<GuardianPickerValue>(emptyGuardianPickerValue);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [matchingFeeStructures, setMatchingFeeStructures] = useState<FeeStructure[]>([]);
+  const [selectedFeeStructureIds, setSelectedFeeStructureIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (open && selectedBranchId) {
       api.listClasses(selectedBranchId).then(setClasses);
+      api.currentAcademicSessionId().then(setCurrentSessionId);
     }
   }, [open, selectedBranchId]);
+
+  // Fee structures that would normally apply to the selected class (or
+  // branch-wide) in the current session -- pre-checked by default, since
+  // they'd auto-apply anyway. Unchecking one excludes it once the
+  // admission is confirmed.
+  useEffect(() => {
+    if (!open || !selectedBranchId) return;
+    api.listFeeStructures(selectedBranchId, null, form.classId || null).then((list) => {
+      const matching = list.filter((s) => s.academic_session_id === null || s.academic_session_id === currentSessionId);
+      setMatchingFeeStructures(matching);
+      setSelectedFeeStructureIds(new Set(matching.map((s) => s.id)));
+    });
+  }, [open, selectedBranchId, form.classId, currentSessionId]);
 
   useEffect(() => {
     if (form.classId) {
@@ -107,9 +125,11 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
         guardian_aadhaar_number: guardian.mode === "new" ? guardian.aadhaarNumber || null : null,
         guardian_annual_income:
           guardian.mode === "new" && guardian.annualIncome ? Number(guardian.annualIncome) : null,
+        fee_structure_ids: Array.from(selectedFeeStructureIds),
       });
       setForm(emptyForm);
       setGuardian(emptyGuardianPickerValue);
+      setSelectedFeeStructureIds(new Set());
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -267,6 +287,34 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="medicalNotes">Medical notes (allergies, conditions)</Label>
                 <Textarea id="medicalNotes" value={form.medicalNotes} onChange={update("medicalNotes")} />
               </div>
+              {matchingFeeStructures.length > 0 && (
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <Label>Fee structures to charge this family for</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Pre-checked based on the applying class -- uncheck any this family shouldn't be charged for. Fine
+                    edits can always be made later from Fees &amp; Billing.
+                  </p>
+                  <div className="flex flex-col gap-1 rounded-md border p-2">
+                    {matchingFeeStructures.map((s) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedFeeStructureIds.has(s.id)}
+                          onChange={(e) =>
+                            setSelectedFeeStructureIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(s.id);
+                              else next.delete(s.id);
+                              return next;
+                            })
+                          }
+                        />
+                        {s.name} ({formatPaise(s.amount)})
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
 
