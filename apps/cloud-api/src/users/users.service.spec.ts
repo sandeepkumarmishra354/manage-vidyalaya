@@ -6,6 +6,7 @@ import type { PrismaService } from "../prisma/prisma.service.js";
 import { UsersService } from "./users.service.js";
 
 function makePrismaMock() {
+  const tx = { user: { create: vi.fn() }, staff: { update: vi.fn() } };
   return {
     user: {
       create: vi.fn(),
@@ -13,7 +14,13 @@ function makePrismaMock() {
       update: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
     },
-  } as unknown as PrismaService;
+    staff: { findFirst: vi.fn() },
+    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
+    __tx: tx,
+  } as unknown as PrismaService & {
+    staff: { findFirst: ReturnType<typeof vi.fn> };
+    __tx: typeof tx;
+  };
 }
 
 function makeAuditMock() {
@@ -105,6 +112,56 @@ describe("UsersService", () => {
       expect(updateCall.where).toEqual({ id: "user-1" });
       expect(updateCall.data.passwordHash).not.toBe("brand-new-password");
       expect(updateCall.data.passwordHash.length).toBeGreaterThan(20);
+    });
+  });
+
+  describe("createStaffLogin", () => {
+    it("404s when the target staff member doesn't exist", async () => {
+      prisma.staff.findFirst.mockResolvedValueOnce(null);
+
+      await expect(
+        service.createStaffLogin("tenant-a", "actor-1", {
+          staff_id: "missing",
+          email: "new@example.com",
+          full_name: "New Teacher",
+          initial_password: "correct-horse-battery-staple",
+          branch_id: "branch-1",
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("rejects creating a login for a relieved staff member", async () => {
+      prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", status: "relieved" });
+
+      await expect(
+        service.createStaffLogin("tenant-a", "actor-1", {
+          staff_id: "staff-1",
+          email: "ex@example.com",
+          full_name: "Ex Teacher",
+          initial_password: "correct-horse-battery-staple",
+          branch_id: "branch-1",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("creates a login for an active staff member", async () => {
+      prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", status: "active" });
+      prisma.__tx.user.create.mockResolvedValueOnce({ id: "user-1" });
+
+      const result = await service.createStaffLogin("tenant-a", "actor-1", {
+        staff_id: "staff-1",
+        email: "teacher@example.com",
+        full_name: "Teacher",
+        initial_password: "correct-horse-battery-staple",
+        branch_id: "branch-1",
+      });
+
+      expect(result).toEqual({ id: "user-1" });
+      expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "staff-1" }, data: expect.objectContaining({ userId: "user-1" }) }),
+      );
     });
   });
 

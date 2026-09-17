@@ -1102,7 +1102,7 @@ export interface ResetStaffPasswordInput {
 // Staff / HR
 // ============================================================================
 
-export type StaffStatus = "active" | "inactive" | "on_leave" | "terminated";
+export type StaffStatus = "active" | "on_leave" | "relieved" | "terminated" | "inactive";
 export type EmploymentType = "full_time" | "part_time" | "contract";
 
 export interface StaffCategory {

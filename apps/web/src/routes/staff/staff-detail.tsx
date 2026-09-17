@@ -9,6 +9,7 @@ import {
   LandmarkIcon,
   PhoneIcon,
   PlusIcon,
+  UserCheckIcon,
   UserIcon,
   UserPlusIcon,
 } from "lucide-react";
@@ -50,6 +51,18 @@ import { EditStaffDialog } from "./edit-staff-dialog";
 import { ExperienceLetterDialog } from "./experience-letter-dialog";
 import { SalaryStructureTab } from "./salary-structure-tab";
 
+// Mirrors the backend's staffAllowsAccess() -- statuses under which login,
+// leave requests, attendance marking, and new-login creation are allowed.
+const ACTIVE_ACCESS_STATUSES = ["active", "on_leave"];
+
+const statusVariant: Record<string, "success" | "warning" | "secondary" | "outline"> = {
+  active: "success",
+  on_leave: "warning",
+  relieved: "secondary",
+  terminated: "outline",
+  inactive: "secondary",
+};
+
 export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
   const hasPermission = useAppStore((s) => s.hasPermission);
@@ -77,7 +90,7 @@ export function StaffDetailPage() {
         accent="var(--color-staff)"
         name={`${staff.first_name} ${staff.last_name ?? ""}`}
         status={staff.status}
-        statusVariant={staff.status === "active" ? "success" : "secondary"}
+        statusVariant={statusVariant[staff.status] ?? "secondary"}
         facts={[
           { label: "Employee code", value: staff.employee_code },
           { label: "Designation", value: staff.designation },
@@ -86,6 +99,9 @@ export function StaffDetailPage() {
         actions={
           hasPermission("staff.manage_profile") ? (
             <div className="flex items-center gap-2">
+              {!ACTIVE_ACCESS_STATUSES.includes(staff.status) && (
+                <ReappointDialog staff={staff} onReappointed={refresh} />
+              )}
               <ExperienceLetterDialog staffId={staff.id} />
               <EditStaffDialog staff={staff} onUpdated={refresh} />
             </div>
@@ -338,12 +354,62 @@ function ProfileTab({ staff, onChanged }: { staff: Staff; onChanged: () => void 
         <DetailSection title="Login access" icon={IdCardIcon} accent="var(--color-staff)">
           {staff.user_id ? (
             <ResetPasswordDialog userId={staff.user_id} />
-          ) : (
+          ) : ACTIVE_ACCESS_STATUSES.includes(staff.status) ? (
             <CreateLoginDialog staff={staff} onCreated={onChanged} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Cannot create a login for a staff member who isn't active. Reappoint them first.
+            </p>
           )}
         </DetailSection>
       )}
     </div>
+  );
+}
+
+function ReappointDialog({ staff, onReappointed }: { staff: Staff; onReappointed: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await api.setStaffStatus({ staff_id: staff.id, status: "active", date_of_leaving: null });
+      setOpen(false);
+      onReappointed();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <UserCheckIcon />
+          Reappoint
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reappoint {staff.first_name}?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          This sets their status back to active, restoring login access and re-including them in attendance,
+          payroll, and other active-staff lists. Their prior exit details stay on record.
+        </p>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button onClick={handleConfirm} disabled={isSubmitting}>
+            {isSubmitting ? "Reappointing..." : "Reappoint"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

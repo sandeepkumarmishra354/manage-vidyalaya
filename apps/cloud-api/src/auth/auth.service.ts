@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 import type { Branch } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service.js";
+import { staffAllowsAccess } from "../staff/staff-status.js";
 import type { JwtPayload } from "./jwt.strategy.js";
 
 export interface LoginResult {
@@ -66,6 +67,8 @@ export class AuthService {
       throw new UnauthorizedException("Invalid email or password");
     }
 
+    await this.assertLinkedStaffAllowsAccess(user.id);
+
     const roles = user.userRoles.map((ur) => ur.role.name);
     const { access_token, refresh_token } = await this.issueTokenPair(user.id, user.tenantId, roles);
 
@@ -104,6 +107,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException("User no longer active");
     }
+    await this.assertLinkedStaffAllowsAccess(user.id);
 
     // Re-derive roles from the database rather than trusting the refresh
     // token's payload -- role assignments may have changed since it was
@@ -126,6 +130,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException("User not found");
     }
+    await this.assertLinkedStaffAllowsAccess(user.id);
 
     const roleIds = user.userRoles.map((ur) => ur.roleId);
     const roles = user.userRoles.map((ur) => ur.role.name);
@@ -163,6 +168,18 @@ export class AuthService {
       permissions,
       branches,
     };
+  }
+
+  // Not every User has a linked Staff row (e.g. a pure admin account), so
+  // this only blocks when one exists and its status has moved off the
+  // access-allowed set (relieved/terminated/inactive) -- login, refresh,
+  // and /auth/me all call this so a relieved staff member is locked out
+  // within one access-token TTL even if their session was already live.
+  private async assertLinkedStaffAllowsAccess(userId: string): Promise<void> {
+    const staff = await this.prisma.staff.findFirst({ where: { userId, deletedAt: null } });
+    if (staff && !staffAllowsAccess(staff.status)) {
+      throw new UnauthorizedException("This staff account is no longer active. Contact your administrator.");
+    }
   }
 
   private async issueTokenPair(userId: string, tenantId: string, roles: string[]) {

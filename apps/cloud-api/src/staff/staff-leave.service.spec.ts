@@ -50,7 +50,7 @@ describe("StaffLeaveService.apply", () => {
   });
 
   it("creates a pending request for the caller's own linked staff row", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "active" });
     prisma.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "pending" });
 
     await service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12", reason: "wedding" });
@@ -77,11 +77,29 @@ describe("StaffLeaveService.apply", () => {
   });
 
   it("rejects an end date before the start date", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "active" });
 
     await expect(
       service.apply("tenant-1", "user-1", { start_date: "2026-04-12", end_date: "2026-04-10" }),
     ).rejects.toThrow();
+  });
+
+  it("allows an on_leave staff member to apply", async () => {
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "on_leave" });
+    prisma.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "pending" });
+
+    await service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12" });
+
+    expect(prisma.staffLeaveRequest.create).toHaveBeenCalled();
+  });
+
+  it("rejects a relieved staff member", async () => {
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "relieved" });
+
+    await expect(
+      service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12" }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.staffLeaveRequest.create).not.toHaveBeenCalled();
   });
 });
 
@@ -145,6 +163,7 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
       branchId: "branch-1",
       firstName: "Asha",
       lastName: "Rao",
+      status: "active",
     });
     prisma.__tx.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "approved" });
     prisma.__tx.staffAttendance.upsert.mockResolvedValue({});
@@ -174,6 +193,21 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
     await expect(
       service.file("tenant-1", "hr-1", { staff_id: "missing", start_date: "2026-04-10", end_date: "2026-04-12" }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("rejects filing leave for a terminated staff member", async () => {
+    prisma.staff.findFirst.mockResolvedValueOnce({
+      id: "staff-1",
+      branchId: "branch-1",
+      firstName: "Asha",
+      lastName: "Rao",
+      status: "terminated",
+    });
+
+    await expect(
+      service.file("tenant-1", "hr-1", { staff_id: "staff-1", start_date: "2026-04-10", end_date: "2026-04-12" }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.__tx.staffLeaveRequest.create).not.toHaveBeenCalled();
   });
 });
 
