@@ -43,8 +43,12 @@ export class ExamsController {
 
   @Get()
   @RequirePermission("exams.view")
-  list(@Query("branch_id") branchId: string, @Query("class_id") classId?: string) {
-    return this.examsService.listExams(branchId, classId);
+  list(
+    @Query("branch_id") branchId: string,
+    @Query("class_id") classId?: string,
+    @Query("academic_session_id") academicSessionId?: string,
+  ) {
+    return this.examsService.listExams(branchId, classId, academicSessionId);
   }
 
   @Post()

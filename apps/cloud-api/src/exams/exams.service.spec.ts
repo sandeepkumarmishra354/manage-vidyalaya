@@ -438,3 +438,41 @@ describe("ExamsService.reopenExamResults", () => {
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ExamsService.listExams", () => {
+  let prisma: { exam: { findMany: ReturnType<typeof vi.fn> } };
+  let service: ExamsService;
+
+  beforeEach(() => {
+    prisma = { exam: { findMany: vi.fn().mockResolvedValue([]) } };
+    service = new ExamsService(
+      prisma as unknown as PrismaService,
+      makeAuditMock(),
+      {} as ScopedAccessService,
+      {} as ClassSubjectsService,
+    );
+  });
+
+  it("scopes to the branch with no extra filters when none are given", async () => {
+    await service.listExams("branch-1");
+    expect(prisma.exam.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { branchId: "branch-1", deletedAt: null },
+      }),
+    );
+  });
+
+  it("combines class and session filters with AND", async () => {
+    await service.listExams("branch-1", "class-1", "session-1");
+    expect(prisma.exam.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          branchId: "branch-1",
+          deletedAt: null,
+          classId: "class-1",
+          academicSessionId: "session-1",
+        },
+      }),
+    );
+  });
+});

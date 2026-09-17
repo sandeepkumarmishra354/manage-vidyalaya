@@ -64,9 +64,22 @@ export class UsersService {
     });
   }
 
-  async listUsers(tenantId: string) {
+  async listUsers(tenantId: string, search?: string, roleId?: string) {
+    const term = (search ?? "").trim();
     const users = await this.prisma.user.findMany({
-      where: { tenantId, deletedAt: null },
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(roleId ? { userRoles: { some: { roleId } } } : {}),
+        ...(term
+          ? {
+              OR: [
+                { fullName: { contains: term, mode: "insensitive" } },
+                { email: { contains: term, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
       include: { userRoles: true },
       orderBy: { fullName: "asc" },
     });

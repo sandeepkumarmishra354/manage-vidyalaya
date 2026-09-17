@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type AuditLogEntry } from "@/lib/api";
+import { api, type AuditLogEntry, type UserSummary } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/date";
+
+const ALL = "__all__";
 
 const actionVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   create: "default",
@@ -19,21 +22,27 @@ const actionVariant: Record<string, "default" | "secondary" | "outline" | "destr
 export function AuditLogPage() {
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [entityTable, setEntityTable] = useState("");
+  const [actorFilter, setActorFilter] = useState(ALL);
+  const [users, setUsers] = useState<UserSummary[]>([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    api.listUsers().then(setUsers);
+  }, []);
 
   const refresh = useCallback(() => {
     api
       .listAuditLog({
         entity_table: entityTable || null,
-        actor_user_id: null,
+        actor_user_id: actorFilter === ALL ? null : actorFilter,
         from_date: fromDate || null,
         to_date: toDate || null,
         page,
       })
       .then(setEntries);
-  }, [entityTable, fromDate, toDate, page]);
+  }, [entityTable, actorFilter, fromDate, toDate, page]);
 
   useEffect(() => {
     refresh();
@@ -56,6 +65,22 @@ export function AuditLogPage() {
             onChange={(e) => { setEntityTable(e.target.value); setPage(0); }}
             className="w-40"
           />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="actor-filter">Actor</Label>
+          <Select value={actorFilter} onValueChange={(v) => { setActorFilter(v); setPage(0); }}>
+            <SelectTrigger id="actor-filter" className="w-44">
+              <SelectValue placeholder="Actor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All actors</SelectItem>
+              {users.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.full_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="from-date">From</Label>

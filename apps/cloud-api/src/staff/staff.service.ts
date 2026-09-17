@@ -1,18 +1,26 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { CreateStaffDto } from "./dto/create-staff.dto.js";
 import type { CreateTeacherAssignmentDto } from "./dto/create-teacher-assignment.dto.js";
+import type { IssueExperienceLetterDto } from "./dto/issue-experience-letter.dto.js";
 import type { SetClassTeacherDto } from "./dto/set-class-teacher.dto.js";
 import type { SetStaffStatusDto } from "./dto/set-staff-status.dto.js";
 import type { UpdateStaffDto } from "./dto/update-staff.dto.js";
 
 function toDateOrNull(value?: string | null) {
   return value ? new Date(value) : null;
+}
+
+// Same convention as generateReceiptNumber/generateTcNumber elsewhere.
+function generateExperienceLetterNumber(branchId: string): string {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const rand = randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase();
+  return `EXP-${branchId.slice(0, 4).toUpperCase()}-${datePart}-${rand}`;
 }
 
 @Injectable()
@@ -22,12 +30,19 @@ export class StaffService {
     private readonly audit: AuditService,
   ) {}
 
-  async listStaff(branchId: string, search?: string) {
+  async listStaff(
+    branchId: string,
+    search?: string,
+    filters?: { categoryId?: string; department?: string; status?: string },
+  ) {
     const term = (search ?? "").trim();
     const staff = await this.prisma.staff.findMany({
       where: {
         branchId,
         deletedAt: null,
+        ...(filters?.categoryId ? { categoryId: filters.categoryId } : {}),
+        ...(filters?.department ? { department: filters.department } : {}),
+        ...(filters?.status ? { status: filters.status } : {}),
         ...(term
           ? {
               OR: [
@@ -268,6 +283,72 @@ export class StaffService {
 
       return updated;
     });
+  }
+
+  // Issues (or re-issues the mutable fields of) an Experience Letter.
+  // Idempotent on the letter number -- called again for the same staff
+  // member it updates reason/date/remark but never regenerates the number.
+  // Sets status to "relieved", which every active-staff selection query in
+  // this codebase (attendance roster, payroll generation, class-teacher
+  // picker) already filters on status "active" and so excludes automatically.
+  async issueExperienceLetter(tenantId: string, actorUserId: string, staffId: string, dto: IssueExperienceLetterDto) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    const now = new Date();
+    const letterNumber = staff.experienceLetterNumber ?? generateExperienceLetterNumber(staff.branchId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.staff.update({
+        where: { id: staffId },
+        data: {
+          reasonForLeaving: dto.reason_for_leaving,
+          dateOfLeaving: new Date(dto.date_of_leaving),
+          conductRemark: dto.conduct_remark ?? null,
+          experienceLetterNumber: letterNumber,
+          experienceLetterIssueDate: staff.experienceLetterIssueDate ?? now,
+          status: "relieved",
+          updatedAt: now,
+          updatedBy: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId,
+        branchId: staff.branchId,
+        actorUserId,
+        entityTable: "staff",
+        entityId: staffId,
+        action: "update",
+        summary: `Issued Experience Letter ${letterNumber}`,
+      });
+
+      return updated;
+    });
+  }
+
+  async getExperienceLetter(tenantId: string, staffId: string) {
+    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    return {
+      staff_id: staff.id,
+      employee_code: staff.employeeCode,
+      first_name: staff.firstName,
+      last_name: staff.lastName,
+      designation: staff.designation,
+      department: staff.department,
+      date_of_joining: staff.dateOfJoining,
+      date_of_leaving: staff.dateOfLeaving,
+      reason_for_leaving: staff.reasonForLeaving,
+      conduct_remark: staff.conductRemark,
+      experience_letter_number: staff.experienceLetterNumber,
+      experience_letter_issue_date: staff.experienceLetterIssueDate,
+      status: staff.status,
+    };
   }
 
   async listTeacherAssignments(branchId: string, staffId?: string) {

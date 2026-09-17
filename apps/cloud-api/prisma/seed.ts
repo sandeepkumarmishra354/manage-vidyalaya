@@ -63,6 +63,10 @@ const DEFAULT_MASTER_DATA_ITEMS: { type: string; name: string }[] = [
   ...["General", "OBC", "SC", "ST", "Other"].map((name) => ({ type: "student_category", name })),
   ...["Male", "Female", "Other"].map((name) => ({ type: "gender", name })),
   ...["Father", "Mother", "Guardian"].map((name) => ({ type: "guardian_relation", name })),
+  ...["Utilities", "Stationery", "Maintenance", "Transport & Fuel", "Miscellaneous"].map((name) => ({
+    type: "expense_category",
+    name,
+  })),
 ];
 
 const prisma = new PrismaClient();

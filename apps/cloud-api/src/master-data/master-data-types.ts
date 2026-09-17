@@ -13,6 +13,7 @@ export const MASTER_DATA_TYPES = [
   "mother_tongue",
   "student_category",
   "guardian_relation",
+  "expense_category",
 ] as const;
 
 export type MasterDataType = (typeof MASTER_DATA_TYPES)[number];
@@ -32,4 +33,5 @@ export const MANAGE_PERMISSION_BY_TYPE: Record<MasterDataType, PermissionKey> = 
   mother_tongue: "master_data.manage_mother_tongue",
   student_category: "master_data.manage_student_category",
   guardian_relation: "master_data.manage_guardian_relation",
+  expense_category: "master_data.manage_expense_category",
 };

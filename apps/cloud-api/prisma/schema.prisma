@@ -123,18 +123,21 @@ model User {
   userRoles UserRole[]
 
   // Reverse relations from actor/owner foreign keys across domain modules.
-  staffAccounts            Staff[]
-  admissionsDecided        Admission[]
-  attendanceRecordsMarked  AttendanceRecord[]
-  feePaymentsRecorded      FeePayment[]
-  housePointEventsAwarded  HousePointEvent[]
-  libraryIssuesIssued      LibraryIssue[]
-  payrollRunsGenerated     PayrollRun[]
-  promotionBatchesExecuted PromotionBatch[]
-  staffAttendanceMarked    StaffAttendance[]
-  staffLeaveRequestsFiled  StaffLeaveRequest[] @relation("StaffLeaveRequestedBy")
+  staffAccounts             Staff[]
+  admissionsDecided         Admission[]
+  attendanceRecordsMarked   AttendanceRecord[]
+  feePaymentsRecorded       FeePayment[]
+  housePointEventsAwarded   HousePointEvent[]
+  libraryIssuesIssued       LibraryIssue[]
+  payrollRunsGenerated      PayrollRun[]
+  promotionBatchesExecuted  PromotionBatch[]
+  staffAttendanceMarked     StaffAttendance[]
+  staffLeaveRequestsFiled   StaffLeaveRequest[] @relation("StaffLeaveRequestedBy")
   staffLeaveRequestsDecided StaffLeaveRequest[] @relation("StaffLeaveDecidedBy")
-  auditLogsActor           AuditLog[]
+  auditLogsActor            AuditLog[]
+  studentDocuments          StudentDocument[]
+  staffDocuments            StaffDocument[]
+  expenses                  Expense[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -322,6 +325,22 @@ model Student {
   medicalNotes          String?   @map("medical_notes")
   emergencyContactName  String?   @map("emergency_contact_name")
   emergencyContactPhone String?   @map("emergency_contact_phone")
+  // Exit / Transfer Certificate fields -- populated when a student leaves
+  // (withdrawal or graduation). tcNumber is generated once by
+  // POST /students/:id/transfer-certificate and never regenerated.
+  dateOfLeaving         DateTime? @map("date_of_leaving")
+  reasonForLeaving      String?   @map("reason_for_leaving")
+  tcNumber              String?   @map("tc_number")
+  tcIssueDate           DateTime? @map("tc_issue_date")
+  conductRemark         String?   @map("conduct_remark")
+  // Alumni directory fields -- only meaningful once status = "alumni", but
+  // left as plain optional columns (no hard validation tying them to
+  // status) matching this schema's convention elsewhere.
+  graduationYear        Int?      @map("graduation_year")
+  higherEducation       String?   @map("higher_education")
+  currentOccupation     String?   @map("current_occupation")
+  alumniContactEmail    String?   @map("alumni_contact_email")
+  alumniNotes           String?   @map("alumni_notes")
   updatedAt             DateTime  @map("updated_at")
   updatedBy             String?   @map("updated_by")
   deletedAt             DateTime? @map("deleted_at")
@@ -344,6 +363,7 @@ model Student {
   studentEnrollments    StudentEnrollment[]
   promotionBatchItems   PromotionBatchItem[]
   electiveChoices       StudentElectiveChoice[]
+  documents             StudentDocument[]
 
   @@unique([tenantId, admissionNumber])
   @@index([tenantId, branchId])
@@ -1066,48 +1086,54 @@ model MasterDataItem {
 }
 
 model Staff {
-  id                    String    @id
-  tenantId              String    @map("tenant_id")
-  branchId              String    @map("branch_id")
-  userId                String?   @map("user_id")
-  employeeCode          String    @map("employee_code")
-  firstName             String    @map("first_name")
-  lastName              String?   @map("last_name")
-  dateOfBirth           DateTime? @map("date_of_birth")
-  gender                String?
-  phone                 String?
-  personalEmail         String?   @map("personal_email")
-  address               String?
-  city                  String?
-  state                 String?
-  pincode               String?
-  designation           String
-  department            String?
-  categoryId            String?   @map("category_id")
-  employmentType        String    @default("full_time") @map("employment_type")
-  dateOfJoining         DateTime  @map("date_of_joining")
-  dateOfLeaving         DateTime? @map("date_of_leaving")
-  status                String    @default("active")
-  qualification         String?
-  bloodGroup            String?   @map("blood_group")
-  photoPath             String?   @map("photo_path")
-  signatureUrl          String?   @map("signature_url")
-  isPrincipal           Boolean   @default(false) @map("is_principal")
-  panNumber             String?   @map("pan_number")
-  aadhaarNumber         String?   @map("aadhaar_number")
-  bankAccountNumber     String?   @map("bank_account_number")
-  bankIfsc              String?   @map("bank_ifsc")
-  bankName              String?   @map("bank_name")
-  pfNumber              String?   @map("pf_number")
-  esiNumber             String?   @map("esi_number")
-  uanNumber             String?   @map("uan_number")
-  emergencyContactName  String?   @map("emergency_contact_name")
-  emergencyContactPhone String?   @map("emergency_contact_phone")
-  notes                 String?
-  updatedAt             DateTime  @map("updated_at")
-  updatedBy             String?   @map("updated_by")
-  deletedAt             DateTime? @map("deleted_at")
-  version               Int       @default(1)
+  id                        String    @id
+  tenantId                  String    @map("tenant_id")
+  branchId                  String    @map("branch_id")
+  userId                    String?   @map("user_id")
+  employeeCode              String    @map("employee_code")
+  firstName                 String    @map("first_name")
+  lastName                  String?   @map("last_name")
+  dateOfBirth               DateTime? @map("date_of_birth")
+  gender                    String?
+  phone                     String?
+  personalEmail             String?   @map("personal_email")
+  address                   String?
+  city                      String?
+  state                     String?
+  pincode                   String?
+  designation               String
+  department                String?
+  categoryId                String?   @map("category_id")
+  employmentType            String    @default("full_time") @map("employment_type")
+  dateOfJoining             DateTime  @map("date_of_joining")
+  dateOfLeaving             DateTime? @map("date_of_leaving")
+  status                    String    @default("active")
+  qualification             String?
+  bloodGroup                String?   @map("blood_group")
+  photoPath                 String?   @map("photo_path")
+  signatureUrl              String?   @map("signature_url")
+  isPrincipal               Boolean   @default(false) @map("is_principal")
+  panNumber                 String?   @map("pan_number")
+  aadhaarNumber             String?   @map("aadhaar_number")
+  bankAccountNumber         String?   @map("bank_account_number")
+  bankIfsc                  String?   @map("bank_ifsc")
+  bankName                  String?   @map("bank_name")
+  pfNumber                  String?   @map("pf_number")
+  esiNumber                 String?   @map("esi_number")
+  uanNumber                 String?   @map("uan_number")
+  emergencyContactName      String?   @map("emergency_contact_name")
+  emergencyContactPhone     String?   @map("emergency_contact_phone")
+  notes                     String?
+  // Exit / Experience Letter fields -- experienceLetterNumber is generated
+  // once by POST /staff/:id/experience-letter and never regenerated.
+  reasonForLeaving          String?   @map("reason_for_leaving")
+  experienceLetterNumber    String?   @map("experience_letter_number")
+  experienceLetterIssueDate DateTime? @map("experience_letter_issue_date")
+  conductRemark             String?   @map("conduct_remark")
+  updatedAt                 DateTime  @map("updated_at")
+  updatedBy                 String?   @map("updated_by")
+  deletedAt                 DateTime? @map("deleted_at")
+  version                   Int       @default(1)
 
   user     User?          @relation(fields: [userId], references: [id])
   category StaffCategory? @relation(fields: [categoryId], references: [id])
@@ -1118,6 +1144,7 @@ model Staff {
   leaveRequests          StaffLeaveRequest[]
   salaryStructures       SalaryStructure[]
   payslips               Payslip[]
+  documents              StaffDocument[]
 
   @@unique([tenantId, employeeCode])
   @@index([branchId])
@@ -1210,6 +1237,93 @@ model StaffLeaveRequest {
   @@index([staffId, status])
   @@index([branchId, status])
   @@map("staff_leave_requests")
+}
+
+// ============================================================================
+// Documents (Student/Staff file uploads via StorageService signed URLs)
+// ============================================================================
+
+model StudentDocument {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  branchId         String    @map("branch_id")
+  studentId        String    @map("student_id")
+  label            String
+  storageKey       String    @map("storage_key")
+  fileName         String    @map("file_name")
+  mimeType         String    @map("mime_type")
+  fileSize         Int       @map("file_size")
+  uploadedByUserId String    @map("uploaded_by_user_id")
+  createdAt        DateTime  @map("created_at")
+  updatedAt        DateTime  @map("updated_at")
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at")
+  version          Int       @default(1)
+
+  student    Student @relation(fields: [studentId], references: [id])
+  uploadedBy User    @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([studentId])
+  @@map("student_documents")
+}
+
+model StaffDocument {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  branchId         String    @map("branch_id")
+  staffId          String    @map("staff_id")
+  label            String
+  storageKey       String    @map("storage_key")
+  fileName         String    @map("file_name")
+  mimeType         String    @map("mime_type")
+  fileSize         Int       @map("file_size")
+  uploadedByUserId String    @map("uploaded_by_user_id")
+  createdAt        DateTime  @map("created_at")
+  updatedAt        DateTime  @map("updated_at")
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at")
+  version          Int       @default(1)
+
+  staff      Staff @relation(fields: [staffId], references: [id])
+  uploadedBy User  @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([staffId])
+  @@map("staff_documents")
+}
+
+// ============================================================================
+// Expense Manager
+// ============================================================================
+
+model Expense {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  branchId          String    @map("branch_id")
+  // Stores the MasterDataItem NAME (type "expense_category"), not its id --
+  // matches how every other MasterDataSelect-backed field in this schema
+  // (Student.category, Student.religion, etc.) is a plain snapshot string,
+  // not a foreign key, so a later rename doesn't retroactively change past
+  // records. Field name kept as *_id for API-contract stability; see
+  // ExpensesService for the actual read/write behavior.
+  categoryId        String?   @map("category_id")
+  description       String
+  amount            Int // paise, matching every other money amount in this schema
+  expenseDate       DateTime  @map("expense_date")
+  paymentMode       String?   @map("payment_mode")
+  vendorName        String?   @map("vendor_name")
+  receiptStorageKey String?   @map("receipt_storage_key")
+  recordedByUserId  String    @map("recorded_by_user_id")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at")
+  version           Int       @default(1)
+
+  recordedBy User @relation(fields: [recordedByUserId], references: [id])
+
+  @@index([branchId, expenseDate])
+  @@index([categoryId])
+  @@map("expenses")
 }
 
 // ============================================================================

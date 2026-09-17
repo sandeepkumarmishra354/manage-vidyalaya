@@ -60,9 +60,14 @@ export class ExamsService {
     });
   }
 
-  listExams(branchId: string, classId?: string) {
+  listExams(branchId: string, classId?: string, academicSessionId?: string) {
     return this.prisma.exam.findMany({
-      where: { branchId, deletedAt: null, ...(classId ? { classId } : {}) },
+      where: {
+        branchId,
+        deletedAt: null,
+        ...(classId ? { classId } : {}),
+        ...(academicSessionId ? { academicSessionId } : {}),
+      },
       orderBy: [{ examDate: "desc" }, { name: "asc" }],
     });
   }

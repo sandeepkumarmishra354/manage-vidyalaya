@@ -7,6 +7,7 @@ import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateStaffDto } from "./dto/create-staff.dto.js";
 import { CreateTeacherAssignmentDto } from "./dto/create-teacher-assignment.dto.js";
+import { IssueExperienceLetterDto } from "./dto/issue-experience-letter.dto.js";
 import { SetClassTeacherDto } from "./dto/set-class-teacher.dto.js";
 import { SetStaffStatusDto } from "./dto/set-staff-status.dto.js";
 import { UpdateStaffDto } from "./dto/update-staff.dto.js";
@@ -19,8 +20,14 @@ export class StaffController {
 
   @Get()
   @RequirePermission("staff.view")
-  list(@Query("branch_id") branchId: string, @Query("search") search?: string) {
-    return this.staffService.listStaff(branchId, search);
+  list(
+    @Query("branch_id") branchId: string,
+    @Query("search") search?: string,
+    @Query("category_id") categoryId?: string,
+    @Query("department") department?: string,
+    @Query("status") status?: string,
+  ) {
+    return this.staffService.listStaff(branchId, search, { categoryId, department, status });
   }
 
   // No @RequirePermission -- resolving a signature to render on a printed
@@ -59,6 +66,18 @@ export class StaffController {
   @RequirePermission("staff.manage_profile")
   setStatus(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetStaffStatusDto) {
     return this.staffService.setStaffStatus(user.tenant_id, user.sub, id, dto);
+  }
+
+  @Get(":id/experience-letter")
+  @RequirePermission("staff.view")
+  getExperienceLetter(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.getExperienceLetter(user.tenant_id, id);
+  }
+
+  @Post(":id/experience-letter")
+  @RequirePermission("staff.manage_profile")
+  issueExperienceLetter(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: IssueExperienceLetterDto) {
+    return this.staffService.issueExperienceLetter(user.tenant_id, user.sub, id, dto);
   }
 }
 
