@@ -267,7 +267,7 @@ export class FeeDiscountsService {
 
   // Thin pass-through to the existing sibling lookup -- powers a "Suggest
   // siblings" helper when assigning a discount like "sibling discount".
-  suggestSiblingsForDiscount(studentId: string) {
-    return this.studentsService.getSiblings(studentId);
+  suggestSiblingsForDiscount(tenantId: string, studentId: string) {
+    return this.studentsService.getSiblings(tenantId, studentId);
   }
 }

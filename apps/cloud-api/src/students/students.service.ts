@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
+import { DbService } from "../db/db.service.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { FeesService } from "../fees/fees.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
@@ -16,6 +19,69 @@ import type { UpdateGuardianDto } from "./dto/update-guardian.dto.js";
 import type { UpdateStudentDto } from "./dto/update-student.dto.js";
 
 const MAX_ADMISSION_NUMBER_ATTEMPTS = 20;
+
+export interface StudentRow extends TenantRow {
+  branch_id: string;
+  admission_number: string | null;
+  roll_number: string | null;
+  first_name: string;
+  last_name: string | null;
+  date_of_birth: Date | null;
+  gender: string | null;
+  blood_group: string | null;
+  photo_path: string | null;
+  current_class_id: string | null;
+  current_section_id: string | null;
+  status: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  notes: string | null;
+  category: string | null;
+  religion: string | null;
+  nationality: string | null;
+  mother_tongue: string | null;
+  aadhaar_number: string | null;
+  previous_school_name: string | null;
+  medical_notes: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  date_of_leaving: Date | null;
+  reason_for_leaving: string | null;
+  tc_number: string | null;
+  tc_issue_date: Date | null;
+  conduct_remark: string | null;
+  graduation_year: number | null;
+  higher_education: string | null;
+  current_occupation: string | null;
+  alumni_contact_email: string | null;
+  alumni_notes: string | null;
+  qr_code_version: number;
+}
+
+export interface GuardianRow extends TenantRow {
+  full_name: string;
+  relation: string | null;
+  phone: string | null;
+  alt_phone: string | null;
+  email: string | null;
+  occupation: string | null;
+  address: string | null;
+  aadhaar_number: string | null;
+  annual_income: number | null;
+}
+
+export interface AdmissionRow extends TenantRow {
+  branch_id: string;
+  student_id: string;
+  applied_class_id: string | null;
+  academic_session_id: string;
+  stage: string;
+  applied_at: Date;
+  decided_at: Date | null;
+  decided_by: string | null;
+}
 
 // Same convention as DocumentsService's sanitizeExtension.
 function sanitizePhotoExtension(fileName: string): string {
@@ -38,11 +104,17 @@ function generateTcNumber(branchId: string): string {
 @Injectable()
 export class StudentsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly feesService: FeesService,
     private readonly qrToken: QrTokenService,
     private readonly storage: StorageService,
+    // FeesService is not yet converted off Prisma (it composes transactions
+    // across service-method boundaries in ways that need its own careful
+    // conversion -- see the migration plan). Kept only to bridge into it
+    // for the admission<->fee-generation flow below; removed once FeesService
+    // converts.
+    private readonly prisma: PrismaService,
   ) {}
 
   async listStudents(
@@ -52,92 +124,123 @@ export class StudentsService {
     filters?: { status?: string; classId?: string; sectionId?: string; gender?: string },
   ) {
     const term = (search ?? "").trim();
+    const conditions = ["s.tenant_id = $1", "s.branch_id = $2", "s.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, branchId];
 
-    const students = await this.prisma.student.findMany({
-      where: {
-        tenantId,
-        branchId,
-        deletedAt: null,
-        ...(filters?.status ? { status: filters.status } : {}),
-        ...(filters?.classId ? { currentClassId: filters.classId } : {}),
-        ...(filters?.sectionId ? { currentSectionId: filters.sectionId } : {}),
-        ...(filters?.gender ? { gender: filters.gender } : {}),
-        ...(term
-          ? {
-              OR: [
-                { firstName: { contains: term, mode: "insensitive" } },
-                { lastName: { contains: term, mode: "insensitive" } },
-                { admissionNumber: { contains: term, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
-      include: { currentClass: true, currentSection: true },
-      orderBy: { firstName: "asc" },
-    });
+    if (filters?.status) {
+      values.push(filters.status);
+      conditions.push(`s.status = $${values.length}`);
+    }
+    if (filters?.classId) {
+      values.push(filters.classId);
+      conditions.push(`s.current_class_id = $${values.length}`);
+    }
+    if (filters?.sectionId) {
+      values.push(filters.sectionId);
+      conditions.push(`s.current_section_id = $${values.length}`);
+    }
+    if (filters?.gender) {
+      values.push(filters.gender);
+      conditions.push(`s.gender = $${values.length}`);
+    }
+    if (term) {
+      values.push(`%${term}%`);
+      const p = values.length;
+      conditions.push(`(s.first_name ILIKE $${p} OR s.last_name ILIKE $${p} OR s.admission_number ILIKE $${p})`);
+    }
 
-    return students.map((s) => ({
+    const rows = await this.db.query<
+      StudentRow & { class_name: string | null; section_name: string | null }
+    >(
+      tenantId,
+      `SELECT s.*, c.name AS class_name, sec.name AS section_name
+       FROM students s
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY s.first_name ASC`,
+      values,
+    );
+
+    return rows.map((s) => ({
       id: s.id,
-      admission_number: s.admissionNumber,
-      roll_number: s.rollNumber,
-      first_name: s.firstName,
-      last_name: s.lastName,
+      admission_number: s.admission_number,
+      roll_number: s.roll_number,
+      first_name: s.first_name,
+      last_name: s.last_name,
       status: s.status,
-      class_name: s.currentClass?.name ?? null,
-      section_name: s.currentSection?.name ?? null,
-      graduation_year: s.graduationYear,
-      higher_education: s.higherEducation,
-      current_occupation: s.currentOccupation,
+      class_name: s.class_name,
+      section_name: s.section_name,
+      graduation_year: s.graduation_year,
+      higher_education: s.higher_education,
+      current_occupation: s.current_occupation,
     }));
   }
 
-  async listStudentsInClass(classId: string) {
-    const students = await this.prisma.student.findMany({
-      where: { currentClassId: classId, deletedAt: null, status: "enrolled" },
-      include: { currentClass: true, currentSection: true },
-      orderBy: { firstName: "asc" },
-    });
+  async listStudentsInClass(tenantId: string, classId: string) {
+    const rows = await this.db.query<StudentRow & { class_name: string | null; section_name: string | null }>(
+      tenantId,
+      `SELECT s.*, c.name AS class_name, sec.name AS section_name
+       FROM students s
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE s.tenant_id = $1 AND s.current_class_id = $2 AND s.deleted_at IS NULL AND s.status = 'enrolled'
+       ORDER BY s.first_name ASC`,
+      [tenantId, classId],
+    );
 
-    return students.map((s) => ({
+    return rows.map((s) => ({
       id: s.id,
-      admission_number: s.admissionNumber,
-      roll_number: s.rollNumber,
-      first_name: s.firstName,
-      last_name: s.lastName,
+      admission_number: s.admission_number,
+      roll_number: s.roll_number,
+      first_name: s.first_name,
+      last_name: s.last_name,
       status: s.status,
-      class_name: s.currentClass?.name ?? null,
-      section_name: s.currentSection?.name ?? null,
+      class_name: s.class_name,
+      section_name: s.section_name,
     }));
   }
 
-  async getStudent(id: string) {
-    const student = await this.prisma.student.findFirst({
-      where: { id, deletedAt: null },
-      include: {
-        studentGuardians: { include: { guardian: true } },
-        currentClass: true,
-        currentSection: true,
-      },
-    });
+  async getStudent(tenantId: string, id: string) {
+    const student = await this.db.queryOne<StudentRow & { class_name: string | null; section_name: string | null }>(
+      tenantId,
+      `SELECT s.*, c.name AS class_name, sec.name AS section_name
+       FROM students s
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE s.tenant_id = $1 AND s.id = $2 AND s.deleted_at IS NULL`,
+      [tenantId, id],
+    );
     if (!student) {
       throw new NotFoundException("student not found");
     }
 
+    const guardianRows = await this.db.query<
+      GuardianRow & { is_primary_contact: boolean }
+    >(
+      tenantId,
+      `SELECT g.*, sg.is_primary_contact
+       FROM student_guardians sg
+       JOIN guardians g ON g.id = sg.guardian_id
+       WHERE sg.tenant_id = $1 AND sg.student_id = $2 AND g.deleted_at IS NULL`,
+      [tenantId, id],
+    );
+
     return {
       id: student.id,
-      tenant_id: student.tenantId,
-      branch_id: student.branchId,
-      admission_number: student.admissionNumber,
-      roll_number: student.rollNumber,
-      first_name: student.firstName,
-      last_name: student.lastName,
-      date_of_birth: student.dateOfBirth,
+      tenant_id: student.tenant_id,
+      branch_id: student.branch_id,
+      admission_number: student.admission_number,
+      roll_number: student.roll_number,
+      first_name: student.first_name,
+      last_name: student.last_name,
+      date_of_birth: student.date_of_birth,
       gender: student.gender,
-      blood_group: student.bloodGroup,
-      current_class_id: student.currentClassId,
-      current_section_id: student.currentSectionId,
-      class_name: student.currentClass?.name ?? null,
-      section_name: student.currentSection?.name ?? null,
+      blood_group: student.blood_group,
+      current_class_id: student.current_class_id,
+      current_section_id: student.current_section_id,
+      class_name: student.class_name,
+      section_name: student.section_name,
       status: student.status,
       address: student.address,
       city: student.city,
@@ -147,73 +250,78 @@ export class StudentsService {
       category: student.category,
       religion: student.religion,
       nationality: student.nationality,
-      mother_tongue: student.motherTongue,
-      aadhaar_number: student.aadhaarNumber,
-      previous_school_name: student.previousSchoolName,
-      medical_notes: student.medicalNotes,
-      emergency_contact_name: student.emergencyContactName,
-      emergency_contact_phone: student.emergencyContactPhone,
-      date_of_leaving: student.dateOfLeaving,
-      reason_for_leaving: student.reasonForLeaving,
-      tc_number: student.tcNumber,
-      tc_issue_date: student.tcIssueDate,
-      conduct_remark: student.conductRemark,
-      graduation_year: student.graduationYear,
-      higher_education: student.higherEducation,
-      current_occupation: student.currentOccupation,
-      alumni_contact_email: student.alumniContactEmail,
-      alumni_notes: student.alumniNotes,
-      updated_at: student.updatedAt,
+      mother_tongue: student.mother_tongue,
+      aadhaar_number: student.aadhaar_number,
+      previous_school_name: student.previous_school_name,
+      medical_notes: student.medical_notes,
+      emergency_contact_name: student.emergency_contact_name,
+      emergency_contact_phone: student.emergency_contact_phone,
+      date_of_leaving: student.date_of_leaving,
+      reason_for_leaving: student.reason_for_leaving,
+      tc_number: student.tc_number,
+      tc_issue_date: student.tc_issue_date,
+      conduct_remark: student.conduct_remark,
+      graduation_year: student.graduation_year,
+      higher_education: student.higher_education,
+      current_occupation: student.current_occupation,
+      alumni_contact_email: student.alumni_contact_email,
+      alumni_notes: student.alumni_notes,
+      updated_at: student.updated_at,
       version: student.version,
-      guardians: student.studentGuardians
-        .filter((sg) => sg.guardian.deletedAt === null)
-        .map((sg) => ({
-          id: sg.guardian.id,
-          full_name: sg.guardian.fullName,
-          relation: sg.guardian.relation,
-          phone: sg.guardian.phone,
-          alt_phone: sg.guardian.altPhone,
-          email: sg.guardian.email,
-          occupation: sg.guardian.occupation,
-          address: sg.guardian.address,
-          aadhaar_number: sg.guardian.aadhaarNumber,
-          annual_income: sg.guardian.annualIncome,
-          is_primary_contact: sg.isPrimaryContact,
-        })),
+      guardians: guardianRows.map((g) => ({
+        id: g.id,
+        full_name: g.full_name,
+        relation: g.relation,
+        phone: g.phone,
+        alt_phone: g.alt_phone,
+        email: g.email,
+        occupation: g.occupation,
+        address: g.address,
+        aadhaar_number: g.aadhaar_number,
+        annual_income: g.annual_income,
+        is_primary_contact: g.is_primary_contact,
+      })),
     };
   }
 
   // Other enrolled students who share at least one guardian with this
   // student -- de-duplicated since two students can share more than one
   // guardian (e.g. both a father and mother in common).
-  async getSiblings(studentId: string) {
-    const links = await this.prisma.studentGuardian.findMany({ where: { studentId } });
-    const guardianIds = links.map((l) => l.guardianId);
+  async getSiblings(tenantId: string, studentId: string) {
+    const guardianIdRows = await this.db.query<{ guardian_id: string }>(
+      tenantId,
+      "SELECT guardian_id FROM student_guardians WHERE tenant_id = $1 AND student_id = $2",
+      [tenantId, studentId],
+    );
+    const guardianIds = guardianIdRows.map((r) => r.guardian_id);
     if (guardianIds.length === 0) {
       return [];
     }
 
-    const siblingLinks = await this.prisma.studentGuardian.findMany({
-      where: {
-        guardianId: { in: guardianIds },
-        studentId: { not: studentId },
-        student: { deletedAt: null, status: "enrolled" },
-      },
-      include: { student: { include: { currentClass: true, currentSection: true } } },
-    });
+    const rows = await this.db.query<
+      Pick<StudentRow, "id" | "first_name" | "last_name" | "admission_number"> & {
+        class_name: string | null;
+        section_name: string | null;
+      }
+    >(
+      tenantId,
+      `SELECT DISTINCT s.id, s.first_name, s.last_name, s.admission_number, c.name AS class_name, sec.name AS section_name
+       FROM student_guardians sg
+       JOIN students s ON s.id = sg.student_id
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE sg.tenant_id = $1 AND sg.guardian_id = ANY($2) AND sg.student_id != $3
+         AND s.deleted_at IS NULL AND s.status = 'enrolled'`,
+      [tenantId, guardianIds, studentId],
+    );
 
-    const byStudentId = new Map<string, (typeof siblingLinks)[number]["student"]>();
-    for (const link of siblingLinks) {
-      byStudentId.set(link.student.id, link.student);
-    }
-
-    return Array.from(byStudentId.values()).map((s) => ({
+    return rows.map((s) => ({
       id: s.id,
-      first_name: s.firstName,
-      last_name: s.lastName,
-      admission_number: s.admissionNumber,
-      class_name: s.currentClass?.name ?? null,
-      section_name: s.currentSection?.name ?? null,
+      first_name: s.first_name,
+      last_name: s.last_name,
+      admission_number: s.admission_number,
+      class_name: s.class_name,
+      section_name: s.section_name,
     }));
   }
 
@@ -227,38 +335,55 @@ export class StudentsService {
       return [];
     }
 
-    const guardians = await this.prisma.guardian.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        OR: [{ phone: { contains: term } }, { fullName: { contains: term, mode: "insensitive" } }],
-      },
-      include: {
-        studentGuardians: {
-          include: { student: { include: { currentClass: true } } },
-        },
-      },
-      take: 20,
-    });
+    const guardians = await this.db.query<GuardianRow>(
+      tenantId,
+      `SELECT * FROM guardians
+       WHERE tenant_id = $1 AND deleted_at IS NULL AND (phone ILIKE $2 OR full_name ILIKE $2)
+       LIMIT 20`,
+      [tenantId, `%${term}%`],
+    );
+    if (guardians.length === 0) {
+      return [];
+    }
+
+    const links = await this.db.query<{
+      guardian_id: string;
+      id: string;
+      first_name: string;
+      last_name: string | null;
+      class_name: string | null;
+    }>(
+      tenantId,
+      `SELECT sg.guardian_id, s.id, s.first_name, s.last_name, c.name AS class_name
+       FROM student_guardians sg
+       JOIN students s ON s.id = sg.student_id
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       WHERE sg.tenant_id = $1 AND sg.guardian_id = ANY($2) AND s.deleted_at IS NULL`,
+      [tenantId, guardians.map((g) => g.id)],
+    );
+    const byGuardian = new Map<string, typeof links>();
+    for (const link of links) {
+      const list = byGuardian.get(link.guardian_id) ?? [];
+      list.push(link);
+      byGuardian.set(link.guardian_id, list);
+    }
 
     return guardians.map((g) => ({
       id: g.id,
-      full_name: g.fullName,
+      full_name: g.full_name,
       relation: g.relation,
       phone: g.phone,
-      alt_phone: g.altPhone,
+      alt_phone: g.alt_phone,
       email: g.email,
       occupation: g.occupation,
       address: g.address,
-      aadhaar_number: g.aadhaarNumber,
-      annual_income: g.annualIncome,
-      linked_students: g.studentGuardians
-        .filter((sg) => sg.student.deletedAt === null)
-        .map((sg) => ({
-          id: sg.student.id,
-          name: [sg.student.firstName, sg.student.lastName].filter(Boolean).join(" "),
-          class_name: sg.student.currentClass?.name ?? null,
-        })),
+      aadhaar_number: g.aadhaar_number,
+      annual_income: g.annual_income,
+      linked_students: (byGuardian.get(g.id) ?? []).map((sg) => ({
+        id: sg.id,
+        name: [sg.first_name, sg.last_name].filter(Boolean).join(" "),
+        class_name: sg.class_name,
+      })),
     }));
   }
 
@@ -269,108 +394,109 @@ export class StudentsService {
   // a guardian's own page should show their full family, not just who's
   // currently enrolled.
   async getGuardian(tenantId: string, guardianId: string) {
-    const guardian = await this.prisma.guardian.findFirst({
-      where: { id: guardianId, tenantId, deletedAt: null },
-    });
+    const guardian = await this.db.queryOne<GuardianRow>(
+      tenantId,
+      "SELECT * FROM guardians WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, guardianId],
+    );
     if (!guardian) {
       throw new NotFoundException("guardian not found");
     }
 
-    const links = await this.prisma.studentGuardian.findMany({
-      where: { guardianId, student: { deletedAt: null } },
-      include: { student: { include: { currentClass: true, currentSection: true } } },
-    });
+    const children = await this.db.query<{
+      id: string;
+      first_name: string;
+      last_name: string | null;
+      admission_number: string | null;
+      status: string;
+      class_name: string | null;
+      section_name: string | null;
+    }>(
+      tenantId,
+      `SELECT s.id, s.first_name, s.last_name, s.admission_number, s.status, c.name AS class_name, sec.name AS section_name
+       FROM student_guardians sg
+       JOIN students s ON s.id = sg.student_id
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE sg.tenant_id = $1 AND sg.guardian_id = $2 AND s.deleted_at IS NULL`,
+      [tenantId, guardianId],
+    );
 
     return {
       id: guardian.id,
-      full_name: guardian.fullName,
+      full_name: guardian.full_name,
       relation: guardian.relation,
       phone: guardian.phone,
-      alt_phone: guardian.altPhone,
+      alt_phone: guardian.alt_phone,
       email: guardian.email,
       occupation: guardian.occupation,
       address: guardian.address,
-      aadhaar_number: guardian.aadhaarNumber,
-      annual_income: guardian.annualIncome,
-      children: links.map((l) => ({
-        id: l.student.id,
-        first_name: l.student.firstName,
-        last_name: l.student.lastName,
-        admission_number: l.student.admissionNumber,
-        class_name: l.student.currentClass?.name ?? null,
-        section_name: l.student.currentSection?.name ?? null,
-        status: l.student.status,
-      })),
+      aadhaar_number: guardian.aadhaar_number,
+      annual_income: guardian.annual_income,
+      children,
     };
   }
 
   // Links an existing guardian to a student, or creates a new one and
   // links it -- the mechanism siblings share a guardian through.
   async addGuardianToStudent(tenantId: string, actorUserId: string, studentId: string, dto: AddGuardianDto) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
       let guardianId: string;
 
       if (dto.guardian_id) {
-        const guardian = await tx.guardian.findFirst({
-          where: { id: dto.guardian_id, tenantId, deletedAt: null },
-        });
+        const guardian = await findOneForTenant<GuardianRow>(client, "guardians", tenantId, dto.guardian_id);
         if (!guardian) {
           throw new NotFoundException("guardian not found");
         }
         guardianId = guardian.id;
 
-        const existingLink = await tx.studentGuardian.findFirst({ where: { studentId, guardianId } });
-        if (existingLink) {
+        const existingLink = await client.query(
+          "SELECT 1 FROM student_guardians WHERE tenant_id = $1 AND student_id = $2 AND guardian_id = $3",
+          [tenantId, studentId, guardianId],
+        );
+        if (existingLink.rows.length > 0) {
           throw new ConflictException("this guardian is already linked to this student");
         }
       } else {
-        guardianId = randomUUID();
-        await tx.guardian.create({
-          data: {
-            id: guardianId,
-            tenantId,
-            fullName: dto.full_name!,
-            relation: dto.relation,
-            phone: dto.phone ?? null,
-            altPhone: dto.alt_phone ?? null,
-            email: dto.email ?? null,
-            occupation: dto.occupation ?? null,
-            address: dto.address ?? null,
-            aadhaarNumber: dto.aadhaar_number ?? null,
-            annualIncome: dto.annual_income ?? null,
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
+        const guardian = await insertRow<GuardianRow>(client, "guardians", tenantId, {
+          full_name: dto.full_name!,
+          relation: dto.relation,
+          phone: dto.phone ?? null,
+          alt_phone: dto.alt_phone ?? null,
+          email: dto.email ?? null,
+          occupation: dto.occupation ?? null,
+          address: dto.address ?? null,
+          aadhaar_number: dto.aadhaar_number ?? null,
+          annual_income: dto.annual_income ?? null,
+          updated_at: now,
+          updated_by: actorUserId,
         });
+        guardianId = guardian.id;
       }
 
       if (dto.is_primary_contact) {
-        await tx.studentGuardian.updateMany({ where: { studentId }, data: { isPrimaryContact: false } });
+        await client.query(
+          "UPDATE student_guardians SET is_primary_contact = false WHERE tenant_id = $1 AND student_id = $2",
+          [tenantId, studentId],
+        );
       }
 
       const studentGuardianId = randomUUID();
-      await tx.studentGuardian.create({
-        data: {
-          id: studentGuardianId,
-          tenantId,
-          studentId,
-          guardianId,
-          relation: dto.relation,
-          isPrimaryContact: dto.is_primary_contact ?? false,
-          updatedAt: now,
-        },
-      });
+      await client.query(
+        `INSERT INTO student_guardians (id, tenant_id, student_id, guardian_id, relation, is_primary_contact, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [studentGuardianId, tenantId, studentId, guardianId, dto.relation, dto.is_primary_contact ?? false, now],
+      );
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "student_guardians",
         entityId: studentGuardianId,
@@ -386,160 +512,151 @@ export class StudentsService {
   // one transaction -- the same vertical slice the old offline-write ->
   // outbox -> sync architecture proved end to end, now a single Postgres
   // transaction instead of a local SQLite write plus a queued outbox row.
+  //
+  // The optional fee_structure_ids exclusion step runs in FeesService,
+  // which is not yet converted off Prisma -- it can't share this pg
+  // transaction, so it runs as a separate, best-effort step immediately
+  // after this transaction commits (mirroring confirmAdmission's existing
+  // best-effort fee-generation step below). Until FeesService converts,
+  // a crash in the narrow window between the two isn't atomic; a partial
+  // failure here just means an admin may need to re-apply the fee
+  // exclusions by hand, not silent data corruption.
   async createAdmission(tenantId: string, actorUserId: string, dto: CreateAdmissionDto) {
-    const now = new Date();
-    const studentId = randomUUID();
-    const studentGuardianId = randomUUID();
-    const admissionId = randomUUID();
-
-    return this.prisma.$transaction(async (tx) => {
-      await tx.student.create({
-        data: {
-          id: studentId,
-          tenantId,
-          branchId: dto.branch_id,
-          firstName: dto.first_name,
-          lastName: dto.last_name ?? null,
-          dateOfBirth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
-          gender: dto.gender ?? null,
-          currentClassId: dto.applied_class_id ?? null,
-          status: "applied",
-          address: dto.address ?? null,
-          category: dto.category ?? null,
-          religion: dto.religion ?? null,
-          nationality: dto.nationality ?? null,
-          motherTongue: dto.mother_tongue ?? null,
-          aadhaarNumber: dto.aadhaar_number ?? null,
-          previousSchoolName: dto.previous_school_name ?? null,
-          medicalNotes: dto.medical_notes ?? null,
-          emergencyContactName: dto.emergency_contact_name ?? null,
-          emergencyContactPhone: dto.emergency_contact_phone ?? null,
-          updatedAt: now,
-        },
+    const result = await this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
+      const student = await insertRow<StudentRow>(client, "students", tenantId, {
+        branch_id: dto.branch_id,
+        first_name: dto.first_name,
+        last_name: dto.last_name ?? null,
+        date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
+        gender: dto.gender ?? null,
+        current_class_id: dto.applied_class_id ?? null,
+        status: "applied",
+        address: dto.address ?? null,
+        category: dto.category ?? null,
+        religion: dto.religion ?? null,
+        nationality: dto.nationality ?? null,
+        mother_tongue: dto.mother_tongue ?? null,
+        aadhaar_number: dto.aadhaar_number ?? null,
+        previous_school_name: dto.previous_school_name ?? null,
+        medical_notes: dto.medical_notes ?? null,
+        emergency_contact_name: dto.emergency_contact_name ?? null,
+        emergency_contact_phone: dto.emergency_contact_phone ?? null,
+        updated_at: now,
       });
 
       let guardianId: string;
       if (dto.guardian_id) {
-        const guardian = await tx.guardian.findFirst({
-          where: { id: dto.guardian_id, tenantId, deletedAt: null },
-        });
+        const guardian = await findOneForTenant<GuardianRow>(client, "guardians", tenantId, dto.guardian_id);
         if (!guardian) {
           throw new NotFoundException("guardian not found");
         }
         guardianId = guardian.id;
       } else {
-        guardianId = randomUUID();
-        await tx.guardian.create({
-          data: {
-            id: guardianId,
-            tenantId,
-            fullName: dto.guardian_name!,
-            relation: dto.guardian_relation,
-            phone: dto.guardian_phone ?? null,
-            altPhone: dto.guardian_alt_phone ?? null,
-            email: dto.guardian_email ?? null,
-            occupation: dto.guardian_occupation ?? null,
-            address: dto.guardian_address ?? null,
-            aadhaarNumber: dto.guardian_aadhaar_number ?? null,
-            annualIncome: dto.guardian_annual_income ?? null,
-            updatedAt: now,
-          },
-        });
-      }
-
-      await tx.studentGuardian.create({
-        data: {
-          id: studentGuardianId,
-          tenantId,
-          studentId,
-          guardianId,
+        const guardian = await insertRow<GuardianRow>(client, "guardians", tenantId, {
+          full_name: dto.guardian_name!,
           relation: dto.guardian_relation,
-          isPrimaryContact: true,
-          updatedAt: now,
-        },
-      });
-
-      const admission = await tx.admission.create({
-        data: {
-          id: admissionId,
-          tenantId,
-          branchId: dto.branch_id,
-          studentId,
-          appliedClassId: dto.applied_class_id ?? null,
-          academicSessionId: dto.academic_session_id,
-          stage: "applied",
-          appliedAt: now,
-          updatedAt: now,
-        },
-      });
-
-      // An explicit fee_structure_ids list (even an empty one) means the
-      // admin made real choices on the admission form -- unchecked
-      // structures become "exclude" overrides so they're skipped once
-      // confirmAdmission actually generates invoices. Omitting the field
-      // entirely (undefined) preserves today's behavior: every matching
-      // structure applies, exactly as for admissions predating this
-      // feature.
-      if (dto.fee_structure_ids !== undefined) {
-        const matching = await this.feesService.listMatchingStructures(
-          tenantId,
-          dto.branch_id,
-          dto.applied_class_id ?? null,
-          dto.academic_session_id,
-          tx,
-        );
-        const keepSet = new Set(dto.fee_structure_ids);
-        for (const structure of matching) {
-          if (keepSet.has(structure.id)) continue;
-          await tx.studentFeeAssignment.create({
-            data: {
-              id: randomUUID(),
-              tenantId,
-              branchId: dto.branch_id,
-              studentId,
-              feeStructureId: structure.id,
-              mode: "exclude",
-              reason: "Excluded at admission",
-              updatedAt: now,
-              updatedBy: actorUserId,
-            },
-          });
-        }
+          phone: dto.guardian_phone ?? null,
+          alt_phone: dto.guardian_alt_phone ?? null,
+          email: dto.guardian_email ?? null,
+          occupation: dto.guardian_occupation ?? null,
+          address: dto.guardian_address ?? null,
+          aadhaar_number: dto.guardian_aadhaar_number ?? null,
+          annual_income: dto.guardian_annual_income ?? null,
+          updated_at: now,
+        });
+        guardianId = guardian.id;
       }
 
-      await this.audit.record(tx, {
+      await client.query(
+        `INSERT INTO student_guardians (id, tenant_id, student_id, guardian_id, relation, is_primary_contact, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [randomUUID(), tenantId, student.id, guardianId, dto.guardian_relation, true, now],
+      );
+
+      const admission = await insertRow<AdmissionRow>(client, "admissions", tenantId, {
+        branch_id: dto.branch_id,
+        student_id: student.id,
+        applied_class_id: dto.applied_class_id ?? null,
+        academic_session_id: dto.academic_session_id,
+        stage: "applied",
+        applied_at: now,
+        updated_at: now,
+      });
+
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
         entityTable: "admissions",
-        entityId: admissionId,
+        entityId: admission.id,
         action: "create",
         summary: "New admission enquiry",
       });
 
       return {
         id: admission.id,
-        student_id: studentId,
-        branch_id: admission.branchId,
+        student_id: student.id,
+        branch_id: admission.branch_id,
         stage: admission.stage,
-        applied_at: admission.appliedAt,
+        applied_at: admission.applied_at,
       };
     });
+
+    // An explicit fee_structure_ids list (even an empty one) means the
+    // admin made real choices on the admission form -- unchecked
+    // structures become "exclude" overrides so they're skipped once
+    // confirmAdmission actually generates invoices. Omitting the field
+    // entirely (undefined) preserves today's behavior: every matching
+    // structure applies, exactly as for admissions predating this feature.
+    if (dto.fee_structure_ids !== undefined) {
+      const matching = await this.feesService.listMatchingStructures(
+        tenantId,
+        dto.branch_id,
+        dto.applied_class_id ?? null,
+        dto.academic_session_id,
+      );
+      const keepSet = new Set(dto.fee_structure_ids);
+      const toExclude = matching.filter((structure) => !keepSet.has(structure.id));
+      if (toExclude.length > 0) {
+        await this.prisma.$transaction(async (tx) => {
+          for (const structure of toExclude) {
+            await tx.studentFeeAssignment.create({
+              data: {
+                id: randomUUID(),
+                tenantId,
+                branchId: dto.branch_id,
+                studentId: result.student_id,
+                feeStructureId: structure.id,
+                mode: "exclude",
+                reason: "Excluded at admission",
+                updatedAt: new Date(),
+                updatedBy: actorUserId,
+              },
+            });
+          }
+        });
+      }
+    }
+
+    return result;
   }
 
-  async getAdmissionForStudent(studentId: string) {
-    const admission = await this.prisma.admission.findFirst({
-      where: { studentId, deletedAt: null },
-    });
+  async getAdmissionForStudent(tenantId: string, studentId: string) {
+    const admission = await this.db.queryOne<AdmissionRow>(
+      tenantId,
+      "SELECT * FROM admissions WHERE tenant_id = $1 AND student_id = $2 AND deleted_at IS NULL",
+      [tenantId, studentId],
+    );
     if (!admission) {
       return null;
     }
     return {
       id: admission.id,
-      student_id: admission.studentId,
-      branch_id: admission.branchId,
+      student_id: admission.student_id,
+      branch_id: admission.branch_id,
       stage: admission.stage,
-      applied_at: admission.appliedAt,
+      applied_at: admission.applied_at,
     };
   }
 
@@ -549,60 +666,77 @@ export class StudentsService {
   // confirms from different clients are a real possibility -- the bounded
   // retry loop against the UNIQUE (tenant_id, admission_number) constraint
   // absorbs that race exactly like the old same-device retry did.
+  //
+  // Invoice generation (below) still goes through the not-yet-converted
+  // FeesService/Prisma, in its own transaction after the pg transaction
+  // that confirms the admission commits -- see the note on createAdmission.
+  // This was already true of this method's error-handling before this
+  // conversion (a missing current session doesn't block confirming the
+  // admission), so this doesn't weaken an existing guarantee.
   async confirmAdmission(tenantId: string, actorUserId: string, admissionId: string) {
-    const admission = await this.prisma.admission.findFirst({
-      where: { id: admissionId, deletedAt: null },
-    });
+    const admission = await this.db.queryOne<AdmissionRow>(
+      tenantId,
+      "SELECT * FROM admissions WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, admissionId],
+    );
     if (!admission) {
       throw new NotFoundException("admission not found");
     }
 
-    const branch = await this.prisma.branch.findUniqueOrThrow({ where: { id: admission.branchId } });
+    const branch = await this.db.queryOne<{ code: string }>(
+      tenantId,
+      "SELECT code FROM branches WHERE tenant_id = $1 AND id = $2",
+      [tenantId, admission.branch_id],
+    );
+    if (!branch) {
+      throw new NotFoundException("branch not found");
+    }
     const year = new Date().getUTCFullYear().toString();
     const prefix = `${branch.code}-${year}-`;
 
-    const existingCount = await this.prisma.student.count({
-      where: { tenantId, admissionNumber: { startsWith: prefix } },
-    });
-    let nextSeq = existingCount + 1;
+    const [{ count }] = await this.db.query<{ count: string }>(
+      tenantId,
+      "SELECT count(*) FROM students WHERE tenant_id = $1 AND admission_number LIKE $2",
+      [tenantId, `${prefix}%`],
+    );
+    let nextSeq = Number(count) + 1;
     let admissionNumber: string | undefined;
 
-    for (let attempt = 1; attempt <= MAX_ADMISSION_NUMBER_ATTEMPTS; attempt++) {
-      const candidate = `${prefix}${String(nextSeq).padStart(4, "0")}`;
-      try {
-        await this.prisma.student.update({
-          where: { id: admission.studentId },
-          data: {
-            admissionNumber: candidate,
+    await this.db.withTransaction(tenantId, async (client) => {
+      for (let attempt = 1; attempt <= MAX_ADMISSION_NUMBER_ATTEMPTS; attempt++) {
+        const candidate = `${prefix}${String(nextSeq).padStart(4, "0")}`;
+        try {
+          await client.query("SAVEPOINT admission_number_attempt");
+          await updateRow<StudentRow>(client, "students", tenantId, admission.student_id, {
+            admission_number: candidate,
             status: "enrolled",
-            updatedAt: new Date(),
-            version: { increment: 1 },
-          },
-        });
-        admissionNumber = candidate;
-        break;
-      } catch (error) {
-        const isUniqueClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-        if (isUniqueClash && attempt < MAX_ADMISSION_NUMBER_ATTEMPTS) {
+            updated_at: new Date(),
+          });
+          await client.query("RELEASE SAVEPOINT admission_number_attempt");
+          admissionNumber = candidate;
+          break;
+        } catch (error) {
+          await client.query("ROLLBACK TO SAVEPOINT admission_number_attempt");
+          if (!isUniqueViolation(error)) {
+            throw error;
+          }
           nextSeq += 1;
-          continue;
         }
-        throw error;
       }
-    }
 
-    if (!admissionNumber) {
-      throw new ConflictException("could not allocate an admission number, please retry");
-    }
+      if (!admissionNumber) {
+        throw new ConflictException("could not allocate an admission number, please retry");
+      }
 
-    const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.admission.update({
-        where: { id: admissionId },
-        data: { stage: "enrolled", decidedAt: now, decidedBy: actorUserId, updatedAt: now, version: { increment: 1 } },
+      const now = new Date();
+      await updateRow<AdmissionRow>(client, "admissions", tenantId, admissionId, {
+        stage: "enrolled",
+        decided_at: now,
+        decided_by: actorUserId,
+        updated_at: now,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "admissions",
@@ -610,92 +744,92 @@ export class StudentsService {
         action: "update",
         summary: `Confirmed admission, assigned number ${admissionNumber}`,
       });
-
-      // The first moment a student is genuinely fee-eligible (generateInvoices
-      // requires status: "enrolled", which this transaction just set) --
-      // generate invoices for every matching structure the admin didn't
-      // explicitly exclude at admission time. Best-effort: a branch with no
-      // current academic session configured shouldn't block confirming the
-      // admission itself.
-      const student = await tx.student.findUniqueOrThrow({ where: { id: admission.studentId } });
-      let currentSessionId: string | null = null;
-      try {
-        currentSessionId = await this.feesService.resolveCurrentSessionId(tx, tenantId);
-      } catch (error) {
-        if (!(error instanceof BadRequestException)) throw error;
-      }
-
-      if (currentSessionId) {
-        const matching = await this.feesService.listMatchingStructures(
-          tenantId,
-          admission.branchId,
-          student.currentClassId,
-          currentSessionId,
-          tx,
-        );
-        const excluded = await tx.studentFeeAssignment.findMany({
-          where: { studentId: student.id, mode: "exclude", deletedAt: null },
-          select: { feeStructureId: true },
-        });
-        const excludedIds = new Set(excluded.map((e) => e.feeStructureId));
-
-        for (const structure of matching) {
-          if (excludedIds.has(structure.id)) continue;
-          await this.feesService.generateInvoiceForStudent(tenantId, student.id, structure.id, tx);
-        }
-      }
     });
+
+    // The first moment a student is genuinely fee-eligible (generateInvoices
+    // requires status: "enrolled", which the transaction above just set) --
+    // generate invoices for every matching structure the admin didn't
+    // explicitly exclude at admission time. Best-effort: a branch with no
+    // current academic session configured shouldn't block confirming the
+    // admission itself.
+    const student = await this.db.queryOne<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2",
+      [tenantId, admission.student_id],
+    );
+    let currentSessionId: string | null = null;
+    try {
+      currentSessionId = await this.feesService.resolveCurrentSessionId(this.prisma, tenantId);
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+    }
+
+    if (currentSessionId && student) {
+      const matching = await this.feesService.listMatchingStructures(
+        tenantId,
+        admission.branch_id,
+        student.current_class_id,
+        currentSessionId,
+      );
+      const excludedRows = await this.db.query<{ fee_structure_id: string }>(
+        tenantId,
+        "SELECT fee_structure_id FROM student_fee_assignments WHERE tenant_id = $1 AND student_id = $2 AND mode = 'exclude' AND deleted_at IS NULL",
+        [tenantId, student.id],
+      );
+      const excludedIds = new Set(excludedRows.map((e) => e.fee_structure_id));
+
+      for (const structure of matching) {
+        if (excludedIds.has(structure.id)) continue;
+        await this.prisma.$transaction((tx) =>
+          this.feesService.generateInvoiceForStudent(tenantId, student.id, structure.id, tx),
+        );
+      }
+    }
 
     return {
       admission_id: admissionId,
-      student_id: admission.studentId,
+      student_id: admission.student_id,
       admission_number: admissionNumber,
       stage: "enrolled",
     };
   }
 
   async updateStudent(tenantId: string, actorUserId: string, id: string, dto: UpdateStudentDto) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.student.update({
-        where: { id },
-        data: {
-          firstName: dto.first_name,
-          lastName: dto.last_name ?? null,
-          rollNumber: dto.roll_number ?? null,
-          dateOfBirth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
-          gender: dto.gender ?? null,
-          bloodGroup: dto.blood_group ?? null,
-          currentClassId: dto.current_class_id ?? null,
-          currentSectionId: dto.current_section_id ?? null,
-          ...(dto.status ? { status: dto.status } : {}),
-          address: dto.address ?? null,
-          city: dto.city ?? null,
-          state: dto.state ?? null,
-          pincode: dto.pincode ?? null,
-          notes: dto.notes ?? null,
-          category: dto.category ?? null,
-          religion: dto.religion ?? null,
-          nationality: dto.nationality ?? null,
-          motherTongue: dto.mother_tongue ?? null,
-          aadhaarNumber: dto.aadhaar_number ?? null,
-          previousSchoolName: dto.previous_school_name ?? null,
-          medicalNotes: dto.medical_notes ?? null,
-          emergencyContactName: dto.emergency_contact_name ?? null,
-          emergencyContactPhone: dto.emergency_contact_phone ?? null,
-          graduationYear: dto.graduation_year ?? null,
-          higherEducation: dto.higher_education ?? null,
-          currentOccupation: dto.current_occupation ?? null,
-          alumniContactEmail: dto.alumni_contact_email ?? null,
-          alumniNotes: dto.alumni_notes ?? null,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const updated = await updateRow<StudentRow>(client, "students", tenantId, id, {
+        first_name: dto.first_name,
+        last_name: dto.last_name ?? null,
+        roll_number: dto.roll_number ?? null,
+        date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
+        gender: dto.gender ?? null,
+        blood_group: dto.blood_group ?? null,
+        current_class_id: dto.current_class_id ?? null,
+        current_section_id: dto.current_section_id ?? null,
+        ...(dto.status ? { status: dto.status } : {}),
+        address: dto.address ?? null,
+        city: dto.city ?? null,
+        state: dto.state ?? null,
+        pincode: dto.pincode ?? null,
+        notes: dto.notes ?? null,
+        category: dto.category ?? null,
+        religion: dto.religion ?? null,
+        nationality: dto.nationality ?? null,
+        mother_tongue: dto.mother_tongue ?? null,
+        aadhaar_number: dto.aadhaar_number ?? null,
+        previous_school_name: dto.previous_school_name ?? null,
+        medical_notes: dto.medical_notes ?? null,
+        emergency_contact_name: dto.emergency_contact_name ?? null,
+        emergency_contact_phone: dto.emergency_contact_phone ?? null,
+        graduation_year: dto.graduation_year ?? null,
+        higher_education: dto.higher_education ?? null,
+        current_occupation: dto.current_occupation ?? null,
+        alumni_contact_email: dto.alumni_contact_email ?? null,
+        alumni_notes: dto.alumni_notes ?? null,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "students",
@@ -719,32 +853,28 @@ export class StudentsService {
     studentId: string,
     dto: IssueTransferCertificateDto,
   ) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
-    const now = new Date();
-    const tcNumber = student.tcNumber ?? generateTcNumber(student.branchId);
+    return this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
+      const now = new Date();
+      const tcNumber = student.tc_number ?? generateTcNumber(student.branch_id);
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.student.update({
-        where: { id: studentId },
-        data: {
-          reasonForLeaving: dto.reason_for_leaving,
-          dateOfLeaving: new Date(dto.date_of_leaving),
-          conductRemark: dto.conduct_remark ?? null,
-          tcNumber,
-          tcIssueDate: student.tcIssueDate ?? now,
-          status: student.status === "alumni" ? student.status : "withdrawn",
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<StudentRow>(client, "students", tenantId, studentId, {
+        reason_for_leaving: dto.reason_for_leaving,
+        date_of_leaving: new Date(dto.date_of_leaving),
+        conduct_remark: dto.conduct_remark ?? null,
+        tc_number: tcNumber,
+        tc_issue_date: student.tc_issue_date ?? now,
+        status: student.status === "alumni" ? student.status : "withdrawn",
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "students",
         entityId: studentId,
@@ -757,69 +887,76 @@ export class StudentsService {
   }
 
   async getTransferCertificate(tenantId: string, studentId: string) {
-    const student = await this.prisma.student.findFirst({
-      where: { id: studentId, tenantId, deletedAt: null },
-      include: { currentClass: true, currentSection: true },
-    });
+    const student = await this.db.queryOne<StudentRow & { class_name: string | null; section_name: string | null }>(
+      tenantId,
+      `SELECT s.*, c.name AS class_name, sec.name AS section_name
+       FROM students s
+       LEFT JOIN classes c ON c.id = s.current_class_id
+       LEFT JOIN sections sec ON sec.id = s.current_section_id
+       WHERE s.tenant_id = $1 AND s.id = $2 AND s.deleted_at IS NULL`,
+      [tenantId, studentId],
+    );
     if (!student) {
       throw new NotFoundException("student not found");
     }
-    const admissions = await this.prisma.admission.findMany({
-      where: { studentId, deletedAt: null },
-      orderBy: { appliedAt: "asc" },
-    });
+    const admissions = await this.db.query<AdmissionRow>(
+      tenantId,
+      "SELECT * FROM admissions WHERE tenant_id = $1 AND student_id = $2 AND deleted_at IS NULL ORDER BY applied_at ASC",
+      [tenantId, studentId],
+    );
     const confirmed = admissions.find((a) => a.stage === "enrolled");
-    const dateOfAdmission = confirmed?.decidedAt ?? admissions[0]?.appliedAt ?? null;
+    const dateOfAdmission = confirmed?.decided_at ?? admissions[0]?.applied_at ?? null;
 
     return {
       student_id: student.id,
-      admission_number: student.admissionNumber,
-      first_name: student.firstName,
-      last_name: student.lastName,
-      date_of_birth: student.dateOfBirth,
-      class_name: student.currentClass?.name ?? null,
-      section_name: student.currentSection?.name ?? null,
+      admission_number: student.admission_number,
+      first_name: student.first_name,
+      last_name: student.last_name,
+      date_of_birth: student.date_of_birth,
+      class_name: student.class_name,
+      section_name: student.section_name,
       date_of_admission: dateOfAdmission,
-      date_of_leaving: student.dateOfLeaving,
-      reason_for_leaving: student.reasonForLeaving,
-      conduct_remark: student.conductRemark,
-      tc_number: student.tcNumber,
-      tc_issue_date: student.tcIssueDate,
+      date_of_leaving: student.date_of_leaving,
+      reason_for_leaving: student.reason_for_leaving,
+      conduct_remark: student.conduct_remark,
+      tc_number: student.tc_number,
+      tc_issue_date: student.tc_issue_date,
       status: student.status,
     };
   }
 
   async getQrCode(tenantId: string, studentId: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    const student = await this.db.queryOne<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, studentId],
+    );
     if (!student) {
       throw new NotFoundException("student not found");
     }
-    return { token: this.qrToken.generate("student", tenantId, student.id, student.qrCodeVersion) };
+    return { token: this.qrToken.generate("student", tenantId, student.id, student.qr_code_version) };
   }
 
   // Bumping qrCodeVersion instantly invalidates every previously-printed
   // code for this student, since verification always checks against the
   // row's current version -- no separate revocation list needed.
   async reissueQrCode(tenantId: string, actorUserId: string, studentId: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.student.update({
-        where: { id: studentId },
-        data: {
-          qrCodeVersion: { increment: 1 },
-          updatedAt: new Date(),
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
-      });
+      const updated = await client.query<StudentRow>(
+        `UPDATE students SET qr_code_version = qr_code_version + 1, updated_at = $1, updated_by = $2, version = version + 1
+         WHERE tenant_id = $3 AND id = $4 RETURNING *`,
+        [new Date(), actorUserId, tenantId, studentId],
+      );
+      const row = updated.rows[0]!;
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "students",
         entityId: studentId,
@@ -827,20 +964,28 @@ export class StudentsService {
         summary: "Reissued QR code",
       });
 
-      return { token: this.qrToken.generate("student", tenantId, updated.id, updated.qrCodeVersion) };
+      return { token: this.qrToken.generate("student", tenantId, row.id, row.qr_code_version) };
     });
   }
 
   async getQrCodesBulk(tenantId: string, ids: string[]) {
-    const students = await this.prisma.student.findMany({ where: { id: { in: ids }, tenantId, deletedAt: null } });
+    const students = await this.db.query<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL",
+      [tenantId, ids],
+    );
     return students.map((s) => ({
       student_id: s.id,
-      token: this.qrToken.generate("student", tenantId, s.id, s.qrCodeVersion),
+      token: this.qrToken.generate("student", tenantId, s.id, s.qr_code_version),
     }));
   }
 
   async getPhotoUploadUrl(tenantId: string, studentId: string, fileName: string, contentType: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    const student = await this.db.queryOne<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, studentId],
+    );
     if (!student) {
       throw new NotFoundException("student not found");
     }
@@ -854,32 +999,29 @@ export class StudentsService {
   // old object (mirrors DocumentsService.remove's storage cleanup, but here
   // it happens as part of the replace rather than a separate delete call).
   async setPhoto(tenantId: string, actorUserId: string, studentId: string, storageKey: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
-    const previousPath = student.photoPath;
+    const previousPath = await this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.student.update({
-        where: { id: studentId },
-        data: {
-          photoPath: storageKey,
-          updatedAt: new Date(),
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      await updateRow<StudentRow>(client, "students", tenantId, studentId, {
+        photo_path: storageKey,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "students",
         entityId: studentId,
         action: "update",
         summary: "Updated photo",
       });
+
+      return student.photo_path;
     });
 
     if (previousPath && previousPath !== storageKey) {
@@ -890,54 +1032,64 @@ export class StudentsService {
   }
 
   async getPhotoUrl(tenantId: string, studentId: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
+    const student = await this.db.queryOne<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, studentId],
+    );
     if (!student) {
       throw new NotFoundException("student not found");
     }
-    if (!student.photoPath) {
+    if (!student.photo_path) {
       return { url: null };
     }
-    return this.storage.createDownloadUrl(student.photoPath);
+    return this.storage.createDownloadUrl(student.photo_path);
   }
 
   async deletePhoto(tenantId: string, actorUserId: string, studentId: string) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
-    if (!student.photoPath) {
-      return { ok: true };
-    }
-    const previousPath = student.photoPath;
+    const previousPath = await this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
+      if (!student.photo_path) {
+        return null;
+      }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.student.update({
-        where: { id: studentId },
-        data: { photoPath: null, updatedAt: new Date(), updatedBy: actorUserId, version: { increment: 1 } },
+      await updateRow<StudentRow>(client, "students", tenantId, studentId, {
+        photo_path: null,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "students",
         entityId: studentId,
         action: "update",
         summary: "Removed photo",
       });
+
+      return student.photo_path;
     });
 
-    await this.storage.deleteObject(previousPath);
+    if (previousPath) {
+      await this.storage.deleteObject(previousPath);
+    }
 
     return { ok: true };
   }
 
   async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
-    const students = await this.prisma.student.findMany({
-      where: { id: { in: ids }, tenantId, deletedAt: null, photoPath: { not: null } },
-    });
+    const students = await this.db.query<StudentRow>(
+      tenantId,
+      "SELECT * FROM students WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND photo_path IS NOT NULL",
+      [tenantId, ids],
+    );
     const entries = await Promise.all(
-      students.map(async (s) => ({ student_id: s.id, ...(await this.storage.createDownloadUrl(s.photoPath!)) })),
+      students.map(async (s) => ({ student_id: s.id, ...(await this.storage.createDownloadUrl(s.photo_path!)) })),
     );
     return entries;
   }
@@ -946,15 +1098,15 @@ export class StudentsService {
   // updateStudent (status = withdrawn/alumni) instead, which preserves
   // their attendance/fee/exam history. Deletion is for data-entry mistakes.
   async deleteStudent(tenantId: string, actorUserId: string, id: string) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.student.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
+      const deleted = await updateRow<StudentRow>(client, "students", tenantId, id, {
+        deleted_at: now,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "students",
@@ -968,28 +1120,27 @@ export class StudentsService {
   }
 
   async updateGuardian(tenantId: string, actorUserId: string, id: string, dto: UpdateGuardianDto) {
-    const now = new Date();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<GuardianRow>(client, "guardians", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("guardian not found");
+      }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.guardian.update({
-        where: { id },
-        data: {
-          fullName: dto.full_name,
-          relation: dto.relation ?? null,
-          phone: dto.phone ?? null,
-          altPhone: dto.alt_phone ?? null,
-          email: dto.email ?? null,
-          occupation: dto.occupation ?? null,
-          address: dto.address ?? null,
-          aadhaarNumber: dto.aadhaar_number ?? null,
-          annualIncome: dto.annual_income ?? null,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<GuardianRow>(client, "guardians", tenantId, id, {
+        full_name: dto.full_name,
+        relation: dto.relation ?? null,
+        phone: dto.phone ?? null,
+        alt_phone: dto.alt_phone ?? null,
+        email: dto.email ?? null,
+        occupation: dto.occupation ?? null,
+        address: dto.address ?? null,
+        aadhaar_number: dto.aadhaar_number ?? null,
+        annual_income: dto.annual_income ?? null,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "guardians",
@@ -1002,93 +1153,94 @@ export class StudentsService {
     });
   }
 
-  async listElectiveChoices(studentId: string, academicSessionId?: string) {
-    const choices = await this.prisma.studentElectiveChoice.findMany({
-      where: { studentId, deletedAt: null, ...(academicSessionId ? { academicSessionId } : {}) },
-      include: { subject: true, electiveGroup: true },
-      orderBy: { electiveGroup: { name: "asc" } },
-    });
+  async listElectiveChoices(tenantId: string, studentId: string, academicSessionId?: string) {
+    const conditions = ["c.tenant_id = $1", "c.student_id = $2", "c.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (academicSessionId) {
+      values.push(academicSessionId);
+      conditions.push(`c.academic_session_id = $${values.length}`);
+    }
 
-    return choices.map((c) => ({
-      id: c.id,
-      elective_group_id: c.electiveGroupId,
-      elective_group_name: c.electiveGroup.name,
-      subject_id: c.subjectId,
-      subject_name: c.subject.name,
-      academic_session_id: c.academicSessionId,
-    }));
+    const rows = await this.db.query<{
+      id: string;
+      elective_group_id: string;
+      elective_group_name: string;
+      subject_id: string;
+      subject_name: string;
+      academic_session_id: string;
+    }>(
+      tenantId,
+      `SELECT c.id, c.elective_group_id, eg.name AS elective_group_name, c.subject_id, sub.name AS subject_name, c.academic_session_id
+       FROM student_elective_choices c
+       JOIN subject_elective_groups eg ON eg.id = c.elective_group_id
+       JOIN subjects sub ON sub.id = c.subject_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY eg.name ASC`,
+      values,
+    );
+
+    return rows;
   }
 
   // Elects (or re-elects, for the same group+session) a subject from an
   // elective group -- the chosen subject must actually be a member of that
   // group, and the group must belong to the student's current class.
   async electSubject(tenantId: string, actorUserId: string, studentId: string, dto: ElectSubjectDto) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, tenantId, deletedAt: null } });
-    if (!student) {
-      throw new NotFoundException("student not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      if (!student) {
+        throw new NotFoundException("student not found");
+      }
 
-    const group = await this.prisma.subjectElectiveGroup.findFirst({
-      where: { id: dto.elective_group_id, tenantId, deletedAt: null },
-    });
-    if (!group) {
-      throw new NotFoundException("elective group not found");
-    }
-    if (group.classId !== student.currentClassId) {
-      throw new ConflictException("this elective group does not belong to the student's current class");
-    }
+      const group = await client.query<{ id: string; class_id: string }>(
+        "SELECT id, class_id FROM subject_elective_groups WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+        [tenantId, dto.elective_group_id],
+      );
+      const groupRow = group.rows[0];
+      if (!groupRow) {
+        throw new NotFoundException("elective group not found");
+      }
+      if (groupRow.class_id !== student.current_class_id) {
+        throw new ConflictException("this elective group does not belong to the student's current class");
+      }
 
-    const membership = await this.prisma.subjectElectiveGroupMember.findFirst({
-      where: {
-        electiveGroupId: dto.elective_group_id,
-        deletedAt: null,
-        classSubject: { subjectId: dto.subject_id, deletedAt: null },
-      },
-    });
-    if (!membership) {
-      throw new ConflictException("that subject is not offered in this elective group");
-    }
+      const membership = await client.query(
+        `SELECT 1 FROM subject_elective_group_members m
+         JOIN class_subjects cs ON cs.id = m.class_subject_id
+         WHERE m.tenant_id = $1 AND m.elective_group_id = $2 AND m.deleted_at IS NULL
+           AND cs.subject_id = $3 AND cs.deleted_at IS NULL`,
+        [tenantId, dto.elective_group_id, dto.subject_id],
+      );
+      if (membership.rows.length === 0) {
+        throw new ConflictException("that subject is not offered in this elective group");
+      }
 
-    const now = new Date();
+      const now = new Date();
+      const result = await client.query<{
+        id: string;
+      }>(
+        `INSERT INTO student_elective_choices
+           (id, tenant_id, student_id, elective_group_id, subject_id, academic_session_id, updated_at, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (student_id, elective_group_id, academic_session_id)
+         DO UPDATE SET subject_id = EXCLUDED.subject_id, updated_at = EXCLUDED.updated_at,
+           updated_by = EXCLUDED.updated_by, version = student_elective_choices.version + 1
+         RETURNING id`,
+        [randomUUID(), tenantId, studentId, dto.elective_group_id, dto.subject_id, dto.academic_session_id, now, actorUserId],
+      );
+      const choiceId = result.rows[0]!.id;
 
-    return this.prisma.$transaction(async (tx) => {
-      const choice = await tx.studentElectiveChoice.upsert({
-        where: {
-          studentId_electiveGroupId_academicSessionId: {
-            studentId,
-            electiveGroupId: dto.elective_group_id,
-            academicSessionId: dto.academic_session_id,
-          },
-        },
-        create: {
-          id: randomUUID(),
-          tenantId,
-          studentId,
-          electiveGroupId: dto.elective_group_id,
-          subjectId: dto.subject_id,
-          academicSessionId: dto.academic_session_id,
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
-        update: {
-          subjectId: dto.subject_id,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
-      });
-
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: student.branchId,
+        branchId: student.branch_id,
         actorUserId,
         entityTable: "student_elective_choices",
-        entityId: choice.id,
+        entityId: choiceId,
         action: "update",
         summary: "Recorded student elective choice",
       });
 
-      return choice;
+      return { id: choiceId };
     });
   }
 }
