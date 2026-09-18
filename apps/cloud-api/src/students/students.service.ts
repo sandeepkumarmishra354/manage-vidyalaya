@@ -8,7 +8,6 @@ import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
 import { FeesService } from "../fees/fees.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import type { AddGuardianDto } from "./dto/add-guardian.dto.js";
@@ -109,12 +108,6 @@ export class StudentsService {
     private readonly feesService: FeesService,
     private readonly qrToken: QrTokenService,
     private readonly storage: StorageService,
-    // FeesService is not yet converted off Prisma (it composes transactions
-    // across service-method boundaries in ways that need its own careful
-    // conversion -- see the migration plan). Kept only to bridge into it
-    // for the admission<->fee-generation flow below; removed once FeesService
-    // converts.
-    private readonly prisma: PrismaService,
   ) {}
 
   async listStudents(
@@ -513,14 +506,14 @@ export class StudentsService {
   // outbox -> sync architecture proved end to end, now a single Postgres
   // transaction instead of a local SQLite write plus a queued outbox row.
   //
-  // The optional fee_structure_ids exclusion step runs in FeesService,
-  // which is not yet converted off Prisma -- it can't share this pg
-  // transaction, so it runs as a separate, best-effort step immediately
-  // after this transaction commits (mirroring confirmAdmission's existing
-  // best-effort fee-generation step below). Until FeesService converts,
-  // a crash in the narrow window between the two isn't atomic; a partial
-  // failure here just means an admin may need to re-apply the fee
-  // exclusions by hand, not silent data corruption.
+  // The optional fee_structure_ids exclusion step runs in its own separate
+  // transaction immediately after this one commits (mirroring
+  // confirmAdmission's fee-generation step below) -- reading the matching
+  // structures needs the student/admission row to already exist, so it
+  // can't be folded into the transaction above without restructuring the
+  // read-then-write flow. A crash in the narrow window between the two
+  // isn't atomic; a partial failure here just means an admin may need to
+  // re-apply the fee exclusions by hand, not silent data corruption.
   async createAdmission(tenantId: string, actorUserId: string, dto: CreateAdmissionDto) {
     const result = await this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
@@ -619,20 +612,16 @@ export class StudentsService {
       const keepSet = new Set(dto.fee_structure_ids);
       const toExclude = matching.filter((structure) => !keepSet.has(structure.id));
       if (toExclude.length > 0) {
-        await this.prisma.$transaction(async (tx) => {
+        await this.db.withTransaction(tenantId, async (client) => {
           for (const structure of toExclude) {
-            await tx.studentFeeAssignment.create({
-              data: {
-                id: randomUUID(),
-                tenantId,
-                branchId: dto.branch_id,
-                studentId: result.student_id,
-                feeStructureId: structure.id,
-                mode: "exclude",
-                reason: "Excluded at admission",
-                updatedAt: new Date(),
-                updatedBy: actorUserId,
-              },
+            await insertRow(client, "student_fee_assignments", tenantId, {
+              branch_id: dto.branch_id,
+              student_id: result.student_id,
+              fee_structure_id: structure.id,
+              mode: "exclude",
+              reason: "Excluded at admission",
+              updated_at: new Date(),
+              updated_by: actorUserId,
             });
           }
         });
@@ -667,12 +656,10 @@ export class StudentsService {
   // retry loop against the UNIQUE (tenant_id, admission_number) constraint
   // absorbs that race exactly like the old same-device retry did.
   //
-  // Invoice generation (below) still goes through the not-yet-converted
-  // FeesService/Prisma, in its own transaction after the pg transaction
-  // that confirms the admission commits -- see the note on createAdmission.
-  // This was already true of this method's error-handling before this
-  // conversion (a missing current session doesn't block confirming the
-  // admission), so this doesn't weaken an existing guarantee.
+  // Invoice generation (below) runs in its own transaction(s) after the pg
+  // transaction that confirms the admission commits -- see the note on
+  // createAdmission. A missing current session doesn't block confirming
+  // the admission itself.
   async confirmAdmission(tenantId: string, actorUserId: string, admissionId: string) {
     const admission = await this.db.queryOne<AdmissionRow>(
       tenantId,
@@ -759,7 +746,7 @@ export class StudentsService {
     );
     let currentSessionId: string | null = null;
     try {
-      currentSessionId = await this.feesService.resolveCurrentSessionId(this.prisma, tenantId);
+      currentSessionId = await this.feesService.resolveCurrentSessionId(tenantId);
     } catch (error) {
       if (!(error instanceof BadRequestException)) throw error;
     }
@@ -780,8 +767,8 @@ export class StudentsService {
 
       for (const structure of matching) {
         if (excludedIds.has(structure.id)) continue;
-        await this.prisma.$transaction((tx) =>
-          this.feesService.generateInvoiceForStudent(tenantId, student.id, structure.id, tx),
+        await this.db.withTransaction(tenantId, (client) =>
+          this.feesService.generateInvoiceForStudent(tenantId, student.id, structure.id, client),
         );
       }
     }

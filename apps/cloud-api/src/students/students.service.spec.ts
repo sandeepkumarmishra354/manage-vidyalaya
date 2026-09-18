@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditService } from "../audit/audit.service.js";
 import type { DbService } from "../db/db.service.js";
 import type { FeesService } from "../fees/fees.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { StorageService } from "../storage/storage.service.js";
 import { StudentsService } from "./students.service.js";
@@ -51,11 +50,6 @@ function makeFeesMock() {
   } as unknown as FeesService;
 }
 
-function makePrismaMock() {
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb({})),
-  } as unknown as PrismaService;
-}
 
 function uniqueViolationError() {
   const err = new Error('duplicate key value violates unique constraint "students_tenant_id_admission_number_key"') as Error & {
@@ -98,7 +92,6 @@ describe("StudentsService.confirmAdmission", () => {
       makeFeesMock(),
       new QrTokenService(),
       makeStorageMock(),
-      makePrismaMock(),
     );
   });
 
@@ -189,7 +182,6 @@ describe("StudentsService.electSubject", () => {
       makeFeesMock(),
       new QrTokenService(),
       makeStorageMock(),
-      makePrismaMock(),
     );
   });
 
@@ -249,7 +241,6 @@ describe("StudentsService.getGuardian", () => {
       makeFeesMock(),
       new QrTokenService(),
       makeStorageMock(),
-      makePrismaMock(),
     );
   });
 
@@ -338,7 +329,6 @@ describe("StudentsService.issueTransferCertificate", () => {
       makeFeesMock(),
       new QrTokenService(),
       makeStorageMock(),
-      makePrismaMock(),
     );
   });
 
@@ -412,7 +402,6 @@ describe("StudentsService.listStudents", () => {
       makeFeesMock(),
       new QrTokenService(),
       makeStorageMock(),
-      makePrismaMock(),
     );
   });
 
@@ -459,7 +448,7 @@ describe("StudentsService photo upload", () => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     storage = makeStorageMock();
-    service = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), storage, makePrismaMock());
+    service = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), storage);
   });
 
   it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
