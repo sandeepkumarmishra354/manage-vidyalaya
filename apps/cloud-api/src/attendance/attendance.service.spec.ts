@@ -3,23 +3,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
 import type { ScopedAccessService } from "../common/scoped-access.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { AttendanceService } from "./attendance.service.js";
 
-function makePrismaMock() {
-  const tx = { attendanceRecord: { upsert: vi.fn() } };
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-    student: { findMany: vi.fn(), findFirst: vi.fn() },
-    attendanceRecord: { findMany: vi.fn(), findUnique: vi.fn() },
-  } as unknown as PrismaService & {
-    __tx: typeof tx;
-    student: { findMany: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
-    attendanceRecord: { findMany: ReturnType<typeof vi.fn>; findUnique: ReturnType<typeof vi.fn> };
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -40,18 +44,18 @@ function makeSchoolCalendarMock() {
 }
 
 describe("AttendanceService.assertCanView / assertCanMark", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar, new QrTokenService());
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, new QrTokenService());
   });
 
   it("allows a broad attendance.mark holder to mark any section", async () => {
@@ -104,22 +108,23 @@ describe("AttendanceService.assertCanView / assertCanMark", () => {
 });
 
 describe("AttendanceService.markAttendance", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar, new QrTokenService());
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, new QrTokenService());
   });
 
   it("upserts every entry and writes one audit record for the batch", async () => {
-    prisma.__tx.attendanceRecord.upsert.mockResolvedValue({});
+    client.query.mockResolvedValue({ rows: [] });
 
     await service.markAttendance("tenant-1", "actor-1", {
       branch_id: "branch-1",
@@ -132,10 +137,10 @@ describe("AttendanceService.markAttendance", () => {
       ],
     });
 
-    expect(prisma.__tx.attendanceRecord.upsert).toHaveBeenCalledTimes(2);
+    expect(client.query).toHaveBeenCalledTimes(2);
     expect(audit.record).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledWith(
-      prisma.__tx,
+      client,
       expect.objectContaining({
         tenantId: "tenant-1",
         entityTable: "attendance_records",
@@ -147,22 +152,23 @@ describe("AttendanceService.markAttendance", () => {
 });
 
 describe("AttendanceService.markAttendanceBulk", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar, new QrTokenService());
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, new QrTokenService());
   });
 
   it("upserts one row per entry, each keyed by its own date, in one audited batch", async () => {
-    prisma.__tx.attendanceRecord.upsert.mockResolvedValue({});
+    client.query.mockResolvedValue({ rows: [] });
 
     await service.markAttendanceBulk("tenant-1", "actor-1", {
       branch_id: "branch-1",
@@ -175,39 +181,45 @@ describe("AttendanceService.markAttendanceBulk", () => {
       ],
     });
 
-    expect(prisma.__tx.attendanceRecord.upsert).toHaveBeenCalledTimes(3);
+    expect(client.query).toHaveBeenCalledTimes(3);
     expect(audit.record).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledWith(
-      prisma.__tx,
+      client,
       expect.objectContaining({ tenantId: "tenant-1", entityTable: "attendance_records", entityId: "class-1" }),
     );
   });
 });
 
 describe("AttendanceService.getRosterRange", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: AttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar, new QrTokenService());
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, new QrTokenService());
   });
 
   it("groups records into a per-student, per-ISO-date map", async () => {
-    prisma.student.findMany.mockResolvedValueOnce([
-      { id: "student-1", firstName: "Asha", lastName: "Rao" },
-      { id: "student-2", firstName: "Bilal", lastName: null },
-    ]);
-    prisma.attendanceRecord.findMany.mockResolvedValueOnce([
-      { studentId: "student-1", attendanceDate: new Date("2026-01-10T00:00:00.000Z"), status: "present", remarks: null },
-      { studentId: "student-1", attendanceDate: new Date("2026-01-11T00:00:00.000Z"), status: "absent", remarks: "sick" },
-    ]);
+    db.query
+      .mockResolvedValueOnce([
+        { id: "student-1", first_name: "Asha", last_name: "Rao" },
+        { id: "student-2", first_name: "Bilal", last_name: null },
+      ])
+      .mockResolvedValueOnce([
+        { student_id: "student-1", attendance_date: new Date("2026-01-10T00:00:00.000Z"), status: "present", remarks: null },
+        {
+          student_id: "student-1",
+          attendance_date: new Date("2026-01-11T00:00:00.000Z"),
+          status: "absent",
+          remarks: "sick",
+        },
+      ]);
 
     const result = await service.getRosterRange(
       "tenant-1",
@@ -234,7 +246,8 @@ describe("AttendanceService.getRosterRange", () => {
 });
 
 describe("AttendanceService.scanMark", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
@@ -243,98 +256,105 @@ describe("AttendanceService.scanMark", () => {
 
   const student = {
     id: "student-1",
-    tenantId: "tenant-1",
-    branchId: "branch-1",
-    firstName: "Asha",
-    lastName: "Rao",
+    tenant_id: "tenant-1",
+    branch_id: "branch-1",
+    first_name: "Asha",
+    last_name: "Rao",
     status: "enrolled",
-    currentClassId: "class-1",
-    currentSectionId: "section-1",
-    currentClass: { name: "Class 5" },
-    currentSection: { name: "A" },
-    photoPath: null,
-    qrCodeVersion: 1,
+    current_class_id: "class-1",
+    current_section_id: "section-1",
+    photo_path: null,
+    qr_code_version: 1,
   };
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     schoolCalendar = makeSchoolCalendarMock();
     qrToken = new QrTokenService();
-    service = new AttendanceService(prisma, audit, scopedAccess, schoolCalendar, qrToken);
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, qrToken);
 
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValue(true);
     (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValue("working");
+    db.queryOne.mockImplementation(async (_tenantId: string, sql: string) => {
+      if (sql.includes("FROM classes")) return { name: "Class 5" };
+      if (sql.includes("FROM sections")) return { name: "A" };
+      return null;
+    });
   });
 
   it("marks a fresh scan as present and audits it", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(student);
-    prisma.attendanceRecord.findUnique.mockResolvedValueOnce(null);
-    prisma.__tx.attendanceRecord.upsert.mockResolvedValueOnce({});
+    db.queryOne.mockImplementationOnce(async () => student); // student lookup
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM classes") ? { name: "Class 5" } : null));
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM sections") ? { name: "A" } : null));
+    db.queryOne.mockImplementationOnce(async () => null); // existing attendance record
+    client.query.mockResolvedValueOnce({ rows: [] });
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     const result = await service.scanMark("tenant-1", "actor-1", token);
 
     expect(result).toEqual(
       expect.objectContaining({ status: "marked", student_id: "student-1", class_name: "Class 5", section_name: "A" }),
     );
-    expect(prisma.__tx.attendanceRecord.upsert).toHaveBeenCalledTimes(1);
+    expect(client.query).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("is idempotent -- a second scan the same day never overwrites the existing record", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(student);
-    prisma.attendanceRecord.findUnique.mockResolvedValueOnce({ status: "absent", deletedAt: null });
+    db.queryOne.mockImplementationOnce(async () => student); // student lookup
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM classes") ? { name: "Class 5" } : null));
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM sections") ? { name: "A" } : null));
+    db.queryOne.mockImplementationOnce(async () => ({ status: "absent", deleted_at: null }));
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     const result = await service.scanMark("tenant-1", "actor-1", token);
 
     expect(result).toEqual(
       expect.objectContaining({ status: "already_marked", existing_status: "absent", student_id: "student-1" }),
     );
-    expect(prisma.__tx.attendanceRecord.upsert).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("rejects on a declared holiday", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(student);
+    db.queryOne.mockImplementationOnce(async () => student);
     (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValueOnce("holiday");
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects when the operator isn't authorized to mark the student's section", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(student);
+    db.queryOne.mockImplementationOnce(async () => student);
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValue(false);
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("rejects a stale token after the student's QR code has been reissued", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ ...student, qrCodeVersion: 2 });
+    db.queryOne.mockImplementationOnce(async () => ({ ...student, qr_code_version: 2 }));
 
     const staleToken = qrToken.generate("student", "tenant-1", student.id, 1);
     await expect(service.scanMark("tenant-1", "actor-1", staleToken)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("rejects a tampered token", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(student);
+    db.queryOne.mockImplementationOnce(async () => student);
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     const tampered = token.slice(0, -1) + (token.slice(-1) === "a" ? "b" : "a");
     await expect(service.scanMark("tenant-1", "actor-1", tampered)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("rejects garbage input as a BadRequestException rather than a 500", async () => {
     await expect(service.scanMark("tenant-1", "actor-1", "not-a-token")).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.student.findFirst).not.toHaveBeenCalled();
+    expect(db.queryOne).not.toHaveBeenCalled();
   });
 
   it("rejects when the student doesn't exist in this tenant", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(null);
+    db.queryOne.mockImplementationOnce(async () => null);
 
     const token = qrToken.generate("student", "tenant-1", "ghost-student", 1);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(NotFoundException);
@@ -343,13 +363,13 @@ describe("AttendanceService.scanMark", () => {
   it("rejects a staff-type QR code", async () => {
     const token = qrToken.generate("staff", "tenant-1", "staff-1", 1);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.student.findFirst).not.toHaveBeenCalled();
+    expect(db.queryOne).not.toHaveBeenCalled();
   });
 
   it("rejects a withdrawn/alumni student", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ ...student, status: "withdrawn" });
+    db.queryOne.mockImplementationOnce(async () => ({ ...student, status: "withdrawn" }));
 
-    const token = qrToken.generate("student", "tenant-1", student.id, student.qrCodeVersion);
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
   });
 });

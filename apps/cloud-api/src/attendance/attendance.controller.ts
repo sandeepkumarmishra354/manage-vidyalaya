@@ -74,8 +74,8 @@ export class AttendanceController {
 
   @Get("student/:studentId/history")
   @RequirePermission("attendance.view")
-  history(@Param("studentId") studentId: string) {
-    return this.attendanceService.getStudentHistory(studentId);
+  history(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.attendanceService.getStudentHistory(user.tenant_id, studentId);
   }
 
   @Get("report")
