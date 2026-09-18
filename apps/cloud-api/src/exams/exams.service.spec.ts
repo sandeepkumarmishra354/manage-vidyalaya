@@ -4,37 +4,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditService } from "../audit/audit.service.js";
 import type { ClassSubjectsService } from "../class-subjects/class-subjects.service.js";
 import type { ScopedAccessService } from "../common/scoped-access.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { ExamsService } from "./exams.service.js";
 
 const BASE_EXAM = {
   id: "exam-1",
-  tenantId: "tenant-1",
-  name: "Term 1",
-  classId: "class-1",
-  academicSessionId: "session-1",
-  passingPercentage: 33,
-  resultsPublishedAt: null as Date | null,
+  tenant_id: "tenant-1",
+  class_id: "class-1",
+  academic_session_id: "session-1",
+  passing_percentage: 33,
+  results_published_at: null as Date | null,
 };
 
-function makePrismaMock() {
-  const tx = { exam: { update: vi.fn().mockResolvedValue({}) } };
-  return {
-    exam: { findUnique: vi.fn(), findFirst: vi.fn() },
-    teacherSubjectAssignment: { findFirst: vi.fn(), findMany: vi.fn() },
-    student: { findMany: vi.fn() },
-    examMark: { findMany: vi.fn(), upsert: vi.fn() },
-    $transaction: vi.fn((arg: unknown) =>
-      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(tx),
-    ),
-    __tx: tx,
-  } as unknown as PrismaService & {
-    exam: { findUnique: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
-    teacherSubjectAssignment: { findFirst: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-    student: { findMany: ReturnType<typeof vi.fn> };
-    examMark: { findMany: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
-    __tx: typeof tx;
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -56,25 +53,28 @@ function makeClassSubjectsMock() {
 }
 
 describe("ExamsService marks-entry authorization", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
-    prisma.student.findMany.mockResolvedValue([]);
-    prisma.examMark.findMany.mockResolvedValue([]);
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    db.queryOne.mockImplementation(async (_t: string, sql: string) => {
+      if (sql.includes("FROM exams")) return { ...BASE_EXAM };
+      if (sql.includes("FROM teacher_subject_assignments")) return null;
+      return null;
+    });
+    db.query.mockResolvedValue([]);
   });
 
   it("throws NotFoundException when the exam doesn't exist", async () => {
-    prisma.exam.findUnique.mockResolvedValueOnce(null);
+    db.queryOne.mockImplementationOnce(async () => null);
 
     await expect(service.getMarksRoster("tenant-1", "user-1", "missing", "subj-1")).rejects.toBeInstanceOf(
       NotFoundException,
@@ -87,39 +87,40 @@ describe("ExamsService marks-entry authorization", () => {
     await service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1");
 
     expect(scopedAccess.getActingStaff).not.toHaveBeenCalled();
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.not.objectContaining({ currentSectionId: expect.anything() }) }),
-    );
+    const [, sql] = db.query.mock.calls[0];
+    expect(sql).not.toContain("current_section_id");
   });
 
   it("allows an assigned teacher (any section) without the broad permission", async () => {
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "staff-1" });
-    prisma.teacherSubjectAssignment.findFirst.mockResolvedValueOnce({ id: "assign-1", sectionId: null });
+    db.queryOne.mockImplementationOnce(async () => ({ ...BASE_EXAM })); // exam lookup
+    db.queryOne.mockImplementationOnce(async () => ({ section_id: null })); // assignment lookup
 
     await service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1");
 
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.not.objectContaining({ currentSectionId: expect.anything() }) }),
-    );
+    const [, sql] = db.query.mock.calls[0];
+    expect(sql).not.toContain("current_section_id");
   });
 
   it("narrows the roster to the assigned section when the assignment is section-scoped", async () => {
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "staff-1" });
-    prisma.teacherSubjectAssignment.findFirst.mockResolvedValueOnce({ id: "assign-1", sectionId: "section-a" });
+    db.queryOne.mockImplementationOnce(async () => ({ ...BASE_EXAM }));
+    db.queryOne.mockImplementationOnce(async () => ({ section_id: "section-a" }));
 
     await service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1");
 
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ currentSectionId: "section-a" }) }),
-    );
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("current_section_id");
+    expect(params).toContain("section-a");
   });
 
   it("rejects a user with no permission and no matching assignment", async () => {
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "staff-1" });
-    prisma.teacherSubjectAssignment.findFirst.mockResolvedValueOnce(null);
+    db.queryOne.mockImplementationOnce(async () => ({ ...BASE_EXAM }));
+    db.queryOne.mockImplementationOnce(async () => null);
 
     await expect(service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1")).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -128,27 +129,28 @@ describe("ExamsService marks-entry authorization", () => {
 });
 
 describe("ExamsService.saveMarks", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    db.queryOne.mockResolvedValue({ ...BASE_EXAM });
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    prisma.examMark.upsert.mockResolvedValue({});
+    client.query.mockResolvedValue({ rows: [] });
   });
 
   const baseDto = { exam_id: "exam-1", subject_id: "subj-1" };
 
   it("rejects edits once results have been published", async () => {
-    prisma.exam.findUnique.mockResolvedValueOnce({ ...BASE_EXAM, resultsPublishedAt: new Date() });
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, results_published_at: new Date() });
 
     await expect(
       service.saveMarks("tenant-1", "actor-1", {
@@ -156,14 +158,16 @@ describe("ExamsService.saveMarks", () => {
         entries: [{ student_id: "student-1", max_marks: 100, marks_obtained: 50, is_absent: false }],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.examMark.upsert).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("rejects a section-scoped teacher submitting marks for a student outside their section", async () => {
     (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "staff-1" });
-    prisma.teacherSubjectAssignment.findFirst.mockResolvedValueOnce({ id: "assign-1", sectionId: "section-a" });
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1", currentSectionId: "section-b" }]);
+    db.queryOne.mockReset();
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM }); // exam lookup
+    db.queryOne.mockResolvedValueOnce({ section_id: "section-a" }); // assignment lookup
+    db.query.mockResolvedValueOnce([{ id: "student-1", current_section_id: "section-b" }]);
 
     await expect(
       service.saveMarks("tenant-1", "actor-1", {
@@ -179,9 +183,8 @@ describe("ExamsService.saveMarks", () => {
       entries: [{ student_id: "student-1", max_marks: 100, marks_obtained: 20, is_absent: false }],
     });
 
-    expect(prisma.examMark.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ result: "fail" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("fail");
   });
 
   it("computes pass for an at-or-above-passing score", async () => {
@@ -190,9 +193,8 @@ describe("ExamsService.saveMarks", () => {
       entries: [{ student_id: "student-1", max_marks: 100, marks_obtained: 33, is_absent: false }],
     });
 
-    expect(prisma.examMark.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ result: "pass" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("pass");
   });
 
   it("always fails an absent student regardless of marks_obtained", async () => {
@@ -201,9 +203,8 @@ describe("ExamsService.saveMarks", () => {
       entries: [{ student_id: "student-1", max_marks: 100, marks_obtained: null, is_absent: true }],
     });
 
-    expect(prisma.examMark.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ result: "fail" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("fail");
   });
 
   it("leaves result null when no marks have been entered yet", async () => {
@@ -212,9 +213,8 @@ describe("ExamsService.saveMarks", () => {
       entries: [{ student_id: "student-1", max_marks: 100, marks_obtained: null, is_absent: false }],
     });
 
-    expect(prisma.examMark.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ result: null }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain(null);
   });
 
   it("lets an explicit override_result win over the computed value", async () => {
@@ -225,26 +225,25 @@ describe("ExamsService.saveMarks", () => {
       ],
     });
 
-    expect(prisma.examMark.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ result: "grace" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("grace");
   });
 });
 
 describe("ExamsService.getMyTeachingAssignments", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    db.queryOne.mockResolvedValue({ ...BASE_EXAM });
   });
 
   it("returns an empty list when the caller isn't linked to any staff row", async () => {
@@ -256,10 +255,10 @@ describe("ExamsService.getMyTeachingAssignments", () => {
 
   it("de-duplicates multiple section-scoped assignments for the same subject", async () => {
     (scopedAccess.getActingStaff as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "staff-1" });
-    prisma.teacherSubjectAssignment.findMany.mockResolvedValueOnce([
-      { subjectId: "subj-1", subject: { name: "Mathematics" } },
-      { subjectId: "subj-1", subject: { name: "Mathematics" } },
-      { subjectId: "subj-2", subject: { name: "English" } },
+    db.query.mockResolvedValueOnce([
+      { subject_id: "subj-1", subject_name: "Mathematics" },
+      { subject_id: "subj-1", subject_name: "Mathematics" },
+      { subject_id: "subj-2", subject_name: "English" },
     ]);
 
     const result = await service.getMyTeachingAssignments("tenant-1", "user-1", "exam-1");
@@ -271,33 +270,35 @@ describe("ExamsService.getMyTeachingAssignments", () => {
 });
 
 describe("ExamsService.getSubmissionStatus", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
-    prisma.teacherSubjectAssignment.findMany.mockResolvedValue([]);
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    db.queryOne.mockResolvedValue({ ...BASE_EXAM });
+    db.query.mockResolvedValue([]);
   });
 
   it("reports a subject complete once every applicable student has a mark", async () => {
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }, { id: "student-2" }]);
+    db.query
+      .mockResolvedValueOnce([{ id: "student-1" }, { id: "student-2" }]) // students
+      .mockResolvedValueOnce([
+        { student_id: "student-1", subject_id: "subj-math", marks_obtained: 40, is_absent: false },
+        { student_id: "student-2", subject_id: "subj-math", marks_obtained: 55, is_absent: false },
+      ]) // marks
+      .mockResolvedValueOnce([]); // teacher assignments
     (classSubjects.getApplicableSubjectsForStudent as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([{ subject_id: "subj-math", subject_name: "Mathematics" }])
       .mockResolvedValueOnce([{ subject_id: "subj-math", subject_name: "Mathematics" }]);
-    prisma.examMark.findMany.mockResolvedValueOnce([
-      { studentId: "student-1", subjectId: "subj-math", marksObtained: 40, isAbsent: false },
-      { studentId: "student-2", subjectId: "subj-math", marksObtained: 55, isAbsent: false },
-    ]);
 
-    const result = await service.getSubmissionStatus("exam-1");
+    const result = await service.getSubmissionStatus("tenant-1", "exam-1");
     expect(result).toEqual([
       {
         subject_id: "subj-math",
@@ -311,52 +312,53 @@ describe("ExamsService.getSubmissionStatus", () => {
   });
 
   it("reports a subject incomplete when a student's mark is still missing", async () => {
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }, { id: "student-2" }]);
+    db.query
+      .mockResolvedValueOnce([{ id: "student-1" }, { id: "student-2" }])
+      .mockResolvedValueOnce([{ student_id: "student-1", subject_id: "subj-math", marks_obtained: 40, is_absent: false }])
+      .mockResolvedValueOnce([]);
     (classSubjects.getApplicableSubjectsForStudent as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([{ subject_id: "subj-math", subject_name: "Mathematics" }])
       .mockResolvedValueOnce([{ subject_id: "subj-math", subject_name: "Mathematics" }]);
-    prisma.examMark.findMany.mockResolvedValueOnce([
-      { studentId: "student-1", subjectId: "subj-math", marksObtained: 40, isAbsent: false },
-    ]);
 
-    const result = await service.getSubmissionStatus("exam-1");
+    const result = await service.getSubmissionStatus("tenant-1", "exam-1");
     expect(result[0]).toMatchObject({ expected_count: 2, entered_count: 1, is_complete: false });
   });
 
   it("names the responsible teacher for each subject", async () => {
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }]);
+    db.query
+      .mockResolvedValueOnce([{ id: "student-1" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ subject_id: "subj-math", first_name: "Asha", last_name: "Rao" }]);
     (classSubjects.getApplicableSubjectsForStudent as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { subject_id: "subj-math", subject_name: "Mathematics" },
     ]);
-    prisma.examMark.findMany.mockResolvedValueOnce([]);
-    prisma.teacherSubjectAssignment.findMany.mockResolvedValueOnce([
-      { subjectId: "subj-math", staff: { firstName: "Asha", lastName: "Rao" } },
-    ]);
 
-    const result = await service.getSubmissionStatus("exam-1");
+    const result = await service.getSubmissionStatus("tenant-1", "exam-1");
     expect(result[0].teachers).toEqual(["Asha Rao"]);
   });
 });
 
 describe("ExamsService.publishExamResults", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
-    prisma.exam.findFirst.mockResolvedValue({ ...BASE_EXAM });
-    prisma.teacherSubjectAssignment.findMany.mockResolvedValue([]);
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    db.queryOne.mockResolvedValue({ ...BASE_EXAM, name: "Term 1" });
+    db.query.mockResolvedValue([]);
+    client.query.mockResolvedValue({ rows: [{ id: "exam-1", tenant_id: "tenant-1" }] });
   });
 
   it("throws NotFoundException when the exam doesn't exist", async () => {
-    prisma.exam.findFirst.mockResolvedValueOnce(null);
+    db.queryOne.mockResolvedValueOnce(null);
 
     await expect(service.publishExamResults("tenant-1", "actor-1", "missing")).rejects.toBeInstanceOf(
       NotFoundException,
@@ -364,7 +366,7 @@ describe("ExamsService.publishExamResults", () => {
   });
 
   it("rejects publishing an already-published exam", async () => {
-    prisma.exam.findFirst.mockResolvedValueOnce({ ...BASE_EXAM, resultsPublishedAt: new Date() });
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, results_published_at: new Date() });
 
     await expect(service.publishExamResults("tenant-1", "actor-1", "exam-1")).rejects.toBeInstanceOf(
       BadRequestException,
@@ -372,107 +374,97 @@ describe("ExamsService.publishExamResults", () => {
   });
 
   it("blocks publishing while any subject is incomplete", async () => {
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }]);
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, name: "Term 1" });
+    db.query.mockResolvedValueOnce([{ id: "student-1" }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     (classSubjects.getApplicableSubjectsForStudent as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { subject_id: "subj-math", subject_name: "Mathematics" },
     ]);
-    prisma.examMark.findMany.mockResolvedValueOnce([]);
 
     await expect(service.publishExamResults("tenant-1", "actor-1", "exam-1")).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(prisma.__tx.exam.update).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("publishes once every applicable subject is complete", async () => {
-    prisma.exam.findUnique.mockResolvedValue({ ...BASE_EXAM });
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1" }]);
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, name: "Term 1" });
+    db.query
+      .mockResolvedValueOnce([{ id: "student-1" }])
+      .mockResolvedValueOnce([{ student_id: "student-1", subject_id: "subj-math", marks_obtained: 40, is_absent: false }])
+      .mockResolvedValueOnce([]);
     (classSubjects.getApplicableSubjectsForStudent as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { subject_id: "subj-math", subject_name: "Mathematics" },
-    ]);
-    prisma.examMark.findMany.mockResolvedValueOnce([
-      { studentId: "student-1", subjectId: "subj-math", marksObtained: 40, isAbsent: false },
     ]);
 
     await service.publishExamResults("tenant-1", "actor-1", "exam-1");
 
-    expect(prisma.__tx.exam.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ resultsPublishedAt: expect.any(Date) }) }),
-    );
+    const [sql, params] = client.query.mock.calls[0];
+    expect(sql).toContain("UPDATE exams");
+    expect(params.some((p: unknown) => p instanceof Date)).toBe(true);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ExamsService.reopenExamResults", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
     classSubjects = makeClassSubjectsMock();
-    service = new ExamsService(prisma, audit, scopedAccess, classSubjects);
+    service = new ExamsService(db, audit, scopedAccess, classSubjects);
+    client.query.mockResolvedValue({ rows: [{ id: "exam-1", tenant_id: "tenant-1" }] });
   });
 
   it("rejects reopening an exam that isn't published", async () => {
-    prisma.exam.findFirst.mockResolvedValueOnce({ ...BASE_EXAM, resultsPublishedAt: null });
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, name: "Term 1", results_published_at: null });
 
     await expect(service.reopenExamResults("tenant-1", "actor-1", "exam-1")).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
 
-  it("clears resultsPublishedAt for a published exam", async () => {
-    prisma.exam.findFirst.mockResolvedValueOnce({ ...BASE_EXAM, resultsPublishedAt: new Date() });
+  it("clears results_published_at for a published exam", async () => {
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, name: "Term 1", results_published_at: new Date() });
 
     await service.reopenExamResults("tenant-1", "actor-1", "exam-1");
 
-    expect(prisma.__tx.exam.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ resultsPublishedAt: null }) }),
-    );
+    const [sql, params] = client.query.mock.calls[0];
+    expect(sql).toContain("UPDATE exams");
+    expect(params).toContain(null);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ExamsService.listExams", () => {
-  let prisma: { exam: { findMany: ReturnType<typeof vi.fn> } };
+  let db: ReturnType<typeof makeDbMock>["db"];
   let service: ExamsService;
 
   beforeEach(() => {
-    prisma = { exam: { findMany: vi.fn().mockResolvedValue([]) } };
-    service = new ExamsService(
-      prisma as unknown as PrismaService,
-      makeAuditMock(),
-      {} as ScopedAccessService,
-      {} as ClassSubjectsService,
-    );
+    ({ db } = makeDbMock());
+    service = new ExamsService(db, makeAuditMock(), {} as ScopedAccessService, {} as ClassSubjectsService);
   });
 
-  it("scopes to the branch with no extra filters when none are given", async () => {
-    await service.listExams("branch-1");
-    expect(prisma.exam.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { branchId: "branch-1", deletedAt: null },
-      }),
-    );
+  it("scopes to the tenant and branch with no extra filters when none are given", async () => {
+    await service.listExams("tenant-1", "branch-1");
+    const [tenantId, sql, params] = db.query.mock.calls[0];
+    expect(tenantId).toBe("tenant-1");
+    expect(sql).toContain("tenant_id = $1");
+    expect(sql).toContain("branch_id = $2");
+    expect(params).toEqual(["tenant-1", "branch-1"]);
   });
 
   it("combines class and session filters with AND", async () => {
-    await service.listExams("branch-1", "class-1", "session-1");
-    expect(prisma.exam.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          branchId: "branch-1",
-          deletedAt: null,
-          classId: "class-1",
-          academicSessionId: "session-1",
-        },
-      }),
-    );
+    await service.listExams("tenant-1", "branch-1", "class-1", "session-1");
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("class_id = $3");
+    expect(sql).toContain("academic_session_id = $4");
+    expect(params).toEqual(["tenant-1", "branch-1", "class-1", "session-1"]);
   });
 });
