@@ -2,37 +2,26 @@ import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import type { StorageService } from "../storage/storage.service.js";
 import { DocumentsService } from "./documents.service.js";
 
-function makePrismaMock() {
-  const tx = {
-    studentDocument: { create: vi.fn(), update: vi.fn() },
-    staffDocument: { create: vi.fn(), update: vi.fn() },
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-    student: { findFirst: vi.fn() },
-    staff: { findFirst: vi.fn() },
-    studentDocument: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    staffDocument: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  } as unknown as PrismaService & {
-    __tx: typeof tx;
-    student: { findFirst: ReturnType<typeof vi.fn> };
-    staff: { findFirst: ReturnType<typeof vi.fn> };
-    studentDocument: {
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-      update: ReturnType<typeof vi.fn>;
-    };
-    staffDocument: {
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-      update: ReturnType<typeof vi.fn>;
-    };
-  };
+  return { db, client };
 }
 
 function makeStorageMock() {
@@ -52,21 +41,22 @@ function makeAuditMock() {
 }
 
 describe("DocumentsService", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let storage: ReturnType<typeof makeStorageMock>;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: DocumentsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     storage = makeStorageMock();
     audit = makeAuditMock();
-    service = new DocumentsService(prisma, storage, audit);
+    service = new DocumentsService(db, storage, audit);
   });
 
   describe("requestUploadUrl", () => {
     it("404s when the owner doesn't exist in this tenant", async () => {
-      prisma.student.findFirst.mockResolvedValueOnce(null);
+      db.queryOne.mockResolvedValueOnce(null);
       await expect(
         service.requestUploadUrl("tenant-1", "student", "student-1", { file_name: "a.pdf", content_type: "application/pdf" }),
       ).rejects.toBeInstanceOf(NotFoundException);
@@ -74,7 +64,7 @@ describe("DocumentsService", () => {
     });
 
     it("generates a storage key preserving the file extension", async () => {
-      prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1" });
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-1" });
       storage.createUploadUrl.mockResolvedValueOnce({ url: "http://x", method: "PUT", expires_at: "now" });
 
       const result = await service.requestUploadUrl("tenant-1", "student", "student-1", {
@@ -88,16 +78,23 @@ describe("DocumentsService", () => {
   });
 
   describe("create", () => {
-    it("creates a StudentDocument row scoped to the owner's branch and records an audit entry", async () => {
-      prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1" });
-      prisma.__tx.studentDocument.create.mockResolvedValueOnce({
-        id: "doc-1",
-        label: "Birth Certificate",
-        fileName: "cert.pdf",
-        mimeType: "application/pdf",
-        fileSize: 100,
-        uploadedByUserId: "user-1",
-        createdAt: new Date(),
+    it("creates a student_documents row scoped to the owner's branch and records an audit entry", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-1" });
+      client.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "doc-1",
+            tenant_id: "tenant-1",
+            student_id: "student-1",
+            branch_id: "branch-1",
+            label: "Birth Certificate",
+            file_name: "cert.pdf",
+            mime_type: "application/pdf",
+            file_size: 100,
+            uploaded_by_user_id: "user-1",
+            created_at: new Date(),
+          },
+        ],
       });
 
       await service.create("tenant-1", "user-1", "student", "student-1", {
@@ -108,24 +105,30 @@ describe("DocumentsService", () => {
         file_size: 100,
       });
 
-      expect(prisma.__tx.studentDocument.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ studentId: "student-1", branchId: "branch-1", tenantId: "tenant-1" }),
-        }),
-      );
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/INSERT INTO student_documents/);
+      expect(params).toContain("student-1");
+      expect(params).toContain("branch-1");
       expect(audit.record).toHaveBeenCalled();
     });
 
-    it("creates a StaffDocument row when ownerType is staff", async () => {
-      prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-2" });
-      prisma.__tx.staffDocument.create.mockResolvedValueOnce({
-        id: "doc-2",
-        label: "Resume",
-        fileName: "resume.pdf",
-        mimeType: "application/pdf",
-        fileSize: 50,
-        uploadedByUserId: "user-1",
-        createdAt: new Date(),
+    it("creates a staff_documents row when ownerType is staff", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-2" });
+      client.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "doc-2",
+            tenant_id: "tenant-1",
+            staff_id: "staff-1",
+            branch_id: "branch-2",
+            label: "Resume",
+            file_name: "resume.pdf",
+            mime_type: "application/pdf",
+            file_size: 50,
+            uploaded_by_user_id: "user-1",
+            created_at: new Date(),
+          },
+        ],
       });
 
       await service.create("tenant-1", "user-1", "staff", "staff-1", {
@@ -136,23 +139,22 @@ describe("DocumentsService", () => {
         file_size: 50,
       });
 
-      expect(prisma.__tx.staffDocument.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ staffId: "staff-1", branchId: "branch-2" }) }),
-      );
-      expect(prisma.__tx.studentDocument.create).not.toHaveBeenCalled();
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/INSERT INTO staff_documents/);
+      expect(params).toContain("staff-1");
     });
   });
 
   describe("getDownloadUrl / remove", () => {
     it("404s fetching a download URL for a document outside the tenant/owner scope", async () => {
-      prisma.studentDocument.findFirst.mockResolvedValueOnce(null);
+      db.queryOne.mockResolvedValueOnce(null);
       await expect(service.getDownloadUrl("tenant-1", "student", "student-1", "doc-x")).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
 
     it("resolves a signed download URL for an owned document", async () => {
-      prisma.studentDocument.findFirst.mockResolvedValueOnce({ id: "doc-1", storageKey: "doc-1.pdf", branchId: "branch-1" });
+      db.queryOne.mockResolvedValueOnce({ id: "doc-1", storage_key: "doc-1.pdf", branch_id: "branch-1" });
       storage.createDownloadUrl.mockResolvedValueOnce({ url: "http://x/doc-1.pdf", expires_at: "now" });
 
       const result = await service.getDownloadUrl("tenant-1", "student", "student-1", "doc-1");
@@ -162,19 +164,19 @@ describe("DocumentsService", () => {
     });
 
     it("soft-deletes the row and best-effort deletes the storage object", async () => {
-      prisma.studentDocument.findFirst.mockResolvedValueOnce({
+      db.queryOne.mockResolvedValueOnce({
         id: "doc-1",
-        storageKey: "doc-1.pdf",
-        branchId: "branch-1",
+        storage_key: "doc-1.pdf",
+        branch_id: "branch-1",
         label: "Birth Certificate",
-        fileName: "cert.pdf",
+        file_name: "cert.pdf",
       });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "doc-1", tenant_id: "tenant-1" }] });
 
       await service.remove("tenant-1", "user-1", "student", "student-1", "doc-1");
 
-      expect(prisma.__tx.studentDocument.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: "doc-1" }, data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
-      );
+      const [text] = client.query.mock.calls[0];
+      expect(text).toMatch(/UPDATE student_documents SET/);
       expect(storage.deleteObject).toHaveBeenCalledWith("doc-1.pdf");
       expect(audit.record).toHaveBeenCalled();
     });

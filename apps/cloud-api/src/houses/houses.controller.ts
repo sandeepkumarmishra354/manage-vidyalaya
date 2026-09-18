@@ -18,8 +18,8 @@ export class HousesController {
 
   @Get()
   @RequirePermission("houses.view")
-  list(@Query("branch_id") branchId: string) {
-    return this.housesService.listHouses(branchId);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.housesService.listHouses(user.tenant_id, branchId);
   }
 
   @Post()
@@ -35,13 +35,17 @@ export class HousesController {
   }
 
   @Get("leaderboard")
-  leaderboard(@Query("branch_id") branchId: string, @Query("academic_session_id") academicSessionId?: string) {
-    return this.housesService.getHouseLeaderboard(branchId, academicSessionId);
+  leaderboard(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("academic_session_id") academicSessionId?: string,
+  ) {
+    return this.housesService.getHouseLeaderboard(user.tenant_id, branchId, academicSessionId);
   }
 
   @Get("points-events")
-  pointsEvents(@Query("branch_id") branchId: string) {
-    return this.housesService.listHousePointEvents(branchId);
+  pointsEvents(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.housesService.listHousePointEvents(user.tenant_id, branchId);
   }
 
   @Post("points-events")
@@ -57,7 +61,7 @@ export class HousesController {
   }
 
   @Get("student/:studentId")
-  studentHouse(@Param("studentId") studentId: string) {
-    return this.housesService.getStudentHouse(studentId);
+  studentHouse(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.housesService.getStudentHouse(user.tenant_id, studentId);
   }
 }

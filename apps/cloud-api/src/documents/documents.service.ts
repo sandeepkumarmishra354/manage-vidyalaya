@@ -3,12 +3,25 @@ import { randomUUID } from "node:crypto";
 import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { StorageService } from "../storage/storage.service.js";
 import type { CreateDocumentDto } from "./dto/create-document.dto.js";
 import type { RequestUploadUrlDto } from "./dto/request-upload-url.dto.js";
 
 export type DocumentOwnerType = "student" | "staff";
+
+interface DocumentRow extends TenantRow {
+  branch_id: string;
+  label: string;
+  storage_key: string;
+  file_name: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_by_user_id: string;
+  created_at: Date;
+}
 
 function sanitizeExtension(fileName: string): string {
   const dot = fileName.lastIndexOf(".");
@@ -20,43 +33,45 @@ function sanitizeExtension(fileName: string): string {
   return ext.slice(0, 10);
 }
 
-function toListItem(r: {
-  id: string;
-  label: string;
-  fileName: string;
-  mimeType: string;
-  fileSize: number;
-  uploadedByUserId: string;
-  createdAt: Date;
-}) {
+function toListItem(r: DocumentRow) {
   return {
     id: r.id,
     label: r.label,
-    file_name: r.fileName,
-    mime_type: r.mimeType,
-    file_size: r.fileSize,
-    uploaded_by_user_id: r.uploadedByUserId,
-    created_at: r.createdAt,
+    file_name: r.file_name,
+    mime_type: r.mime_type,
+    file_size: r.file_size,
+    uploaded_by_user_id: r.uploaded_by_user_id,
+    created_at: r.created_at,
   };
+}
+
+function ownerTable(ownerType: DocumentOwnerType): "student_documents" | "staff_documents" {
+  return ownerType === "student" ? "student_documents" : "staff_documents";
+}
+
+function ownerColumn(ownerType: DocumentOwnerType): "student_id" | "staff_id" {
+  return ownerType === "student" ? "student_id" : "staff_id";
 }
 
 // Shared by both StudentsDocumentsController and StaffDocumentsController --
 // the two owner types have an identical document shape and lifecycle, so
-// this dispatches to the right Prisma delegate rather than duplicating the
+// this dispatches to the right table rather than duplicating the
 // upload-url/create/list/delete logic per owner type.
 @Injectable()
 export class DocumentsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
   ) {}
 
   private async resolveOwner(tenantId: string, ownerType: DocumentOwnerType, ownerId: string) {
-    const owner =
-      ownerType === "student"
-        ? await this.prisma.student.findFirst({ where: { id: ownerId, tenantId, deletedAt: null } })
-        : await this.prisma.staff.findFirst({ where: { id: ownerId, tenantId, deletedAt: null } });
+    const table = ownerType === "student" ? "students" : "staff";
+    const owner = await this.db.queryOne<{ id: string; branch_id: string }>(
+      tenantId,
+      `SELECT id, branch_id FROM ${table} WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [ownerId, tenantId],
+    );
     if (!owner) {
       throw new NotFoundException(`${ownerType} not found`);
     }
@@ -73,36 +88,29 @@ export class DocumentsService {
 
   async create(tenantId: string, actorUserId: string, ownerType: DocumentOwnerType, ownerId: string, dto: CreateDocumentDto) {
     const owner = await this.resolveOwner(tenantId, ownerType, ownerId);
-    const now = new Date();
-    const id = randomUUID();
 
-    const data = {
-      id,
-      tenantId,
-      branchId: owner.branchId,
-      label: dto.label,
-      storageKey: dto.storage_key,
-      fileName: dto.file_name,
-      mimeType: dto.mime_type,
-      fileSize: dto.file_size,
-      uploadedByUserId: actorUserId,
-      createdAt: now,
-      updatedAt: now,
-      updatedBy: actorUserId,
-    };
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
+      const created = await insertRow<DocumentRow>(client, ownerTable(ownerType), tenantId, {
+        [ownerColumn(ownerType)]: ownerId,
+        branch_id: owner.branch_id,
+        label: dto.label,
+        storage_key: dto.storage_key,
+        file_name: dto.file_name,
+        mime_type: dto.mime_type,
+        file_size: dto.file_size,
+        uploaded_by_user_id: actorUserId,
+        created_at: now,
+        updated_at: now,
+        updated_by: actorUserId,
+      });
 
-    return this.prisma.$transaction(async (tx) => {
-      const created =
-        ownerType === "student"
-          ? await tx.studentDocument.create({ data: { ...data, studentId: ownerId } })
-          : await tx.staffDocument.create({ data: { ...data, staffId: ownerId } });
-
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: owner.branchId,
+        branchId: owner.branch_id,
         actorUserId,
-        entityTable: ownerType === "student" ? "student_documents" : "staff_documents",
-        entityId: id,
+        entityTable: ownerTable(ownerType),
+        entityId: created.id,
         action: "create",
         summary: `Uploaded document '${dto.label}' (${dto.file_name})`,
       });
@@ -113,28 +121,20 @@ export class DocumentsService {
 
   async list(tenantId: string, ownerType: DocumentOwnerType, ownerId: string) {
     await this.resolveOwner(tenantId, ownerType, ownerId);
-    const rows =
-      ownerType === "student"
-        ? await this.prisma.studentDocument.findMany({
-            where: { studentId: ownerId, tenantId, deletedAt: null },
-            orderBy: { createdAt: "desc" },
-          })
-        : await this.prisma.staffDocument.findMany({
-            where: { staffId: ownerId, tenantId, deletedAt: null },
-            orderBy: { createdAt: "desc" },
-          });
+    const rows = await this.db.query<DocumentRow>(
+      tenantId,
+      `SELECT * FROM ${ownerTable(ownerType)} WHERE ${ownerColumn(ownerType)} = $1 AND tenant_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC`,
+      [ownerId, tenantId],
+    );
     return rows.map(toListItem);
   }
 
   private async findOwned(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
-    const row =
-      ownerType === "student"
-        ? await this.prisma.studentDocument.findFirst({
-            where: { id: docId, studentId: ownerId, tenantId, deletedAt: null },
-          })
-        : await this.prisma.staffDocument.findFirst({
-            where: { id: docId, staffId: ownerId, tenantId, deletedAt: null },
-          });
+    const row = await this.db.queryOne<DocumentRow>(
+      tenantId,
+      `SELECT * FROM ${ownerTable(ownerType)} WHERE id = $1 AND ${ownerColumn(ownerType)} = $2 AND tenant_id = $3 AND deleted_at IS NULL`,
+      [docId, ownerId, tenantId],
+    );
     if (!row) {
       throw new NotFoundException("document not found");
     }
@@ -143,38 +143,31 @@ export class DocumentsService {
 
   async getDownloadUrl(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
     const row = await this.findOwned(tenantId, ownerType, ownerId, docId);
-    return this.storage.createDownloadUrl(row.storageKey);
+    return this.storage.createDownloadUrl(row.storage_key);
   }
 
   async remove(tenantId: string, actorUserId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
     const row = await this.findOwned(tenantId, ownerType, ownerId, docId);
-    const now = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
-      if (ownerType === "student") {
-        await tx.studentDocument.update({
-          where: { id: docId },
-          data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-        });
-      } else {
-        await tx.staffDocument.update({
-          where: { id: docId },
-          data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-        });
-      }
+    await this.db.withTransaction(tenantId, async (client) => {
+      await updateRow<DocumentRow>(client, ownerTable(ownerType), tenantId, docId, {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+        updated_by: actorUserId,
+      });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: row.branchId,
+        branchId: row.branch_id,
         actorUserId,
-        entityTable: ownerType === "student" ? "student_documents" : "staff_documents",
+        entityTable: ownerTable(ownerType),
         entityId: docId,
         action: "delete",
-        summary: `Deleted document '${row.label}' (${row.fileName})`,
+        summary: `Deleted document '${row.label}' (${row.file_name})`,
       });
     });
 
-    await this.storage.deleteObject(row.storageKey);
+    await this.storage.deleteObject(row.storage_key);
 
     return { ok: true };
   }

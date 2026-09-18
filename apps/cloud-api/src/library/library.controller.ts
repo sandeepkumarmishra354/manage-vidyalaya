@@ -17,8 +17,8 @@ export class LibraryBooksController {
 
   @Get()
   @RequirePermission("library.view")
-  list(@Query("branch_id") branchId: string, @Query("search") search?: string) {
-    return this.libraryService.listBooks(branchId, search);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string, @Query("search") search?: string) {
+    return this.libraryService.listBooks(user.tenant_id, branchId, search);
   }
 
   @Post()
@@ -42,13 +42,14 @@ export class LibraryIssuesController {
   @Get()
   @RequirePermission("library.view")
   list(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("status") status?: string,
     @Query("student_id") studentId?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
-    return this.libraryService.listIssues(branchId, { status, studentId, from, to });
+    return this.libraryService.listIssues(user.tenant_id, branchId, { status, studentId, from, to });
   }
 
   @Post()
@@ -59,8 +60,8 @@ export class LibraryIssuesController {
 
   @Post(":id/return")
   @RequirePermission("library.manage_issues")
-  return_(@Param("id") id: string) {
-    return this.libraryService.returnBook(id);
+  return_(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.libraryService.returnBook(user.tenant_id, id);
   }
 }
 
@@ -71,7 +72,7 @@ export class LibraryStatsController {
 
   @Get()
   @RequirePermission("library.view")
-  stats(@Query("branch_id") branchId: string) {
-    return this.libraryService.getLibraryStats(branchId);
+  stats(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.libraryService.getLibraryStats(user.tenant_id, branchId);
   }
 }
