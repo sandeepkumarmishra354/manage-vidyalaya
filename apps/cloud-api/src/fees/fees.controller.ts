@@ -26,8 +26,13 @@ export class FeeStructuresController {
 
   @Get()
   @RequirePermission("fees.view")
-  list(@Query("branch_id") branchId: string, @Query("fee_type") feeType?: string, @Query("class_id") classId?: string) {
-    return this.feesService.listFeeStructures(branchId, feeType, classId);
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("fee_type") feeType?: string,
+    @Query("class_id") classId?: string,
+  ) {
+    return this.feesService.listFeeStructures(user.tenant_id, branchId, feeType, classId);
   }
 
   @Post()
@@ -70,8 +75,8 @@ export class FeeStructuresController {
 
   @Get(":id/student-assignments")
   @RequirePermission("fees.view")
-  listAssignments(@Param("id") id: string) {
-    return this.feesService.listStructureAssignments(id);
+  listAssignments(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.feesService.listStructureAssignments(user.tenant_id, id);
   }
 }
 
@@ -83,18 +88,19 @@ export class FeeInvoicesController {
   @Get()
   @RequirePermission("fees.view")
   list(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("status") status?: string,
     @Query("fee_type") feeType?: string,
     @Query("class_id") classId?: string,
   ) {
-    return this.feesService.listInvoices(branchId, status, feeType, classId);
+    return this.feesService.listInvoices(user.tenant_id, branchId, status, feeType, classId);
   }
 
   @Get("student/:studentId/summary")
   @RequirePermission("fees.view")
-  summary(@Param("studentId") studentId: string) {
-    return this.feesService.getStudentFeeSummary(studentId);
+  summary(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.feesService.getStudentFeeSummary(user.tenant_id, studentId);
   }
 
   @Post(":id/void")
@@ -184,7 +190,7 @@ export class StudentFeeAssignmentsQueryController {
 
   @Get(":id/fee-assignments")
   @RequirePermission("fees.view")
-  list(@Param("id") id: string) {
-    return this.feesService.listStudentFeeAssignments(id);
+  list(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.feesService.listStudentFeeAssignments(user.tenant_id, id);
   }
 }

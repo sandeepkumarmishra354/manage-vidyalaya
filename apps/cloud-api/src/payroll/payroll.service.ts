@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { PoolClient } from "pg";
 
-import { AuditService, type AuditableClient } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { AuditService } from "../audit/audit.service.js";
+import { DbService } from "../db/db.service.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
 import type { GeneratePayrollRunDto } from "./dto/generate-payroll-run.dto.js";
@@ -13,6 +16,51 @@ export interface ComponentLike {
   calculationType: string;
   amount: number | null;
   percent: number | null;
+}
+
+export interface SalaryStructureRow extends TenantRow {
+  branch_id: string;
+  staff_id: string;
+  effective_from: Date;
+  basic_amount: number;
+}
+
+interface SalaryComponentRow extends TenantRow {
+  salary_structure_id: string;
+  component_name: string;
+  component_type: string;
+  calculation_type: string;
+  amount: number | null;
+  percent: number | null;
+}
+
+export interface PayrollRunRow extends TenantRow {
+  branch_id: string;
+  period_month: number;
+  period_year: number;
+  status: string;
+  generated_at: Date;
+  generated_by: string | null;
+}
+
+export interface PayslipRow extends TenantRow {
+  payroll_run_id: string;
+  staff_id: string;
+  days_in_month: number;
+  days_present: number;
+  days_lop: number;
+  gross_earnings: number;
+  total_deductions: number;
+  net_pay: number;
+  status: string;
+  paid_on: Date | null;
+}
+
+interface PayslipLineItemRow extends TenantRow {
+  payslip_id: string;
+  component_name: string;
+  component_type: string;
+  amount: number;
 }
 
 // percent_of_basic: basic_amount * percent / 100, rounded. fixed: the
@@ -33,69 +81,84 @@ export function daysInMonth(year: number, month: number): number {
 @Injectable()
 export class PayrollService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly schoolCalendar: SchoolCalendarService,
   ) {}
 
   // "The structure that was in force on this date" -- the most recent
-  // structure whose effective_from is on or before asOfDate. Accepts either
-  // the plain PrismaService or a $transaction client, since
-  // generatePayrollRun needs this resolved consistently inside its own
-  // transaction rather than against a separate connection.
-  async getEffectiveSalaryStructure(client: AuditableClient, staffId: string, asOfDate: Date) {
-    return client.salaryStructure.findFirst({
-      where: { staffId, deletedAt: null, effectiveFrom: { lte: asOfDate } },
-      orderBy: { effectiveFrom: "desc" },
-      include: { salaryComponents: { where: { deletedAt: null } } },
-    });
+  // structure whose effective_from is on or before asOfDate. Takes a
+  // PoolClient (not a tenantId-scoped db.query) since generatePayrollRun
+  // needs this resolved consistently inside its own transaction rather
+  // than against a separate connection.
+  async getEffectiveSalaryStructure(
+    client: PoolClient,
+    tenantId: string,
+    staffId: string,
+    asOfDate: Date,
+  ): Promise<{ structure: SalaryStructureRow; components: SalaryComponentRow[] } | null> {
+    const structureResult = await client.query<SalaryStructureRow>(
+      "SELECT * FROM salary_structures WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL AND effective_from <= $3 ORDER BY effective_from DESC LIMIT 1",
+      [tenantId, staffId, asOfDate],
+    );
+    const structure = structureResult.rows[0];
+    if (!structure) return null;
+
+    const componentsResult = await client.query<SalaryComponentRow>(
+      "SELECT * FROM salary_components WHERE tenant_id = $1 AND salary_structure_id = $2 AND deleted_at IS NULL",
+      [tenantId, structure.id],
+    );
+    return { structure, components: componentsResult.rows };
   }
 
-  private formatStructure(structure: {
-    id: string;
-    staffId: string;
-    effectiveFrom: Date;
-    basicAmount: number;
-    salaryComponents: {
-      id: string;
-      componentName: string;
-      componentType: string;
-      calculationType: string;
-      amount: number | null;
-      percent: number | null;
-    }[];
-  }) {
+  private formatStructure(structure: SalaryStructureRow, components: SalaryComponentRow[]) {
     return {
       id: structure.id,
-      staff_id: structure.staffId,
-      effective_from: structure.effectiveFrom,
-      basic_amount: structure.basicAmount,
-      components: structure.salaryComponents.map((c) => ({
+      staff_id: structure.staff_id,
+      effective_from: structure.effective_from,
+      basic_amount: structure.basic_amount,
+      components: components.map((c) => ({
         id: c.id,
-        component_name: c.componentName,
-        component_type: c.componentType,
-        calculation_type: c.calculationType,
+        component_name: c.component_name,
+        component_type: c.component_type,
+        calculation_type: c.calculation_type,
         amount: c.amount,
         percent: c.percent,
       })),
     };
   }
 
-  async getSalaryStructure(staffId: string) {
-    const structure = await this.getEffectiveSalaryStructure(this.prisma, staffId, new Date());
-    return structure ? this.formatStructure(structure) : null;
+  async getSalaryStructure(tenantId: string, staffId: string) {
+    const result = await this.db.withTransaction(tenantId, (client) =>
+      this.getEffectiveSalaryStructure(client, tenantId, staffId, new Date()),
+    );
+    return result ? this.formatStructure(result.structure, result.components) : null;
   }
 
   // Every historical structure a staff member has ever had, most recent
   // first -- the increment history behind the "current" one getSalaryStructure
   // returns.
-  async listSalaryHistory(staffId: string) {
-    const structures = await this.prisma.salaryStructure.findMany({
-      where: { staffId, deletedAt: null },
-      orderBy: { effectiveFrom: "desc" },
-      include: { salaryComponents: { where: { deletedAt: null } } },
-    });
-    return structures.map((s) => this.formatStructure(s));
+  async listSalaryHistory(tenantId: string, staffId: string) {
+    const structures = await this.db.query<SalaryStructureRow>(
+      tenantId,
+      "SELECT * FROM salary_structures WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL ORDER BY effective_from DESC",
+      [tenantId, staffId],
+    );
+    if (structures.length === 0) return [];
+
+    const components = await this.db.query<SalaryComponentRow>(
+      tenantId,
+      "SELECT * FROM salary_components WHERE tenant_id = $1 AND salary_structure_id = ANY($2) AND deleted_at IS NULL",
+      [tenantId, structures.map((s) => s.id)],
+    );
+    const byStructure = new Map<string, SalaryComponentRow[]>();
+    for (const c of components) {
+      const list = byStructure.get(c.salary_structure_id) ?? [];
+      list.push(c);
+      byStructure.set(c.salary_structure_id, list);
+    }
+
+    return structures.map((s) => this.formatStructure(s, byStructure.get(s.id) ?? []));
   }
 
   // Records a new salary structure effective from dto.effective_from. This
@@ -104,44 +167,35 @@ export class PayrollService {
   // can resolve whichever one was in force for any given date, including
   // past payroll runs that must keep using the structure that applied then.
   async setSalaryStructure(tenantId: string, actorUserId: string, dto: SetSalaryStructureDto) {
-    const now = new Date();
-    const structureId = randomUUID();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.salaryStructure.create({
-        data: {
-          id: structureId,
-          tenantId,
-          branchId: dto.branch_id,
-          staffId: dto.staff_id,
-          effectiveFrom: new Date(dto.effective_from),
-          basicAmount: dto.basic_amount,
-          updatedAt: now,
-        },
+      const structure = await insertRow<SalaryStructureRow>(client, "salary_structures", tenantId, {
+        branch_id: dto.branch_id,
+        staff_id: dto.staff_id,
+        effective_from: new Date(dto.effective_from),
+        basic_amount: dto.basic_amount,
+        updated_at: now,
       });
 
       for (const component of dto.components) {
-        await tx.salaryComponent.create({
-          data: {
-            id: randomUUID(),
-            tenantId,
-            salaryStructureId: structureId,
-            componentName: component.component_name,
-            componentType: component.component_type,
-            calculationType: component.calculation_type,
-            amount: component.amount ?? null,
-            percent: component.percent ?? null,
-            updatedAt: now,
-          },
+        await insertRow<SalaryComponentRow>(client, "salary_components", tenantId, {
+          salary_structure_id: structure.id,
+          component_name: component.component_name,
+          component_type: component.component_type,
+          calculation_type: component.calculation_type,
+          amount: component.amount ?? null,
+          percent: component.percent ?? null,
+          updated_at: now,
         });
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
         entityTable: "salary_structures",
-        entityId: structureId,
+        entityId: structure.id,
         action: "create",
         summary: "Set salary structure",
       });
@@ -161,9 +215,6 @@ export class PayrollService {
   // whatever the salary structure's deduction components say, not computed
   // against government slabs.
   async generatePayrollRun(tenantId: string, actorUserId: string, dto: GeneratePayrollRunDto) {
-    const runId = randomUUID();
-    const now = new Date();
-
     const periodStart = new Date(Date.UTC(dto.period_year, dto.period_month - 1, 1));
     const periodEnd =
       dto.period_month === 12
@@ -179,43 +230,47 @@ export class PayrollService {
     const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, dto.branch_id, startIso, endIso);
     const workingDaysInPeriod = Object.values(dayTypes).reduce((sum, t) => sum + dayWeight(t), 0);
 
-    const activeStaff = await this.prisma.staff.findMany({
-      where: { branchId: dto.branch_id, status: "active", deletedAt: null },
-    });
+    const activeStaff = await this.db.query<{ id: string; first_name: string; last_name: string | null }>(
+      tenantId,
+      "SELECT id, first_name, last_name FROM staff WHERE tenant_id = $1 AND branch_id = $2 AND status = 'active' AND deleted_at IS NULL",
+      [tenantId, dto.branch_id],
+    );
 
-    return this.prisma.$transaction(async (tx) => {
-      const attendanceRecords = await tx.staffAttendance.findMany({
-        where: { branchId: dto.branch_id, deletedAt: null, attendanceDate: { gte: periodStart, lt: periodEnd } },
-      });
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
+      const runId = randomUUID();
+
+      const attendanceResult = await client.query<{ staff_id: string; attendance_date: Date; status: string }>(
+        "SELECT staff_id, attendance_date, status FROM staff_attendance WHERE tenant_id = $1 AND branch_id = $2 AND deleted_at IS NULL AND attendance_date >= $3 AND attendance_date < $4",
+        [tenantId, dto.branch_id, periodStart, periodEnd],
+      );
       const attendanceByStaff = new Map<string, Map<string, string>>();
-      for (const record of attendanceRecords) {
-        const iso = record.attendanceDate.toISOString().slice(0, 10);
-        const staffDays = attendanceByStaff.get(record.staffId) ?? new Map<string, string>();
+      for (const record of attendanceResult.rows) {
+        const iso = record.attendance_date.toISOString().slice(0, 10);
+        const staffDays = attendanceByStaff.get(record.staff_id) ?? new Map<string, string>();
         staffDays.set(iso, record.status);
-        attendanceByStaff.set(record.staffId, staffDays);
+        attendanceByStaff.set(record.staff_id, staffDays);
       }
 
-      await tx.payrollRun.create({
-        data: {
-          id: runId,
-          tenantId,
-          branchId: dto.branch_id,
-          periodMonth: dto.period_month,
-          periodYear: dto.period_year,
-          status: "draft",
-          generatedAt: now,
-          generatedBy: actorUserId,
-          updatedAt: now,
-        },
+      await insertRow<PayrollRunRow>(client, "payroll_runs", tenantId, {
+        id: runId,
+        branch_id: dto.branch_id,
+        period_month: dto.period_month,
+        period_year: dto.period_year,
+        status: "draft",
+        generated_at: now,
+        generated_by: actorUserId,
+        updated_at: now,
       });
 
       const payslips = [];
 
       for (const staff of activeStaff) {
-        const structure = await this.getEffectiveSalaryStructure(tx, staff.id, periodLastDay);
-        if (!structure) {
+        const resolved = await this.getEffectiveSalaryStructure(client, tenantId, staff.id, periodLastDay);
+        if (!resolved) {
           continue; // no salary structure configured -- nothing to pay out yet
         }
+        const { structure, components } = resolved;
 
         const staffDays = attendanceByStaff.get(staff.id) ?? new Map<string, string>();
         let daysPresent = 0;
@@ -234,62 +289,60 @@ export class PayrollService {
           // leave: paid, not counted
         }
 
-        const earningComponents = structure.salaryComponents
-          .filter((c) => c.componentType === "earning")
-          .reduce((sum, c) => sum + componentAmount(structure.basicAmount, c), 0);
-        const deductionComponents = structure.salaryComponents
-          .filter((c) => c.componentType === "deduction")
-          .reduce((sum, c) => sum + componentAmount(structure.basicAmount, c), 0);
+        const earningComponents = components
+          .filter((c) => c.component_type === "earning")
+          .reduce((sum, c) => sum + componentAmount(structure.basic_amount, { calculationType: c.calculation_type, amount: c.amount, percent: c.percent }), 0);
+        const deductionComponents = components
+          .filter((c) => c.component_type === "deduction")
+          .reduce((sum, c) => sum + componentAmount(structure.basic_amount, { calculationType: c.calculation_type, amount: c.amount, percent: c.percent }), 0);
 
-        const grossBeforeLop = structure.basicAmount + earningComponents;
+        const grossBeforeLop = structure.basic_amount + earningComponents;
         const lopAmount =
           workingDaysInPeriod > 0 ? Math.round((grossBeforeLop / workingDaysInPeriod) * daysLop) : 0;
         const grossEarnings = Math.max(grossBeforeLop - lopAmount, 0);
         const netPay = Math.max(grossEarnings - deductionComponents, 0);
 
-        const payslipId = randomUUID();
-        await tx.payslip.create({
-          data: {
-            id: payslipId,
-            tenantId,
-            payrollRunId: runId,
-            staffId: staff.id,
-            daysInMonth: workingDaysInPeriod,
-            daysPresent,
-            daysLop,
-            grossEarnings,
-            totalDeductions: deductionComponents,
-            netPay,
-            status: "draft",
-            updatedAt: now,
-          },
+        const payslip = await insertRow<PayslipRow>(client, "payslips", tenantId, {
+          payroll_run_id: runId,
+          staff_id: staff.id,
+          days_in_month: workingDaysInPeriod,
+          days_present: daysPresent,
+          days_lop: daysLop,
+          gross_earnings: grossEarnings,
+          total_deductions: deductionComponents,
+          net_pay: netPay,
+          status: "draft",
+          updated_at: now,
         });
 
         const lineItems: { id: string; component_name: string; component_type: string; amount: number }[] = [];
         const insertLineItem = async (name: string, type: string, amount: number) => {
-          const id = randomUUID();
-          await tx.payslipLineItem.create({
-            data: { id, tenantId, payslipId, componentName: name, componentType: type, amount, updatedAt: now },
+          const item = await insertRow<PayslipLineItemRow>(client, "payslip_line_items", tenantId, {
+            payslip_id: payslip.id,
+            component_name: name,
+            component_type: type,
+            amount,
+            updated_at: now,
           });
-          lineItems.push({ id, component_name: name, component_type: type, amount });
+          lineItems.push({ id: item.id, component_name: name, component_type: type, amount });
         };
 
-        await insertLineItem("Basic", "earning", structure.basicAmount);
-        for (const c of structure.salaryComponents.filter((c) => c.componentType === "earning")) {
-          await insertLineItem(c.componentName, "earning", componentAmount(structure.basicAmount, c));
+        await insertLineItem("Basic", "earning", structure.basic_amount);
+        for (const c of components.filter((c) => c.component_type === "earning")) {
+          await insertLineItem(c.component_name, "earning", componentAmount(structure.basic_amount, { calculationType: c.calculation_type, amount: c.amount, percent: c.percent }));
         }
         if (lopAmount > 0) {
           await insertLineItem("Loss of Pay", "deduction", lopAmount);
         }
-        for (const c of structure.salaryComponents.filter((c) => c.componentType === "deduction")) {
-          await insertLineItem(c.componentName, "deduction", componentAmount(structure.basicAmount, c));
+        for (const c of components.filter((c) => c.component_type === "deduction")) {
+          await insertLineItem(c.component_name, "deduction", componentAmount(structure.basic_amount, { calculationType: c.calculation_type, amount: c.amount, percent: c.percent }));
         }
 
         payslips.push({
-          id: payslipId,
+          id: payslip.id,
           payroll_run_id: runId,
           staff_id: staff.id,
-          staff_name: [staff.firstName, staff.lastName].filter(Boolean).join(" "),
+          staff_name: [staff.first_name, staff.last_name].filter(Boolean).join(" "),
           days_in_month: workingDaysInPeriod,
           days_present: daysPresent,
           days_lop: daysLop,
@@ -302,7 +355,7 @@ export class PayrollService {
         });
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
@@ -326,40 +379,67 @@ export class PayrollService {
     });
   }
 
-  listPayrollRuns(branchId: string) {
-    return this.prisma.payrollRun.findMany({
-      where: { branchId, deletedAt: null },
-      orderBy: [{ periodYear: "desc" }, { periodMonth: "desc" }],
-    });
+  listPayrollRuns(tenantId: string, branchId: string) {
+    return this.db.query<PayrollRunRow>(
+      tenantId,
+      "SELECT * FROM payroll_runs WHERE tenant_id = $1 AND branch_id = $2 AND deleted_at IS NULL ORDER BY period_year DESC, period_month DESC",
+      [tenantId, branchId],
+    );
   }
 
-  async getPayrollRun(runId: string) {
-    const run = await this.prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } });
-    const payslips = await this.prisma.payslip.findMany({
-      where: { payrollRunId: runId, deletedAt: null },
-      include: { staff: true, lineItems: { where: { deletedAt: null } } },
-      orderBy: { staff: { firstName: "asc" } },
-    });
+  async getPayrollRun(tenantId: string, runId: string) {
+    const run = await this.db.queryOne<PayrollRunRow>(
+      tenantId,
+      "SELECT * FROM payroll_runs WHERE id = $1 AND tenant_id = $2",
+      [runId, tenantId],
+    );
+    if (!run) {
+      throw new NotFoundException("payroll run not found");
+    }
+
+    const payslips = await this.db.query<PayslipRow & { first_name: string; last_name: string | null }>(
+      tenantId,
+      `SELECT p.*, s.first_name, s.last_name
+       FROM payslips p
+       JOIN staff s ON s.id = p.staff_id
+       WHERE p.tenant_id = $1 AND p.payroll_run_id = $2 AND p.deleted_at IS NULL
+       ORDER BY s.first_name ASC`,
+      [tenantId, runId],
+    );
+
+    const lineItems = payslips.length
+      ? await this.db.query<PayslipLineItemRow>(
+          tenantId,
+          "SELECT * FROM payslip_line_items WHERE tenant_id = $1 AND payslip_id = ANY($2) AND deleted_at IS NULL",
+          [tenantId, payslips.map((p) => p.id)],
+        )
+      : [];
+    const lineItemsByPayslip = new Map<string, PayslipLineItemRow[]>();
+    for (const li of lineItems) {
+      const list = lineItemsByPayslip.get(li.payslip_id) ?? [];
+      list.push(li);
+      lineItemsByPayslip.set(li.payslip_id, list);
+    }
 
     return {
       run,
       payslips: payslips.map((p) => ({
         id: p.id,
-        payroll_run_id: p.payrollRunId,
-        staff_id: p.staffId,
-        staff_name: [p.staff.firstName, p.staff.lastName].filter(Boolean).join(" "),
-        days_in_month: p.daysInMonth,
-        days_present: p.daysPresent,
-        days_lop: p.daysLop,
-        gross_earnings: p.grossEarnings,
-        total_deductions: p.totalDeductions,
-        net_pay: p.netPay,
+        payroll_run_id: p.payroll_run_id,
+        staff_id: p.staff_id,
+        staff_name: [p.first_name, p.last_name].filter(Boolean).join(" "),
+        days_in_month: p.days_in_month,
+        days_present: p.days_present,
+        days_lop: p.days_lop,
+        gross_earnings: p.gross_earnings,
+        total_deductions: p.total_deductions,
+        net_pay: p.net_pay,
         status: p.status,
-        paid_on: p.paidOn,
-        line_items: p.lineItems.map((li) => ({
+        paid_on: p.paid_on,
+        line_items: (lineItemsByPayslip.get(p.id) ?? []).map((li) => ({
           id: li.id,
-          component_name: li.componentName,
-          component_type: li.componentType,
+          component_name: li.component_name,
+          component_type: li.component_type,
           amount: li.amount,
         })),
       })),
@@ -367,19 +447,20 @@ export class PayrollService {
   }
 
   async finalizePayrollRun(tenantId: string, actorUserId: string, runId: string) {
-    const now = new Date();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.payrollRun.update({
-        where: { id: runId },
-        data: { status: "finalized", updatedAt: now, version: { increment: 1 } },
-      });
-      await tx.payslip.updateMany({
-        where: { payrollRunId: runId },
-        data: { status: "finalized", updatedAt: now },
+      const updated = await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
+        status: "finalized",
+        updated_at: now,
       });
 
-      await this.audit.record(tx, {
+      await client.query(
+        "UPDATE payslips SET status = 'finalized', updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
+        [now, tenantId, runId],
+      );
+
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "payroll_runs",
@@ -387,6 +468,8 @@ export class PayrollService {
         action: "update",
         summary: "Finalized payroll run",
       });
+
+      return updated;
     });
   }
 
@@ -395,45 +478,46 @@ export class PayrollService {
   // through reopenPayrollRun (which itself blocks on paid payslips) before
   // it becomes eligible for delete.
   async deletePayrollRun(tenantId: string, actorUserId: string, runId: string) {
-    const run = await this.prisma.payrollRun.findFirst({ where: { id: runId, tenantId, deletedAt: null } });
-    if (!run) {
-      throw new NotFoundException("payroll run not found");
-    }
-    if (run.status !== "draft") {
-      throw new BadRequestException("only draft payroll runs can be deleted");
-    }
-
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const payslips = await tx.payslip.findMany({
-        where: { payrollRunId: runId, deletedAt: null },
-        select: { id: true },
-      });
-
-      for (const payslip of payslips) {
-        await tx.payslipLineItem.updateMany({
-          where: { payslipId: payslip.id, deletedAt: null },
-          data: { deletedAt: now, updatedAt: now },
-        });
+    return this.db.withTransaction(tenantId, async (client) => {
+      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId);
+      if (!run) {
+        throw new NotFoundException("payroll run not found");
       }
-      await tx.payslip.updateMany({
-        where: { payrollRunId: runId, deletedAt: null },
-        data: { deletedAt: now, updatedAt: now },
-      });
-      await tx.payrollRun.update({
-        where: { id: runId },
-        data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
+      if (run.status !== "draft") {
+        throw new BadRequestException("only draft payroll runs can be deleted");
+      }
+
+      const now = new Date();
+
+      const payslipsResult = await client.query<{ id: string }>(
+        "SELECT id FROM payslips WHERE tenant_id = $1 AND payroll_run_id = $2 AND deleted_at IS NULL",
+        [tenantId, runId],
+      );
+      const payslipIds = payslipsResult.rows.map((p) => p.id);
+
+      if (payslipIds.length > 0) {
+        await client.query(
+          "UPDATE payslip_line_items SET deleted_at = $1, updated_at = $1 WHERE tenant_id = $2 AND payslip_id = ANY($3) AND deleted_at IS NULL",
+          [now, tenantId, payslipIds],
+        );
+      }
+      await client.query(
+        "UPDATE payslips SET deleted_at = $1, updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
+        [now, tenantId, runId],
+      );
+      await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
+        deleted_at: now,
+        updated_at: now,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: run.branchId,
+        branchId: run.branch_id,
         actorUserId,
         entityTable: "payroll_runs",
         entityId: runId,
         action: "delete",
-        summary: `Deleted draft payroll run for ${run.periodYear}-${String(run.periodMonth).padStart(2, "0")}`,
+        summary: `Deleted draft payroll run for ${run.period_year}-${String(run.period_month).padStart(2, "0")}`,
       });
     });
   }
@@ -441,34 +525,35 @@ export class PayrollService {
   // Finalized -> draft. Rejects if any payslip is already paid, so a real
   // payment record is never silently undone.
   async reopenPayrollRun(tenantId: string, actorUserId: string, runId: string) {
-    const run = await this.prisma.payrollRun.findFirst({ where: { id: runId, tenantId, deletedAt: null } });
-    if (!run) {
-      throw new NotFoundException("payroll run not found");
-    }
-    if (run.status !== "finalized") {
-      throw new BadRequestException("only finalized payroll runs can be reopened");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId);
+      if (!run) {
+        throw new NotFoundException("payroll run not found");
+      }
+      if (run.status !== "finalized") {
+        throw new BadRequestException("only finalized payroll runs can be reopened");
+      }
 
-    const paidCount = await this.prisma.payslip.count({
-      where: { payrollRunId: runId, status: "paid", deletedAt: null },
-    });
-    if (paidCount > 0) {
-      throw new BadRequestException("cannot reopen a run that has paid payslips");
-    }
+      const paidCountResult = await client.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM payslips WHERE tenant_id = $1 AND payroll_run_id = $2 AND status = 'paid' AND deleted_at IS NULL",
+        [tenantId, runId],
+      );
+      if (Number(paidCountResult.rows[0]?.count ?? "0") > 0) {
+        throw new BadRequestException("cannot reopen a run that has paid payslips");
+      }
 
-    const now = new Date();
+      const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.payrollRun.update({
-        where: { id: runId },
-        data: { status: "draft", updatedAt: now, version: { increment: 1 } },
+      await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
+        status: "draft",
+        updated_at: now,
       });
-      await tx.payslip.updateMany({
-        where: { payrollRunId: runId, deletedAt: null },
-        data: { status: "draft", updatedAt: now },
-      });
+      await client.query(
+        "UPDATE payslips SET status = 'draft', updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
+        [now, tenantId, runId],
+      );
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "payroll_runs",
@@ -480,15 +565,14 @@ export class PayrollService {
   }
 
   async markPayslipPaid(tenantId: string, actorUserId: string, payslipId: string, paidOn: string) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.payslip.update({
-        where: { id: payslipId },
-        data: { status: "paid", paidOn: new Date(paidOn), updatedAt: now, version: { increment: 1 } },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const updated = await updateRow<PayslipRow>(client, "payslips", tenantId, payslipId, {
+        status: "paid",
+        paid_on: new Date(paidOn),
+        updated_at: new Date(),
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "payslips",
@@ -504,48 +588,55 @@ export class PayrollService {
   // Adds or updates a manual line item on a still-draft payslip, then
   // recomputes the payslip's totals from the full set of line items.
   async adjustLineItem(tenantId: string, actorUserId: string, payslipId: string, dto: AdjustLineItemDto) {
-    const payslip = await this.prisma.payslip.findUniqueOrThrow({ where: { id: payslipId } });
-    if (payslip.status !== "draft") {
-      throw new BadRequestException("only draft payslips can be adjusted");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const payslip = await findOneForTenant<PayslipRow>(client, "payslips", tenantId, payslipId);
+      if (!payslip) {
+        throw new NotFoundException("payslip not found");
+      }
+      if (payslip.status !== "draft") {
+        throw new BadRequestException("only draft payslips can be adjusted");
+      }
 
-    const now = new Date();
+      const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.payslipLineItem.findFirst({
-        where: { payslipId, componentName: dto.component_name, deletedAt: null },
-      });
+      const existingResult = await client.query<PayslipLineItemRow>(
+        "SELECT * FROM payslip_line_items WHERE tenant_id = $1 AND payslip_id = $2 AND component_name = $3 AND deleted_at IS NULL",
+        [tenantId, payslipId, dto.component_name],
+      );
+      const existing = existingResult.rows[0];
 
       if (existing) {
-        await tx.payslipLineItem.update({
-          where: { id: existing.id },
-          data: { amount: dto.amount, componentType: dto.component_type, updatedAt: now, version: { increment: 1 } },
+        await updateRow<PayslipLineItemRow>(client, "payslip_line_items", tenantId, existing.id, {
+          amount: dto.amount,
+          component_type: dto.component_type,
+          updated_at: now,
         });
       } else {
-        await tx.payslipLineItem.create({
-          data: {
-            id: randomUUID(),
-            tenantId,
-            payslipId,
-            componentName: dto.component_name,
-            componentType: dto.component_type,
-            amount: dto.amount,
-            updatedAt: now,
-          },
+        await insertRow<PayslipLineItemRow>(client, "payslip_line_items", tenantId, {
+          payslip_id: payslipId,
+          component_name: dto.component_name,
+          component_type: dto.component_type,
+          amount: dto.amount,
+          updated_at: now,
         });
       }
 
-      const items = await tx.payslipLineItem.findMany({ where: { payslipId, deletedAt: null } });
-      const gross = items.filter((i) => i.componentType === "earning").reduce((sum, i) => sum + i.amount, 0);
-      const deductions = items.filter((i) => i.componentType === "deduction").reduce((sum, i) => sum + i.amount, 0);
+      const itemsResult = await client.query<PayslipLineItemRow>(
+        "SELECT * FROM payslip_line_items WHERE tenant_id = $1 AND payslip_id = $2 AND deleted_at IS NULL",
+        [tenantId, payslipId],
+      );
+      const gross = itemsResult.rows.filter((i) => i.component_type === "earning").reduce((sum, i) => sum + i.amount, 0);
+      const deductions = itemsResult.rows.filter((i) => i.component_type === "deduction").reduce((sum, i) => sum + i.amount, 0);
       const netPay = Math.max(gross - deductions, 0);
 
-      const updated = await tx.payslip.update({
-        where: { id: payslipId },
-        data: { grossEarnings: gross, totalDeductions: deductions, netPay, updatedAt: now, version: { increment: 1 } },
+      const updated = await updateRow<PayslipRow>(client, "payslips", tenantId, payslipId, {
+        gross_earnings: gross,
+        total_deductions: deductions,
+        net_pay: netPay,
+        updated_at: now,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "payslips",

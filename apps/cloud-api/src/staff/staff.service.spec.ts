@@ -2,10 +2,32 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { StorageService } from "../storage/storage.service.js";
 import { StaffService } from "./staff.service.js";
+
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
+  };
+  return { db, client };
+}
+
+function makeAuditMock() {
+  return { record: vi.fn() } as unknown as AuditService;
+}
 
 function makeStorageMock() {
   return {
@@ -15,15 +37,12 @@ function makeStorageMock() {
   } as unknown as StorageService;
 }
 
-function makePrismaMock() {
-  const tx = {
-    section: { findFirst: vi.fn(), update: vi.fn() },
-    staff: { updateMany: vi.fn(), update: vi.fn() },
+function uniqueViolationError() {
+  const err = new Error('duplicate key value violates unique constraint "staff_tenant_id_employee_code_key"') as Error & {
+    code: string;
   };
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-  } as unknown as PrismaService & { __tx: typeof tx };
+  err.code = "23505";
+  return err;
 }
 
 const baseUpdateStaffDto = {
@@ -35,118 +54,6 @@ const baseUpdateStaffDto = {
   date_of_joining: "2020-01-01",
 };
 
-function makeAuditMock() {
-  return { record: vi.fn() } as unknown as AuditService;
-}
-
-describe("StaffService.setClassTeacher", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
-  let audit: ReturnType<typeof makeAuditMock>;
-  let service: StaffService;
-
-  beforeEach(() => {
-    prisma = makePrismaMock();
-    audit = makeAuditMock();
-    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
-  });
-
-  it("rejects assigning a staff member who is already class teacher of a different section", async () => {
-    prisma.__tx.section.findFirst.mockResolvedValueOnce({
-      id: "section-other",
-      class: { name: "Class 8" },
-      name: "B",
-    });
-
-    await expect(
-      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(prisma.__tx.section.update).not.toHaveBeenCalled();
-  });
-
-  it("allows assigning a staff member with no conflicting section", async () => {
-    prisma.__tx.section.findFirst.mockResolvedValueOnce(null);
-    prisma.__tx.section.update.mockResolvedValueOnce({ id: "section-a", classTeacherStaffId: "staff-1" });
-
-    const result = await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
-
-    expect(result).toEqual({ id: "section-a", classTeacherStaffId: "staff-1" });
-    expect(audit.record).toHaveBeenCalled();
-  });
-
-  it("does not conflict-check when clearing the class teacher (staff_id null)", async () => {
-    prisma.__tx.section.update.mockResolvedValueOnce({ id: "section-a", classTeacherStaffId: null });
-
-    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: null });
-
-    expect(prisma.__tx.section.findFirst).not.toHaveBeenCalled();
-  });
-
-  it("excludes the section being updated from the conflict check", async () => {
-    prisma.__tx.section.findFirst.mockResolvedValueOnce(null);
-    prisma.__tx.section.update.mockResolvedValueOnce({ id: "section-a", classTeacherStaffId: "staff-1" });
-
-    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
-
-    expect(prisma.__tx.section.findFirst).toHaveBeenCalledWith({
-      where: { classTeacherStaffId: "staff-1", deletedAt: null, id: { not: "section-a" } },
-      include: { class: true },
-    });
-  });
-});
-
-describe("StaffService.updateStaff", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
-  let audit: ReturnType<typeof makeAuditMock>;
-  let service: StaffService;
-
-  beforeEach(() => {
-    prisma = makePrismaMock();
-    audit = makeAuditMock();
-    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
-    prisma.__tx.staff.update.mockResolvedValue({ id: "staff-1" });
-  });
-
-  it("clears any other principal in the same branch when is_principal is set", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", { ...baseUpdateStaffDto, is_principal: true });
-
-    expect(prisma.__tx.staff.updateMany).toHaveBeenCalledWith({
-      where: { branchId: "branch-1", isPrincipal: true, id: { not: "staff-1" }, deletedAt: null },
-      data: expect.objectContaining({ isPrincipal: false }),
-    });
-  });
-
-  it("does not touch other staff's principal flag when is_principal is omitted", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", baseUpdateStaffDto);
-
-    expect(prisma.__tx.staff.updateMany).not.toHaveBeenCalled();
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ isPrincipal: false, signatureUrl: null }) }),
-    );
-  });
-
-  it("writes the provided signature_url", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", {
-      ...baseUpdateStaffDto,
-      signature_url: "data:image/png;base64,abc",
-    });
-
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ signatureUrl: "data:image/png;base64,abc" }) }),
-    );
-  });
-});
-
-function makeCreatePrismaMock() {
-  const tx = { staff: { create: vi.fn() } };
-  return {
-    branch: { findUniqueOrThrow: vi.fn() },
-    staff: { count: vi.fn() },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-  } as unknown as PrismaService & { branch: { findUniqueOrThrow: ReturnType<typeof vi.fn> }; staff: { count: ReturnType<typeof vi.fn> }; __tx: typeof tx };
-}
-
 const baseCreateStaffDto = {
   branch_id: "branch-1",
   first_name: "Asha",
@@ -155,84 +62,170 @@ const baseCreateStaffDto = {
   date_of_joining: "2020-01-01",
 };
 
-describe("StaffService.createStaff", () => {
-  let prisma: ReturnType<typeof makeCreatePrismaMock>;
+describe("StaffService.setClassTeacher", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: StaffService;
 
   beforeEach(() => {
-    prisma = makeCreatePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StaffService(prisma, audit, new QrTokenService(), makeStorageMock());
-    prisma.__tx.staff.create.mockResolvedValue({ id: "staff-1", employeeCode: "MAIN-0001" });
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+  });
+
+  it("rejects assigning a staff member who is already class teacher of a different section", async () => {
+    client.query.mockResolvedValueOnce({ rows: [{ id: "section-other", class_name: "Class 8", name: "B" }] });
+
+    await expect(
+      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(client.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows assigning a staff member with no conflicting section", async () => {
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // conflict check
+      .mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" }] }); // updateRow
+
+    const result = await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
+
+    expect(result).toEqual({ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" });
+    expect(audit.record).toHaveBeenCalled();
+  });
+
+  it("does not conflict-check when clearing the class teacher (staff_id null)", async () => {
+    client.query.mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: null, tenant_id: "tenant-1" }] });
+
+    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: null });
+
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.query.mock.calls[0][0]).toContain("UPDATE sections");
+  });
+
+  it("excludes the section being updated from the conflict check, scoped to the tenant", async () => {
+    client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" }] });
+
+    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
+
+    const [sql, params] = client.query.mock.calls[0];
+    expect(sql).toContain("s.tenant_id = $1");
+    expect(sql).toContain("s.id != $3");
+    expect(params).toEqual(["tenant-1", "staff-1", "section-a"]);
+  });
+});
+
+describe("StaffService.updateStaff", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: StaffService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+    client.query.mockResolvedValue({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
+  });
+
+  it("clears any other principal in the same branch when is_principal is set", async () => {
+    await service.updateStaff("tenant-1", "actor-1", "staff-1", { ...baseUpdateStaffDto, is_principal: true });
+
+    expect(client.query).toHaveBeenCalledTimes(2);
+    const [sql, params] = client.query.mock.calls[0];
+    expect(sql).toContain("UPDATE staff SET is_principal = false");
+    expect(params).toEqual([expect.any(Date), "actor-1", "tenant-1", "branch-1", "staff-1"]);
+  });
+
+  it("does not touch other staff's principal flag when is_principal is omitted", async () => {
+    await service.updateStaff("tenant-1", "actor-1", "staff-1", baseUpdateStaffDto);
+
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.query.mock.calls[0][0]).toContain("UPDATE staff");
+  });
+
+  it("writes the provided signature_url", async () => {
+    await service.updateStaff("tenant-1", "actor-1", "staff-1", {
+      ...baseUpdateStaffDto,
+      signature_url: "data:image/png;base64,abc",
+    });
+
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("data:image/png;base64,abc");
+  });
+});
+
+describe("StaffService.createStaff", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: StaffService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+    client.query.mockResolvedValue({ rows: [{ id: "staff-1", employee_code: "MAIN-0001" }] });
   });
 
   it("uses the supplied employee_code as-is without touching branch/count", async () => {
     await service.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, employee_code: "CUSTOM-1" });
 
-    expect(prisma.branch.findUniqueOrThrow).not.toHaveBeenCalled();
-    expect(prisma.__tx.staff.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ employeeCode: "CUSTOM-1" }) }),
-    );
+    expect(db.queryOne).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("CUSTOM-1");
   });
 
   it("auto-generates {branch code}-{count+1} when employee_code is blank", async () => {
-    prisma.branch.findUniqueOrThrow.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    prisma.staff.count.mockResolvedValueOnce(7);
+    db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
+    db.query.mockResolvedValueOnce([{ count: "7" }]);
 
     await service.createStaff("tenant-1", "actor-1", baseCreateStaffDto);
 
-    expect(prisma.__tx.staff.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ employeeCode: "MAIN-0008" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("MAIN-0008");
   });
 
   it("retries with the next sequence number on a unique-constraint clash", async () => {
-    prisma.branch.findUniqueOrThrow.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    prisma.staff.count.mockResolvedValueOnce(7);
-    const { Prisma } = await import("@prisma/client");
-    const clash = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-      code: "P2002",
-      clientVersion: "6.19.3",
-    });
-    prisma.__tx.staff.create
-      .mockRejectedValueOnce(clash)
-      .mockResolvedValueOnce({ id: "staff-1", employeeCode: "MAIN-0009" });
+    db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
+    db.query.mockResolvedValueOnce([{ count: "7" }]);
+    client.query
+      .mockRejectedValueOnce(uniqueViolationError())
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", employee_code: "MAIN-0009" }] });
 
     const result = await service.createStaff("tenant-1", "actor-1", baseCreateStaffDto);
 
-    expect(result).toEqual({ id: "staff-1", employeeCode: "MAIN-0009" });
-    expect(prisma.__tx.staff.create).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ data: expect.objectContaining({ employeeCode: "MAIN-0008" }) }),
-    );
-    expect(prisma.__tx.staff.create).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ data: expect.objectContaining({ employeeCode: "MAIN-0009" }) }),
+    expect(result).toEqual({ id: "staff-1", employee_code: "MAIN-0009" });
+    expect(client.query.mock.calls[0][1]).toContain("MAIN-0008");
+    expect(client.query.mock.calls[1][1]).toContain("MAIN-0009");
+  });
+
+  it("404s when the target branch doesn't exist in this tenant", async () => {
+    db.queryOne.mockResolvedValueOnce(null);
+
+    await expect(service.createStaff("tenant-1", "actor-1", baseCreateStaffDto)).rejects.toBeInstanceOf(
+      NotFoundException,
     );
   });
 });
 
 describe("StaffService.issueExperienceLetter", () => {
-  let prisma: {
-    staff: { findFirst: ReturnType<typeof vi.fn> };
-    $transaction: ReturnType<typeof vi.fn>;
-    __tx: { staff: { update: ReturnType<typeof vi.fn> } };
-  };
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let service: StaffService;
 
   beforeEach(() => {
-    const tx = { staff: { update: vi.fn() } };
-    prisma = {
-      staff: { findFirst: vi.fn() },
-      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-      __tx: tx,
-    };
-    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock(), new QrTokenService(), makeStorageMock());
+    ({ db, client } = makeDbMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
   });
 
   it("404s for a staff member outside the tenant", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] });
+
     await expect(
       service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
         reason_for_leaving: "Resigned",
@@ -242,135 +235,113 @@ describe("StaffService.issueExperienceLetter", () => {
   });
 
   it("generates a letter number and sets status to relieved on first issue", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({
-      id: "staff-1",
-      branchId: "branch-1",
-      experienceLetterNumber: null,
-      experienceLetterIssueDate: null,
-    });
-    prisma.__tx.staff.update.mockResolvedValueOnce({ id: "staff-1" });
+    client.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "staff-1",
+            tenant_id: "tenant-a",
+            branch_id: "branch-1",
+            experience_letter_number: null,
+            experience_letter_issue_date: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
 
     await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
       reason_for_leaving: "Resigned",
       date_of_leaving: "2026-04-01",
     });
 
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "relieved",
-          experienceLetterNumber: expect.stringMatching(/^EXP-BRAN-\d{8}-[0-9A-F]{4}$/),
-        }),
-      }),
-    );
+    const [, params] = client.query.mock.calls[1];
+    expect(params).toContain("relieved");
+    expect(params.some((p: unknown) => typeof p === "string" && /^EXP-BRAN-\d{8}-[0-9A-F]{4}$/.test(p))).toBe(true);
   });
 
   it("does not regenerate the letter number on a second issue", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({
-      id: "staff-1",
-      branchId: "branch-1",
-      experienceLetterNumber: "EXP-BRAN-20260101-AAAA",
-      experienceLetterIssueDate: new Date("2026-01-01"),
-    });
-    prisma.__tx.staff.update.mockResolvedValueOnce({ id: "staff-1" });
+    client.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "staff-1",
+            tenant_id: "tenant-a",
+            branch_id: "branch-1",
+            experience_letter_number: "EXP-BRAN-20260101-AAAA",
+            experience_letter_issue_date: new Date("2026-01-01"),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
 
     await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
       reason_for_leaving: "Resigned again",
       date_of_leaving: "2026-05-01",
     });
 
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          experienceLetterNumber: "EXP-BRAN-20260101-AAAA",
-          experienceLetterIssueDate: new Date("2026-01-01"),
-        }),
-      }),
-    );
+    const [, params] = client.query.mock.calls[1];
+    expect(params).toContain("EXP-BRAN-20260101-AAAA");
+    expect(
+      (params as unknown[]).some((p) => p instanceof Date && p.getTime() === new Date("2026-01-01").getTime()),
+    ).toBe(true);
   });
 });
 
 describe("StaffService.listStaff", () => {
-  let prisma: { staff: { findMany: ReturnType<typeof vi.fn> } };
+  let db: ReturnType<typeof makeDbMock>["db"];
   let service: StaffService;
 
   beforeEach(() => {
-    prisma = { staff: { findMany: vi.fn().mockResolvedValue([]) } };
-    service = new StaffService(prisma as unknown as PrismaService, makeAuditMock(), new QrTokenService(), makeStorageMock());
+    ({ db } = makeDbMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
   });
 
-  it("scopes to the branch with no extra filters when none are given", async () => {
-    await service.listStaff("branch-1");
-    expect(prisma.staff.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { branchId: "branch-1", deletedAt: null },
-      }),
-    );
+  it("scopes to the tenant and branch with no extra filters when none are given", async () => {
+    await service.listStaff("tenant-1", "branch-1");
+    const [tenantId, sql, params] = db.query.mock.calls[0];
+    expect(tenantId).toBe("tenant-1");
+    expect(sql).toContain("tenant_id = $1");
+    expect(sql).toContain("branch_id = $2");
+    expect(params).toEqual(["tenant-1", "branch-1"]);
   });
 
   it("combines category/department/status filters with AND", async () => {
-    await service.listStaff("branch-1", undefined, {
+    await service.listStaff("tenant-1", "branch-1", undefined, {
       categoryId: "cat-1",
       department: "Science",
       status: "active",
     });
-    expect(prisma.staff.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          branchId: "branch-1",
-          deletedAt: null,
-          categoryId: "cat-1",
-          department: "Science",
-          status: "active",
-        },
-      }),
-    );
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("category_id = $3");
+    expect(sql).toContain("department = $4");
+    expect(sql).toContain("status = $5");
+    expect(params).toEqual(["tenant-1", "branch-1", "cat-1", "Science", "active"]);
   });
 
-  it("leaves existing search behavior unchanged when no filter is set", async () => {
-    await service.listStaff("branch-1", "asha");
-    expect(prisma.staff.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: [
-            { firstName: { contains: "asha", mode: "insensitive" } },
-            { lastName: { contains: "asha", mode: "insensitive" } },
-            { employeeCode: { contains: "asha", mode: "insensitive" } },
-            { designation: { contains: "asha", mode: "insensitive" } },
-          ],
-        }),
-      }),
-    );
+  it("applies a case-insensitive search across name/code/designation", async () => {
+    await service.listStaff("tenant-1", "branch-1", "asha");
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("ILIKE");
+    expect(params).toEqual(["tenant-1", "branch-1", "%asha%"]);
   });
 });
 
 describe("StaffService photo upload", () => {
-  function makePhotoPrismaMock() {
-    const tx = { staff: { update: vi.fn() } };
-    return {
-      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-      __tx: tx,
-      staff: { findFirst: vi.fn(), findMany: vi.fn() },
-    } as unknown as PrismaService & {
-      __tx: typeof tx;
-      staff: { findFirst: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-    };
-  }
-
-  let prisma: ReturnType<typeof makePhotoPrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let storage: ReturnType<typeof makeStorageMock>;
   let service: StaffService;
 
   beforeEach(() => {
-    prisma = makePhotoPrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     storage = makeStorageMock();
-    service = new StaffService(prisma, audit, new QrTokenService(), storage);
+    service = new StaffService(db, audit, new QrTokenService(), storage);
   });
 
   it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1" });
+    db.queryOne.mockResolvedValueOnce({ id: "staff-1", tenant_id: "tenant-1" });
     (storage.createUploadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       url: "https://upload",
       method: "PUT",
@@ -384,20 +355,19 @@ describe("StaffService photo upload", () => {
   });
 
   it("replacing a photo best-effort deletes the old object", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: "old-key" });
-    prisma.__tx.staff.update.mockResolvedValueOnce({});
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: "old-key" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
 
     await service.setPhoto("tenant-1", "actor-1", "staff-1", "new-key");
 
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ photoPath: "new-key" }) }),
-    );
+    expect(client.query.mock.calls[1][1]).toContain("new-key");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("getPhotoUrl returns null when no photo is set, without calling storage", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", photoPath: null });
+    db.queryOne.mockResolvedValueOnce({ id: "staff-1", tenant_id: "tenant-1", photo_path: null });
 
     const result = await service.getPhotoUrl("tenant-1", "staff-1");
 
@@ -406,28 +376,29 @@ describe("StaffService photo upload", () => {
   });
 
   it("deletePhoto clears the field and deletes the object", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: "old-key" });
-    prisma.__tx.staff.update.mockResolvedValueOnce({});
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: "old-key" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
 
     await service.deletePhoto("tenant-1", "actor-1", "staff-1");
 
-    expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ photoPath: null }) }),
-    );
+    expect(client.query.mock.calls[1][0]).toContain("UPDATE staff");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
   });
 
   it("deletePhoto is a no-op when no photo is set", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", photoPath: null });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: null }],
+    });
 
     await service.deletePhoto("tenant-1", "actor-1", "staff-1");
 
-    expect(prisma.__tx.staff.update).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
     expect(storage.deleteObject).not.toHaveBeenCalled();
   });
 
   it("bulk photo urls only includes staff that actually have a photo set (query-level filter)", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([{ id: "staff-1", photoPath: "key-1" }]);
+    db.query.mockResolvedValueOnce([{ id: "staff-1", tenant_id: "tenant-1", photo_path: "key-1" }]);
     (storage.createDownloadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       url: "https://download",
       expires_at: "2026-01-01T00:00:00.000Z",
@@ -435,9 +406,8 @@ describe("StaffService photo upload", () => {
 
     const result = await service.getPhotoUrlsBulk("tenant-1", ["staff-1", "staff-2"]);
 
-    expect(prisma.staff.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ photoPath: { not: null } }) }),
-    );
+    const [, sql] = db.query.mock.calls[0];
+    expect(sql).toContain("photo_path IS NOT NULL");
     expect(result).toEqual([{ staff_id: "staff-1", url: "https://download", expires_at: "2026-01-01T00:00:00.000Z" }]);
   });
 });

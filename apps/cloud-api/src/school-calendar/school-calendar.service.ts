@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
-
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateHolidayDto } from "./dto/create-holiday.dto.js";
 import type { SetWeeklyRuleDto } from "./dto/set-weekly-rule.dto.js";
 import type { UpdateHolidayDto } from "./dto/update-holiday.dto.js";
@@ -27,20 +28,35 @@ function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+export interface SchoolCalendarRow extends TenantRow {
+  branch_id: string;
+  academic_session_id: string;
+  weekly_off_days: number[];
+  weekly_half_days: number[];
+}
+
+export interface CalendarHolidayRow extends TenantRow {
+  school_calendar_id: string;
+  date: Date;
+  name: string;
+  type: string;
+}
+
 @Injectable()
 export class SchoolCalendarService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
   ) {}
 
   // Read-only -- never creates a row, so it's safe for any authenticated
   // user to call (no permission gate on the controller route).
   async getCalendar(tenantId: string, branchId: string, academicSessionId: string) {
-    const calendar = await this.prisma.schoolCalendar.findFirst({
-      where: { tenantId, branchId, academicSessionId, deletedAt: null },
-      include: { holidays: { where: { deletedAt: null }, orderBy: { date: "asc" } } },
-    });
+    const calendar = await this.db.queryOne<SchoolCalendarRow>(
+      tenantId,
+      "SELECT * FROM school_calendars WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL",
+      [tenantId, branchId, academicSessionId],
+    );
 
     if (!calendar) {
       return {
@@ -53,59 +69,58 @@ export class SchoolCalendarService {
       };
     }
 
+    const holidays = await this.db.query<CalendarHolidayRow>(
+      tenantId,
+      "SELECT * FROM calendar_holidays WHERE tenant_id = $1 AND school_calendar_id = $2 AND deleted_at IS NULL ORDER BY date ASC",
+      [tenantId, calendar.id],
+    );
+
     return {
       id: calendar.id,
-      branch_id: calendar.branchId,
-      academic_session_id: calendar.academicSessionId,
-      weekly_off_days: calendar.weeklyOffDays,
-      weekly_half_days: calendar.weeklyHalfDays,
-      holidays: calendar.holidays,
+      branch_id: calendar.branch_id,
+      academic_session_id: calendar.academic_session_id,
+      weekly_off_days: calendar.weekly_off_days,
+      weekly_half_days: calendar.weekly_half_days,
+      holidays,
     };
   }
 
   private async getOrCreateCalendar(
+    client: PoolClient,
     tenantId: string,
     actorUserId: string,
     branchId: string,
     academicSessionId: string,
-  ) {
-    const existing = await this.prisma.schoolCalendar.findFirst({
-      where: { tenantId, branchId, academicSessionId, deletedAt: null },
-    });
+  ): Promise<SchoolCalendarRow> {
+    const existingResult = await client.query<SchoolCalendarRow>(
+      "SELECT * FROM school_calendars WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL",
+      [tenantId, branchId, academicSessionId],
+    );
+    const existing = existingResult.rows[0];
     if (existing) return existing;
 
-    const now = new Date();
-    return this.prisma.schoolCalendar.create({
-      data: {
-        id: randomUUID(),
-        tenantId,
-        branchId,
-        academicSessionId,
-        weeklyOffDays: [],
-        weeklyHalfDays: [],
-        updatedAt: now,
-        updatedBy: actorUserId,
-      },
+    return insertRow<SchoolCalendarRow>(client, "school_calendars", tenantId, {
+      branch_id: branchId,
+      academic_session_id: academicSessionId,
+      weekly_off_days: [],
+      weekly_half_days: [],
+      updated_at: new Date(),
+      updated_by: actorUserId,
     });
   }
 
   async setWeeklyRule(tenantId: string, actorUserId: string, dto: SetWeeklyRuleDto) {
-    const calendar = await this.getOrCreateCalendar(tenantId, actorUserId, dto.branch_id, dto.academic_session_id);
-    const now = new Date();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const calendar = await this.getOrCreateCalendar(client, tenantId, actorUserId, dto.branch_id, dto.academic_session_id);
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.schoolCalendar.update({
-        where: { id: calendar.id },
-        data: {
-          weeklyOffDays: dto.weekly_off_days,
-          weeklyHalfDays: dto.weekly_half_days,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<SchoolCalendarRow>(client, "school_calendars", tenantId, calendar.id, {
+        weekly_off_days: dto.weekly_off_days,
+        weekly_half_days: dto.weekly_half_days,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
@@ -120,30 +135,24 @@ export class SchoolCalendarService {
   }
 
   async addHoliday(tenantId: string, actorUserId: string, dto: CreateHolidayDto) {
-    const calendar = await this.getOrCreateCalendar(tenantId, actorUserId, dto.branch_id, dto.academic_session_id);
-    const now = new Date();
-    const id = randomUUID();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const calendar = await this.getOrCreateCalendar(client, tenantId, actorUserId, dto.branch_id, dto.academic_session_id);
 
-    return this.prisma.$transaction(async (tx) => {
-      const created = await tx.calendarHoliday.create({
-        data: {
-          id,
-          tenantId,
-          schoolCalendarId: calendar.id,
-          date: new Date(dto.date),
-          name: dto.name,
-          type: dto.type,
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
+      const created = await insertRow<CalendarHolidayRow>(client, "calendar_holidays", tenantId, {
+        school_calendar_id: calendar.id,
+        date: new Date(dto.date),
+        name: dto.name,
+        type: dto.type,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
         entityTable: "calendar_holidays",
-        entityId: id,
+        entityId: created.id,
         action: "create",
         summary: `Added ${dto.type === "holiday" ? "holiday" : "half-day"} '${dto.name}' on ${dto.date}`,
       });
@@ -153,27 +162,21 @@ export class SchoolCalendarService {
   }
 
   async updateHoliday(tenantId: string, actorUserId: string, id: string, dto: UpdateHolidayDto) {
-    const existing = await this.prisma.calendarHoliday.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("holiday not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("holiday not found");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.calendarHoliday.update({
-        where: { id },
-        data: {
-          date: new Date(dto.date),
-          name: dto.name,
-          type: dto.type,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id, {
+        date: new Date(dto.date),
+        name: dto.name,
+        type: dto.type,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "calendar_holidays",
@@ -187,20 +190,19 @@ export class SchoolCalendarService {
   }
 
   async deleteHoliday(tenantId: string, actorUserId: string, id: string) {
-    const existing = await this.prisma.calendarHoliday.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("holiday not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("holiday not found");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.calendarHoliday.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+      const deleted = await updateRow<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id, {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "calendar_holidays",
@@ -227,35 +229,54 @@ export class SchoolCalendarService {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    const calendars = await this.prisma.schoolCalendar.findMany({
-      where: { tenantId, branchId, deletedAt: null },
-      include: {
-        academicSession: true,
-        holidays: { where: { deletedAt: null, date: { gte: start, lte: end } } },
-      },
-    });
+    const calendars = await this.db.query<
+      SchoolCalendarRow & { session_start_date: Date; session_end_date: Date }
+    >(
+      tenantId,
+      `SELECT sc.*, s.start_date AS session_start_date, s.end_date AS session_end_date
+       FROM school_calendars sc
+       JOIN academic_sessions s ON s.id = sc.academic_session_id
+       WHERE sc.tenant_id = $1 AND sc.branch_id = $2 AND sc.deleted_at IS NULL`,
+      [tenantId, branchId],
+    );
+
+    const holidaysByCalendar = new Map<string, CalendarHolidayRow[]>();
+    if (calendars.length > 0) {
+      const holidayRows = await this.db.query<CalendarHolidayRow>(
+        tenantId,
+        `SELECT * FROM calendar_holidays
+         WHERE tenant_id = $1 AND school_calendar_id = ANY($2) AND deleted_at IS NULL AND date >= $3 AND date <= $4`,
+        [tenantId, calendars.map((c) => c.id), start, end],
+      );
+      for (const h of holidayRows) {
+        const list = holidaysByCalendar.get(h.school_calendar_id) ?? [];
+        list.push(h);
+        holidaysByCalendar.set(h.school_calendar_id, list);
+      }
+    }
 
     const result: Record<string, DayType> = {};
 
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const iso = toIsoDate(d);
-      const calendar = calendars.find((c) => d >= c.academicSession.startDate && d <= c.academicSession.endDate);
+      const calendar = calendars.find((c) => d >= c.session_start_date && d <= c.session_end_date);
 
       if (!calendar) {
         result[iso] = "working";
         continue;
       }
 
-      const override = calendar.holidays.find((h) => toIsoDate(h.date) === iso);
+      const holidays = holidaysByCalendar.get(calendar.id) ?? [];
+      const override = holidays.find((h) => toIsoDate(h.date) === iso);
       if (override) {
         result[iso] = override.type as DayType;
         continue;
       }
 
       const dayOfWeek = d.getUTCDay();
-      if (calendar.weeklyOffDays.includes(dayOfWeek)) {
+      if (calendar.weekly_off_days.includes(dayOfWeek)) {
         result[iso] = "holiday";
-      } else if (calendar.weeklyHalfDays.includes(dayOfWeek)) {
+      } else if (calendar.weekly_half_days.includes(dayOfWeek)) {
         result[iso] = "half_day";
       } else {
         result[iso] = "working";

@@ -2,9 +2,8 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
-import type { Branch } from "@prisma/client";
 
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
 import { staffAllowsAccess } from "../staff/staff-status.js";
 import type { JwtPayload } from "./jwt.strategy.js";
 
@@ -39,7 +38,16 @@ export interface MeResult {
   };
   roles: string[];
   permissions: string[];
-  branches: Branch[];
+  branches: unknown[];
+}
+
+interface UserRow {
+  id: string;
+  tenant_id: string;
+  branch_id: string | null;
+  full_name: string;
+  email: string;
+  password_hash: string | null;
 }
 
 // Sessions are online-only now: no offline grace period / EntitlementClaims
@@ -47,40 +55,70 @@ export interface MeResult {
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
 
-  async login(email: string, password: string): Promise<LoginResult> {
-    const user = await this.prisma.user.findFirst({
-      where: { email, deletedAt: null, isActive: true },
-      include: { userRoles: { include: { role: true } } },
-    });
+  // `email` is only unique per (tenant_id, email) -- the same email can
+  // legitimately exist in two different schools' tenants -- so a plain
+  // cross-tenant email scan is ambiguous the moment more than one tenant
+  // exists. When the frontend can tell us which school's subdomain the
+  // login came from, we resolve that to a tenant first (still a tenant-less
+  // lookup, via queryUnscoped) and then scope the user lookup to it through
+  // the normal RLS-enforced path, which is unambiguous. When it can't
+  // (local dev, or a tenant with no subdomain assigned yet), we fall back
+  // to the old tenant-less scan via queryUnscoped, since that path never
+  // learns a tenantId to scope a normal query by.
+  async login(email: string, password: string, subdomain?: string): Promise<LoginResult> {
+    let tenantId: string | undefined;
+    if (subdomain) {
+      const tenant = await this.db.queryUnscoped<{ id: string }>(
+        "SELECT id FROM tenants WHERE subdomain = $1",
+        [subdomain],
+      );
+      if (!tenant[0]) {
+        throw new UnauthorizedException("Invalid email or password");
+      }
+      tenantId = tenant[0].id;
+    }
 
-    if (!user || !user.passwordHash) {
+    const found = tenantId
+      ? await this.db.queryOne<UserRow>(
+          tenantId,
+          "SELECT * FROM users WHERE tenant_id = $1 AND email = $2 AND deleted_at IS NULL AND is_active = true",
+          [tenantId, email],
+        )
+      : (
+          await this.db.queryUnscoped<UserRow>(
+            "SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL AND is_active = true LIMIT 1",
+            [email],
+          )
+        )[0];
+
+    if (!found || !found.password_hash) {
       throw new UnauthorizedException("Invalid email or password");
     }
 
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    const passwordMatches = await bcrypt.compare(password, found.password_hash);
     if (!passwordMatches) {
       throw new UnauthorizedException("Invalid email or password");
     }
 
-    await this.assertLinkedStaffAllowsAccess(user.id);
+    await this.assertLinkedStaffAllowsAccess(found.tenant_id, found.id);
 
-    const roles = user.userRoles.map((ur) => ur.role.name);
-    const { access_token, refresh_token } = await this.issueTokenPair(user.id, user.tenantId, roles);
+    const roles = await this.getRoleNames(found.tenant_id, found.id);
+    const { access_token, refresh_token } = await this.issueTokenPair(found.id, found.tenant_id, roles);
 
     return {
       access_token,
       refresh_token,
       user: {
-        id: user.id,
-        tenant_id: user.tenantId,
-        branch_id: user.branchId,
-        full_name: user.fullName,
-        email: user.email,
+        id: found.id,
+        tenant_id: found.tenant_id,
+        branch_id: found.branch_id,
+        full_name: found.full_name,
+        email: found.email,
         roles,
       },
     };
@@ -100,74 +138,107 @@ export class AuthService {
       throw new UnauthorizedException("Not a refresh token");
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: { id: payload.sub, deletedAt: null, isActive: true },
-      include: { userRoles: { include: { role: true } } },
-    });
+    const user = await this.db.queryOne<UserRow>(
+      payload.tenant_id,
+      "SELECT * FROM users WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND is_active = true",
+      [payload.sub, payload.tenant_id],
+    );
     if (!user) {
       throw new UnauthorizedException("User no longer active");
     }
-    await this.assertLinkedStaffAllowsAccess(user.id);
+    await this.assertLinkedStaffAllowsAccess(payload.tenant_id, user.id);
 
     // Re-derive roles from the database rather than trusting the refresh
     // token's payload -- role assignments may have changed since it was
     // issued.
-    const roles = user.userRoles.map((ur) => ur.role.name);
+    const roles = await this.getRoleNames(payload.tenant_id, user.id);
     const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
     const access_token = await this.jwt.signAsync(
-      { sub: user.id, tenant_id: user.tenantId, roles, type: "access" },
+      { sub: user.id, tenant_id: user.tenant_id, roles, type: "access" },
       { expiresIn: accessTtl as JwtSignOptions["expiresIn"] },
     );
 
     return { access_token };
   }
 
-  async me(userId: string): Promise<MeResult> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null, isActive: true },
-      include: { userRoles: { include: { role: true } }, tenant: true },
-    });
+  async me(tenantId: string, userId: string): Promise<MeResult> {
+    const user = await this.db.queryOne<UserRow>(
+      tenantId,
+      "SELECT * FROM users WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND is_active = true",
+      [userId, tenantId],
+    );
     if (!user) {
       throw new UnauthorizedException("User not found");
     }
-    await this.assertLinkedStaffAllowsAccess(user.id);
+    await this.assertLinkedStaffAllowsAccess(tenantId, user.id);
 
-    const roleIds = user.userRoles.map((ur) => ur.roleId);
-    const roles = user.userRoles.map((ur) => ur.role.name);
+    const roleRows = await this.db.query<{ id: string; name: string }>(
+      tenantId,
+      `SELECT r.id, r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+       WHERE ur.tenant_id = $1 AND ur.user_id = $2`,
+      [tenantId, user.id],
+    );
+    const roleIds = roleRows.map((r) => r.id);
+    const roles = roleRows.map((r) => r.name);
 
-    const grants = roleIds.length
-      ? await this.prisma.rolePermission.findMany({
-          where: { roleId: { in: roleIds }, deletedAt: null },
-          select: { permissionKey: true },
-        })
+    const permissions = roleIds.length
+      ? [
+          ...new Set(
+            (
+              await this.db.query<{ permission_key: string }>(
+                tenantId,
+                "SELECT DISTINCT permission_key FROM role_permissions WHERE tenant_id = $1 AND role_id = ANY($2) AND deleted_at IS NULL",
+                [tenantId, roleIds],
+              )
+            ).map((g) => g.permission_key),
+          ),
+        ]
       : [];
-    const permissions = [...new Set(grants.map((g) => g.permissionKey))];
 
-    const branches = await this.prisma.branch.findMany({
-      where: {
-        tenantId: user.tenantId,
-        deletedAt: null,
-        ...(user.branchId ? { id: user.branchId } : {}),
-      },
-      orderBy: { name: "asc" },
-    });
+    const branches = user.branch_id
+      ? await this.db.query(
+          tenantId,
+          "SELECT * FROM branches WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL ORDER BY name ASC",
+          [tenantId, user.branch_id],
+        )
+      : await this.db.query(
+          tenantId,
+          "SELECT * FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY name ASC",
+          [tenantId],
+        );
+
+    const tenant = await this.db.queryOne<{ id: string; name: string }>(
+      tenantId,
+      "SELECT id, name FROM tenants WHERE id = $1",
+      [tenantId],
+    );
+    if (!tenant) {
+      throw new UnauthorizedException("Tenant not found");
+    }
 
     return {
       user: {
         id: user.id,
-        tenant_id: user.tenantId,
-        branch_id: user.branchId,
-        full_name: user.fullName,
+        tenant_id: user.tenant_id,
+        branch_id: user.branch_id,
+        full_name: user.full_name,
         email: user.email,
       },
-      tenant: {
-        id: user.tenant.id,
-        name: user.tenant.name,
-      },
+      tenant,
       roles,
       permissions,
       branches,
     };
+  }
+
+  private async getRoleNames(tenantId: string, userId: string): Promise<string[]> {
+    const rows = await this.db.query<{ name: string }>(
+      tenantId,
+      `SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+       WHERE ur.tenant_id = $1 AND ur.user_id = $2`,
+      [tenantId, userId],
+    );
+    return rows.map((r) => r.name);
   }
 
   // Not every User has a linked Staff row (e.g. a pure admin account), so
@@ -175,8 +246,12 @@ export class AuthService {
   // access-allowed set (relieved/terminated/inactive) -- login, refresh,
   // and /auth/me all call this so a relieved staff member is locked out
   // within one access-token TTL even if their session was already live.
-  private async assertLinkedStaffAllowsAccess(userId: string): Promise<void> {
-    const staff = await this.prisma.staff.findFirst({ where: { userId, deletedAt: null } });
+  private async assertLinkedStaffAllowsAccess(tenantId: string, userId: string): Promise<void> {
+    const staff = await this.db.queryOne<{ status: string }>(
+      tenantId,
+      "SELECT status FROM staff WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL",
+      [tenantId, userId],
+    );
     if (staff && !staffAllowsAccess(staff.status)) {
       throw new UnauthorizedException("This staff account is no longer active. Contact your administrator.");
     }

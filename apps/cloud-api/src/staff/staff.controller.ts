@@ -22,13 +22,14 @@ export class StaffController {
   @Get()
   @RequirePermission("staff.view")
   list(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("search") search?: string,
     @Query("category_id") categoryId?: string,
     @Query("department") department?: string,
     @Query("status") status?: string,
   ) {
-    return this.staffService.listStaff(branchId, search, { categoryId, department, status });
+    return this.staffService.listStaff(user.tenant_id, branchId, search, { categoryId, department, status });
   }
 
   // No @RequirePermission -- resolving a signature to render on a printed
@@ -36,8 +37,8 @@ export class StaffController {
   // printing their own class's register), not just staff.view holders.
   // Must be registered before :id so "principal" isn't swallowed as an id.
   @Get("principal")
-  getPrincipalSignature(@Query("branch_id") branchId: string) {
-    return this.staffService.getPrincipalSignature(branchId);
+  getPrincipalSignature(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.staffService.getPrincipalSignature(user.tenant_id, branchId);
   }
 
   // Must be registered before :id so "qr-codes"/"photo-urls" aren't
@@ -68,13 +69,13 @@ export class StaffController {
 
   @Get(":id")
   @RequirePermission("staff.view")
-  get(@Param("id") id: string) {
-    return this.staffService.getStaff(id);
+  get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.getStaff(user.tenant_id, id);
   }
 
   @Get(":id/signature")
-  getSignature(@Param("id") id: string) {
-    return this.staffService.getStaffSignature(id);
+  getSignature(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.staffService.getStaffSignature(user.tenant_id, id);
   }
 
   @Post()
@@ -156,8 +157,8 @@ export class TeacherAssignmentsController {
 
   @Get()
   @RequirePermission("staff.view")
-  list(@Query("branch_id") branchId: string, @Query("staff_id") staffId?: string) {
-    return this.staffService.listTeacherAssignments(branchId, staffId);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string, @Query("staff_id") staffId?: string) {
+    return this.staffService.listTeacherAssignments(user.tenant_id, branchId, staffId);
   }
 
   @Post()

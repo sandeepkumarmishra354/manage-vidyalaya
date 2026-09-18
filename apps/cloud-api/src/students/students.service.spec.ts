@@ -1,13 +1,34 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
+import type { DbService } from "../db/db.service.js";
 import type { FeesService } from "../fees/fees.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { StorageService } from "../storage/storage.service.js";
 import { StudentsService } from "./students.service.js";
+
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn(),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
+  };
+  return { db, client };
+}
+
+function makeAuditMock() {
+  return { record: vi.fn() } as unknown as AuditService;
+}
 
 function makeStorageMock() {
   return {
@@ -15,35 +36,6 @@ function makeStorageMock() {
     createDownloadUrl: vi.fn(),
     deleteObject: vi.fn(),
   } as unknown as StorageService;
-}
-
-function uniqueConstraintError() {
-  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed on the fields: (`admission_number`)", {
-    code: "P2002",
-    clientVersion: "6.19.3",
-  });
-}
-
-function makePrismaMock() {
-  return {
-    admission: { findFirst: vi.fn(), update: vi.fn() },
-    branch: { findUniqueOrThrow: vi.fn() },
-    student: { count: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
-    subjectElectiveGroup: { findFirst: vi.fn() },
-    subjectElectiveGroupMember: { findFirst: vi.fn() },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-      cb({
-        admission: { update: vi.fn() },
-        student: { findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "student-1", currentClassId: null }) },
-        studentFeeAssignment: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
-        studentElectiveChoice: { upsert: vi.fn().mockResolvedValue({ id: "choice-1" }) },
-      }),
-    ),
-  } as unknown as PrismaService;
-}
-
-function makeAuditMock() {
-  return { record: vi.fn() } as unknown as AuditService;
 }
 
 // resolveCurrentSessionId rejects by default -- confirmAdmission's fee
@@ -58,27 +50,65 @@ function makeFeesMock() {
   } as unknown as FeesService;
 }
 
+
+function uniqueViolationError() {
+  const err = new Error('duplicate key value violates unique constraint "students_tenant_id_admission_number_key"') as Error & {
+    code: string;
+  };
+  err.code = "23505";
+  return err;
+}
+
+// Configures client.query to resolve immediately (no-op) for SAVEPOINT
+// control statements, and to cycle through `outcomes` in order for every
+// other (real) query -- matching confirmAdmission's SAVEPOINT-per-attempt
+// retry loop.
+function scriptClientQueries(client: FakeClient, outcomes: Array<"ok" | "conflict">) {
+  let i = 0;
+  client.query.mockImplementation(async (text: unknown) => {
+    if (typeof text === "string" && /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) {
+      return { rows: [] };
+    }
+    const outcome = outcomes[i++];
+    if (outcome === "conflict") {
+      throw uniqueViolationError();
+    }
+    return { rows: [{ id: "row-1", tenant_id: "tenant-a" }] };
+  });
+}
+
 describe("StudentsService.confirmAdmission", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: StudentsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StudentsService(prisma, audit, makeFeesMock(), new QrTokenService(), makeStorageMock());
-
-    (prisma.admission.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "admission-1",
-      studentId: "student-1",
-      branchId: "branch-1",
-      deletedAt: null,
-    });
-    (prisma.branch.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "branch-1", code: "MAIN" });
+    service = new StudentsService(
+      db,
+      audit,
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
   });
 
+  function mockAdmissionAndBranch() {
+    db.queryOne
+      .mockResolvedValueOnce({
+        id: "admission-1",
+        tenant_id: "tenant-a",
+        student_id: "student-1",
+        branch_id: "branch-1",
+        deleted_at: null,
+      })
+      .mockResolvedValueOnce({ code: "MAIN" });
+  }
+
   it("throws NotFoundException when the admission doesn't exist", async () => {
-    (prisma.admission.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    db.queryOne.mockResolvedValueOnce(null);
 
     await expect(service.confirmAdmission("tenant-a", "actor-1", "missing")).rejects.toBeInstanceOf(
       NotFoundException,
@@ -86,8 +116,10 @@ describe("StudentsService.confirmAdmission", () => {
   });
 
   it("assigns branch+year-scoped sequential number 0001 when no prior students exist", async () => {
-    (prisma.student.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
-    (prisma.student.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({});
+    mockAdmissionAndBranch();
+    db.query.mockResolvedValueOnce([{ count: "0" }]);
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
+    scriptClientQueries(client, ["ok", "ok"]);
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
 
@@ -97,8 +129,10 @@ describe("StudentsService.confirmAdmission", () => {
   });
 
   it("continues the sequence from the existing count", async () => {
-    (prisma.student.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(41);
-    (prisma.student.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({});
+    mockAdmissionAndBranch();
+    db.query.mockResolvedValueOnce([{ count: "41" }]);
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
+    scriptClientQueries(client, ["ok", "ok"]);
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
 
@@ -107,49 +141,54 @@ describe("StudentsService.confirmAdmission", () => {
   });
 
   it("retries with the next sequence number on a unique-constraint clash (same-request race)", async () => {
-    (prisma.student.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
-    (prisma.student.update as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(uniqueConstraintError())
-      .mockRejectedValueOnce(uniqueConstraintError())
-      .mockResolvedValueOnce({});
+    mockAdmissionAndBranch();
+    db.query.mockResolvedValueOnce([{ count: "0" }]);
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
+    scriptClientQueries(client, ["conflict", "conflict", "ok", "ok"]);
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
 
     const year = new Date().getUTCFullYear();
     expect(result.admission_number).toBe(`MAIN-${year}-0003`);
-    expect(prisma.student.update).toHaveBeenCalledTimes(3);
   });
 
   it("propagates a non-unique-constraint error immediately without retrying", async () => {
-    (prisma.student.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
+    mockAdmissionAndBranch();
+    db.query.mockResolvedValueOnce([{ count: "0" }]);
     const otherError = new Error("connection lost");
-    (prisma.student.update as ReturnType<typeof vi.fn>).mockRejectedValueOnce(otherError);
+    client.query.mockImplementation(async (text: unknown) => {
+      if (typeof text === "string" && /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) {
+        return { rows: [] };
+      }
+      throw otherError;
+    });
 
     await expect(service.confirmAdmission("tenant-a", "actor-1", "admission-1")).rejects.toBe(otherError);
-    expect(prisma.student.update).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("StudentsService.electSubject", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: StudentsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StudentsService(prisma, audit, makeFeesMock(), new QrTokenService(), makeStorageMock());
-    (prisma.student.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "student-1",
-      branchId: "branch-1",
-      currentClassId: "class-1",
-    });
+    service = new StudentsService(
+      db,
+      audit,
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
   });
 
   const dto = { elective_group_id: "group-1", subject_id: "subj-art", academic_session_id: "session-1" };
 
   it("throws NotFoundException when the student doesn't exist", async () => {
-    (prisma.student.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant: student
 
     await expect(service.electSubject("tenant-a", "actor-1", "missing", dto)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -157,10 +196,9 @@ describe("StudentsService.electSubject", () => {
   });
 
   it("rejects when the elective group belongs to a different class than the student's current class", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-2",
-    });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", current_class_id: "class-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-2" }] });
 
     await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto)).rejects.toBeInstanceOf(
       ConflictException,
@@ -168,11 +206,10 @@ describe("StudentsService.electSubject", () => {
   });
 
   it("rejects when the chosen subject isn't a member of the elective group", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-1",
-    });
-    (prisma.subjectElectiveGroupMember.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", current_class_id: "class-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1" }] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto)).rejects.toBeInstanceOf(
       ConflictException,
@@ -180,11 +217,11 @@ describe("StudentsService.electSubject", () => {
   });
 
   it("records the choice when the subject is a valid member of the group", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-1",
-    });
-    (prisma.subjectElectiveGroupMember.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "member-1" });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", current_class_id: "class-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1" }] })
+      .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: "choice-1" }] });
 
     const result = await service.electSubject("tenant-a", "actor-1", "student-1", dto);
     expect(result).toEqual({ id: "choice-1" });
@@ -193,54 +230,56 @@ describe("StudentsService.electSubject", () => {
 });
 
 describe("StudentsService.getGuardian", () => {
-  let prisma: { guardian: { findFirst: ReturnType<typeof vi.fn> }; studentGuardian: { findMany: ReturnType<typeof vi.fn> } };
+  let db: ReturnType<typeof makeDbMock>["db"];
   let service: StudentsService;
 
   beforeEach(() => {
-    prisma = { guardian: { findFirst: vi.fn() }, studentGuardian: { findMany: vi.fn() } };
-    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock(), new QrTokenService(), makeStorageMock());
+    ({ db } = makeDbMock());
+    service = new StudentsService(
+      db,
+      makeAuditMock(),
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
   });
 
   it("throws when the guardian doesn't exist or is soft-deleted", async () => {
-    prisma.guardian.findFirst.mockResolvedValueOnce(null);
+    db.queryOne.mockResolvedValueOnce(null);
     await expect(service.getGuardian("tenant-a", "guardian-1")).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("returns the guardian's profile plus every linked child, regardless of enrollment status", async () => {
-    prisma.guardian.findFirst.mockResolvedValueOnce({
+    db.queryOne.mockResolvedValueOnce({
       id: "guardian-1",
-      fullName: "Asha Rao",
+      full_name: "Asha Rao",
       relation: "mother",
       phone: "9876500000",
-      altPhone: null,
+      alt_phone: null,
       email: null,
       occupation: "Engineer",
       address: null,
-      aadhaarNumber: null,
-      annualIncome: null,
+      aadhaar_number: null,
+      annual_income: null,
     });
-    prisma.studentGuardian.findMany.mockResolvedValueOnce([
+    db.query.mockResolvedValueOnce([
       {
-        student: {
-          id: "student-1",
-          firstName: "Ravi",
-          lastName: "Rao",
-          admissionNumber: "ADM-0001",
-          status: "enrolled",
-          currentClass: { name: "Class 5" },
-          currentSection: { name: "A" },
-        },
+        id: "student-1",
+        first_name: "Ravi",
+        last_name: "Rao",
+        admission_number: "ADM-0001",
+        status: "enrolled",
+        class_name: "Class 5",
+        section_name: "A",
       },
       {
-        student: {
-          id: "student-2",
-          firstName: "Priya",
-          lastName: "Rao",
-          admissionNumber: null,
-          status: "applied",
-          currentClass: null,
-          currentSection: null,
-        },
+        id: "student-2",
+        first_name: "Priya",
+        last_name: "Rao",
+        admission_number: null,
+        status: "applied",
+        class_name: null,
+        section_name: null,
       },
     ]);
 
@@ -267,32 +306,34 @@ describe("StudentsService.getGuardian", () => {
         status: "applied",
       },
     ]);
-    expect(prisma.studentGuardian.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { guardianId: "guardian-1", student: { deletedAt: null } } }),
+    expect(db.query).toHaveBeenCalledWith(
+      "tenant-a",
+      expect.stringContaining("sg.guardian_id = $2"),
+      ["tenant-a", "guardian-1"],
     );
   });
 });
 
 describe("StudentsService.issueTransferCertificate", () => {
-  let prisma: {
-    student: { findFirst: ReturnType<typeof vi.fn> };
-    $transaction: ReturnType<typeof vi.fn>;
-    __tx: { student: { update: ReturnType<typeof vi.fn> } };
-  };
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
   let service: StudentsService;
 
   beforeEach(() => {
-    const tx = { student: { update: vi.fn() } };
-    prisma = {
-      student: { findFirst: vi.fn() },
-      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-      __tx: tx,
-    };
-    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock(), new QrTokenService(), makeStorageMock());
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new StudentsService(
+      db,
+      audit,
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
   });
 
   it("404s for a student outside the tenant", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] });
     await expect(
       service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
         reason_for_leaving: "Relocation",
@@ -302,39 +343,39 @@ describe("StudentsService.issueTransferCertificate", () => {
   });
 
   it("generates a TC number and sets status to withdrawn on first issue", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({
-      id: "student-1",
-      branchId: "branch-1",
-      status: "enrolled",
-      tcNumber: null,
-      tcIssueDate: null,
-    });
-    prisma.__tx.student.update.mockResolvedValueOnce({ id: "student-1", tcNumber: "TC-BRAN-20260401-ABCD" });
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "student-1", branch_id: "branch-1", status: "enrolled", tc_number: null, tc_issue_date: null }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", tc_number: "TC-BRAN-20260401-ABCD" }] });
 
     await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
       reason_for_leaving: "Relocation",
       date_of_leaving: "2026-04-01",
     });
 
-    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "withdrawn",
-          tcNumber: expect.stringMatching(/^TC-BRAN-\d{8}-[0-9A-F]{4}$/),
-        }),
-      }),
+    const [updateSql, updateParams] = client.query.mock.calls[1]!;
+    expect(updateSql).toContain("UPDATE students");
+    expect(updateParams).toContain("withdrawn");
+    expect(updateParams.some((p: unknown) => typeof p === "string" && /^TC-BRAN-\d{8}-[0-9A-F]{4}$/.test(p))).toBe(
+      true,
     );
   });
 
   it("does not regenerate the TC number on a second issue, and preserves alumni status", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({
-      id: "student-1",
-      branchId: "branch-1",
-      status: "alumni",
-      tcNumber: "TC-BRAN-20260101-AAAA",
-      tcIssueDate: new Date("2026-01-01"),
-    });
-    prisma.__tx.student.update.mockResolvedValueOnce({ id: "student-1" });
+    client.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "student-1",
+            branch_id: "branch-1",
+            status: "alumni",
+            tc_number: "TC-BRAN-20260101-AAAA",
+            tc_issue_date: new Date("2026-01-01"),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "student-1" }] });
 
     await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
       reason_for_leaving: "Graduated",
@@ -342,33 +383,34 @@ describe("StudentsService.issueTransferCertificate", () => {
       conduct_remark: "Excellent",
     });
 
-    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "alumni",
-          tcNumber: "TC-BRAN-20260101-AAAA",
-          tcIssueDate: new Date("2026-01-01"),
-        }),
-      }),
-    );
+    const [, updateParams] = client.query.mock.calls[1]!;
+    expect(updateParams).toContain("alumni");
+    expect(updateParams).toContain("TC-BRAN-20260101-AAAA");
   });
 });
 
 describe("StudentsService.listStudents", () => {
-  let prisma: { student: { findMany: ReturnType<typeof vi.fn> } };
+  let db: ReturnType<typeof makeDbMock>["db"];
   let service: StudentsService;
 
   beforeEach(() => {
-    prisma = { student: { findMany: vi.fn().mockResolvedValue([]) } };
-    service = new StudentsService(prisma as unknown as PrismaService, makeAuditMock(), makeFeesMock(), new QrTokenService(), makeStorageMock());
+    ({ db } = makeDbMock());
+    db.query.mockResolvedValue([]);
+    service = new StudentsService(
+      db,
+      makeAuditMock(),
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
   });
 
   it("scopes to tenant/branch with no extra filters when none are given", async () => {
     await service.listStudents("tenant-a", "branch-1");
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { tenantId: "tenant-a", branchId: "branch-1", deletedAt: null },
-      }),
+    expect(db.query).toHaveBeenCalledWith(
+      "tenant-a",
+      expect.stringContaining("s.tenant_id = $1 AND s.branch_id = $2 AND s.deleted_at IS NULL"),
+      ["tenant-a", "branch-1"],
     );
   });
 
@@ -379,64 +421,38 @@ describe("StudentsService.listStudents", () => {
       sectionId: "section-1",
       gender: "Female",
     });
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          tenantId: "tenant-a",
-          branchId: "branch-1",
-          deletedAt: null,
-          status: "alumni",
-          currentClassId: "class-1",
-          currentSectionId: "section-1",
-          gender: "Female",
-        },
-      }),
-    );
+    const [, sql, params] = db.query.mock.calls[0]!;
+    expect(sql).toContain("s.status = $3");
+    expect(sql).toContain("s.current_class_id = $4");
+    expect(sql).toContain("s.current_section_id = $5");
+    expect(sql).toContain("s.gender = $6");
+    expect(params).toEqual(["tenant-a", "branch-1", "alumni", "class-1", "section-1", "Female"]);
   });
 
   it("leaves existing search behavior unchanged when no filter is set", async () => {
     await service.listStudents("tenant-a", "branch-1", "ravi");
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: [
-            { firstName: { contains: "ravi", mode: "insensitive" } },
-            { lastName: { contains: "ravi", mode: "insensitive" } },
-            { admissionNumber: { contains: "ravi", mode: "insensitive" } },
-          ],
-        }),
-      }),
-    );
+    const [, sql, params] = db.query.mock.calls[0]!;
+    expect(sql).toContain("ILIKE");
+    expect(params).toEqual(["tenant-a", "branch-1", "%ravi%"]);
   });
 });
 
 describe("StudentsService photo upload", () => {
-  function makePhotoPrismaMock() {
-    const tx = { student: { update: vi.fn() } };
-    return {
-      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-      __tx: tx,
-      student: { findFirst: vi.fn(), findMany: vi.fn() },
-    } as unknown as PrismaService & {
-      __tx: typeof tx;
-      student: { findFirst: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-    };
-  }
-
-  let prisma: ReturnType<typeof makePhotoPrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let storage: ReturnType<typeof makeStorageMock>;
   let service: StudentsService;
 
   beforeEach(() => {
-    prisma = makePhotoPrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     storage = makeStorageMock();
-    service = new StudentsService(prisma, audit, makeFeesMock(), new QrTokenService(), storage);
+    service = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), storage);
   });
 
   it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1" });
+    db.queryOne.mockResolvedValueOnce({ id: "student-1" });
     (storage.createUploadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       url: "https://upload",
       method: "PUT",
@@ -450,21 +466,23 @@ describe("StudentsService photo upload", () => {
   });
 
   it("replacing a photo best-effort deletes the old object", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1", photoPath: "old-key" });
-    prisma.__tx.student.update.mockResolvedValueOnce({});
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: "old-key" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: "new-key" }] });
 
     await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key");
 
-    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ photoPath: "new-key" }) }),
-    );
+    const [updateSql, updateParams] = client.query.mock.calls[1]!;
+    expect(updateSql).toContain("UPDATE students");
+    expect(updateParams).toContain("new-key");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("setting a photo for the first time doesn't attempt to delete anything", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1", photoPath: null });
-    prisma.__tx.student.update.mockResolvedValueOnce({});
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: "new-key" }] });
 
     await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key");
 
@@ -472,7 +490,7 @@ describe("StudentsService photo upload", () => {
   });
 
   it("getPhotoUrl returns null when no photo is set, without calling storage", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", photoPath: null });
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", photo_path: null });
 
     const result = await service.getPhotoUrl("tenant-1", "student-1");
 
@@ -481,28 +499,28 @@ describe("StudentsService photo upload", () => {
   });
 
   it("deletePhoto clears the field and deletes the object", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1", photoPath: "old-key" });
-    prisma.__tx.student.update.mockResolvedValueOnce({});
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: "old-key" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: null }] });
 
     await service.deletePhoto("tenant-1", "actor-1", "student-1");
 
-    expect(prisma.__tx.student.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ photoPath: null }) }),
-    );
+    const [updateSql] = client.query.mock.calls[1]!;
+    expect(updateSql).toContain("UPDATE students");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
   });
 
   it("deletePhoto is a no-op when no photo is set", async () => {
-    prisma.student.findFirst.mockResolvedValueOnce({ id: "student-1", branchId: "branch-1", photoPath: null });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: null }] });
 
     await service.deletePhoto("tenant-1", "actor-1", "student-1");
 
-    expect(prisma.__tx.student.update).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
     expect(storage.deleteObject).not.toHaveBeenCalled();
   });
 
   it("bulk photo urls only includes students that actually have a photo set (query-level filter)", async () => {
-    prisma.student.findMany.mockResolvedValueOnce([{ id: "student-1", photoPath: "key-1" }]);
+    db.query.mockResolvedValueOnce([{ id: "student-1", photo_path: "key-1" }]);
     (storage.createDownloadUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       url: "https://download",
       expires_at: "2026-01-01T00:00:00.000Z",
@@ -510,8 +528,10 @@ describe("StudentsService photo upload", () => {
 
     const result = await service.getPhotoUrlsBulk("tenant-1", ["student-1", "student-2"]);
 
-    expect(prisma.student.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ photoPath: { not: null } }) }),
+    expect(db.query).toHaveBeenCalledWith(
+      "tenant-1",
+      expect.stringContaining("photo_path IS NOT NULL"),
+      ["tenant-1", ["student-1", "student-2"]],
     );
     expect(result).toEqual([{ student_id: "student-1", url: "https://download", expires_at: "2026-01-01T00:00:00.000Z" }]);
   });

@@ -61,8 +61,9 @@ logged in.
 apps/
   web/          React + TypeScript + Tailwind + shadcn/ui single-page app,
                 talking to cloud-api over plain fetch()
-  cloud-api/    NestJS + Prisma + PostgreSQL: the entire system of record --
-                auth, every domain entity, RBAC, and audit logging
+  cloud-api/    NestJS + PostgreSQL (raw pg + row-level security): the
+                entire system of record -- auth, every domain entity, RBAC,
+                and audit logging
 ```
 
 ## Prerequisites
@@ -77,9 +78,9 @@ pnpm install
 
 # cloud-api: point at your Postgres instance
 cd apps/cloud-api
-cp .env.example .env   # edit DATABASE_URL if needed
-pnpm prisma:migrate    # creates the schema
-pnpm prisma:seed       # creates a demo tenant/branch/admin user
+cp .env.example .env   # edit DATABASE_URL/APP_DATABASE_URL if needed
+pnpm migrate:up         # creates the schema
+pnpm seed                # creates a demo tenant/branch/admin user
 pnpm dev                # starts on :3001
 ```
 

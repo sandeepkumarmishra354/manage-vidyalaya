@@ -95,8 +95,8 @@ export class StaffTimetableController {
     @Query("academic_session_id") academicSessionId: string,
   ) {
     const allowed =
-      (await this.scopedAccess.hasPermission(user.sub, "timetable.view")) ||
-      (await this.scopedAccess.hasPermission(user.sub, "staff.view")) ||
+      (await this.scopedAccess.hasPermission(user.tenant_id, user.sub, "timetable.view")) ||
+      (await this.scopedAccess.hasPermission(user.tenant_id, user.sub, "staff.view")) ||
       (await this.scopedAccess.getActingStaff(user.tenant_id, user.sub))?.id === staffId;
     if (!allowed) {
       throw new ForbiddenException("not authorized to view this staff member's timetable");

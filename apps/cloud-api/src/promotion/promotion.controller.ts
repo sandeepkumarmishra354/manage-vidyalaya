@@ -17,11 +17,12 @@ export class PromotionController {
   @Get("suggest-class-mapping")
   @RequirePermission("academic_setup.promote")
   suggestClassMapping(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("from_session_id") fromSessionId: string,
     @Query("to_session_id") toSessionId: string,
   ) {
-    return this.promotionService.suggestClassMapping(branchId, fromSessionId, toSessionId);
+    return this.promotionService.suggestClassMapping(user.tenant_id, branchId, fromSessionId, toSessionId);
   }
 
   @Post("batches")
@@ -32,14 +33,14 @@ export class PromotionController {
 
   @Get("batches/:id")
   @RequirePermission("academic_setup.promote")
-  getBatch(@Param("id") id: string) {
-    return this.promotionService.getPromotionBatch(id);
+  getBatch(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.promotionService.getPromotionBatch(user.tenant_id, id);
   }
 
   @Patch("batch-items/:id")
   @RequirePermission("academic_setup.promote")
-  setDecision(@Param("id") id: string, @Body() dto: SetPromotionDecisionDto) {
-    return this.promotionService.setPromotionDecision(id, dto);
+  setDecision(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPromotionDecisionDto) {
+    return this.promotionService.setPromotionDecision(user.tenant_id, id, dto);
   }
 
   @Post("batches/:id/execute")

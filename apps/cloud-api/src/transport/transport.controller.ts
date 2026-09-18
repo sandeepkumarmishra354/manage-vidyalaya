@@ -19,8 +19,8 @@ export class TransportRoutesController {
 
   @Get()
   @RequirePermission("transport.view")
-  list(@Query("branch_id") branchId: string) {
-    return this.transportService.listRoutes(branchId);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.transportService.listRoutes(user.tenant_id, branchId);
   }
 
   @Post()
@@ -37,8 +37,8 @@ export class TransportRoutesController {
 
   @Get(":routeId/roster")
   @RequirePermission("transport.view")
-  roster(@Param("routeId") routeId: string) {
-    return this.transportService.listRouteRoster(routeId);
+  roster(@CurrentUser() user: JwtPayload, @Param("routeId") routeId: string) {
+    return this.transportService.listRouteRoster(user.tenant_id, routeId);
   }
 }
 
@@ -49,8 +49,8 @@ export class TransportStopsController {
 
   @Get()
   @RequirePermission("transport.view")
-  list(@Query("route_id") routeId: string) {
-    return this.transportService.listStops(routeId);
+  list(@CurrentUser() user: JwtPayload, @Query("route_id") routeId: string) {
+    return this.transportService.listStops(user.tenant_id, routeId);
   }
 
   @Post()
@@ -79,7 +79,7 @@ export class TransportAssignmentsController {
 
   @Get("student/:studentId")
   @RequirePermission("transport.view")
-  studentTransport(@Param("studentId") studentId: string) {
-    return this.transportService.getStudentTransport(studentId);
+  studentTransport(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.transportService.getStudentTransport(user.tenant_id, studentId);
   }
 }

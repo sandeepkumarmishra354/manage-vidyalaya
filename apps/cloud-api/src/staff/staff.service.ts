@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
+import { findOneForTenant, insertRow, softDeleteRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import type { CreateStaffDto } from "./dto/create-staff.dto.js";
@@ -13,6 +15,63 @@ import type { IssueExperienceLetterDto } from "./dto/issue-experience-letter.dto
 import type { SetClassTeacherDto } from "./dto/set-class-teacher.dto.js";
 import type { SetStaffStatusDto } from "./dto/set-staff-status.dto.js";
 import type { UpdateStaffDto } from "./dto/update-staff.dto.js";
+
+export interface StaffRow extends TenantRow {
+  branch_id: string;
+  user_id: string | null;
+  employee_code: string;
+  first_name: string;
+  last_name: string | null;
+  date_of_birth: Date | null;
+  gender: string | null;
+  phone: string | null;
+  personal_email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  designation: string;
+  department: string | null;
+  category_id: string | null;
+  employment_type: string;
+  date_of_joining: Date;
+  date_of_leaving: Date | null;
+  status: string;
+  qualification: string | null;
+  blood_group: string | null;
+  photo_path: string | null;
+  signature_url: string | null;
+  is_principal: boolean;
+  pan_number: string | null;
+  aadhaar_number: string | null;
+  bank_account_number: string | null;
+  bank_ifsc: string | null;
+  bank_name: string | null;
+  pf_number: string | null;
+  esi_number: string | null;
+  uan_number: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  notes: string | null;
+  reason_for_leaving: string | null;
+  experience_letter_number: string | null;
+  experience_letter_issue_date: Date | null;
+  conduct_remark: string | null;
+  qr_code_version: number;
+}
+
+interface BranchRow extends TenantRow {
+  code: string;
+}
+
+export interface TeacherAssignmentRow extends TenantRow {
+  branch_id: string;
+  staff_id: string;
+  class_id: string;
+  section_id: string | null;
+  subject_id: string;
+  academic_session_id: string;
+}
 
 function toDateOrNull(value?: string | null) {
   return value ? new Date(value) : null;
@@ -39,63 +98,80 @@ function sanitizePhotoExtension(fileName: string): string {
 @Injectable()
 export class StaffService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly qrToken: QrTokenService,
     private readonly storage: StorageService,
   ) {}
 
   async listStaff(
+    tenantId: string,
     branchId: string,
     search?: string,
     filters?: { categoryId?: string; department?: string; status?: string },
   ) {
     const term = (search ?? "").trim();
-    const staff = await this.prisma.staff.findMany({
-      where: {
-        branchId,
-        deletedAt: null,
-        ...(filters?.categoryId ? { categoryId: filters.categoryId } : {}),
-        ...(filters?.department ? { department: filters.department } : {}),
-        ...(filters?.status ? { status: filters.status } : {}),
-        ...(term
-          ? {
-              OR: [
-                { firstName: { contains: term, mode: "insensitive" } },
-                { lastName: { contains: term, mode: "insensitive" } },
-                { employeeCode: { contains: term, mode: "insensitive" } },
-                { designation: { contains: term, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { firstName: "asc" },
-    });
+    const conditions = ["tenant_id = $1", "branch_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, branchId];
+
+    if (filters?.categoryId) {
+      values.push(filters.categoryId);
+      conditions.push(`category_id = $${values.length}`);
+    }
+    if (filters?.department) {
+      values.push(filters.department);
+      conditions.push(`department = $${values.length}`);
+    }
+    if (filters?.status) {
+      values.push(filters.status);
+      conditions.push(`status = $${values.length}`);
+    }
+    if (term) {
+      values.push(`%${term}%`);
+      const p = values.length;
+      conditions.push(
+        `(first_name ILIKE $${p} OR last_name ILIKE $${p} OR employee_code ILIKE $${p} OR designation ILIKE $${p})`,
+      );
+    }
+
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")} ORDER BY first_name ASC`,
+      values,
+    );
 
     return staff.map((s) => ({
       id: s.id,
-      employee_code: s.employeeCode,
-      first_name: s.firstName,
-      last_name: s.lastName,
+      employee_code: s.employee_code,
+      first_name: s.first_name,
+      last_name: s.last_name,
       designation: s.designation,
-      category_id: s.categoryId,
+      category_id: s.category_id,
       department: s.department,
       status: s.status,
-      has_login: s.userId !== null,
+      has_login: s.user_id !== null,
     }));
   }
 
-  async getStaff(id: string) {
-    return this.prisma.staff.findUniqueOrThrow({ where: { id, deletedAt: null } });
+  async getStaff(tenantId: string, id: string) {
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [id, tenantId],
+    );
+    if (!staff) {
+      throw new NotFoundException("staff member not found");
+    }
+    return staff;
   }
 
   // Employee code: uses whatever the caller supplied, or auto-generates
   // "{branch code}-{sequence}" (padded to 4 digits) when left blank. The
-  // whole creation transaction is retried a few times on a unique clash
+  // whole creation attempt is retried a few times on a unique clash
   // (@@unique([tenantId, employeeCode])) rather than caught mid-transaction
   // -- a Postgres transaction can't recover from a failed statement and
-  // keep going, so each attempt is its own fresh $transaction, same shape
-  // as StudentsService.confirmAdmission's admission-number retry loop.
+  // keep going, so each attempt is its own fresh withTransaction, same
+  // shape as StudentsService.confirmAdmission's admission-number retry loop.
   async createStaff(tenantId: string, actorUserId: string, dto: CreateStaffDto) {
     const now = new Date();
     const suppliedCode = dto.employee_code?.trim();
@@ -103,8 +179,20 @@ export class StaffService {
       return this.insertStaff(tenantId, actorUserId, dto, suppliedCode, now);
     }
 
-    const branch = await this.prisma.branch.findUniqueOrThrow({ where: { id: dto.branch_id } });
-    const baseCount = await this.prisma.staff.count({ where: { tenantId, branchId: dto.branch_id } });
+    const branch = await this.db.queryOne<BranchRow>(
+      tenantId,
+      "SELECT * FROM branches WHERE id = $1 AND tenant_id = $2",
+      [dto.branch_id, tenantId],
+    );
+    if (!branch) {
+      throw new NotFoundException("branch not found");
+    }
+    const countRows = await this.db.query<{ count: string }>(
+      tenantId,
+      "SELECT COUNT(*)::text AS count FROM staff WHERE tenant_id = $1 AND branch_id = $2",
+      [tenantId, dto.branch_id],
+    );
+    const baseCount = Number(countRows[0]?.count ?? "0");
 
     const maxAttempts = 5;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -112,8 +200,7 @@ export class StaffService {
       try {
         return await this.insertStaff(tenantId, actorUserId, dto, candidate, now);
       } catch (error) {
-        const isUniqueClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-        if (isUniqueClash && attempt < maxAttempts - 1) {
+        if (isUniqueViolation(error) && attempt < maxAttempts - 1) {
           continue;
         }
         throw error;
@@ -129,54 +216,48 @@ export class StaffService {
     employeeCode: string,
     now: Date,
   ) {
-    const id = randomUUID();
-
-    return this.prisma.$transaction(async (tx) => {
-      const staff = await tx.staff.create({
-        data: {
-          id,
-          tenantId,
-          branchId: dto.branch_id,
-          employeeCode,
-          firstName: dto.first_name,
-          lastName: dto.last_name ?? null,
-          dateOfBirth: toDateOrNull(dto.date_of_birth),
-          gender: dto.gender ?? null,
-          phone: dto.phone ?? null,
-          personalEmail: dto.personal_email ?? null,
-          address: dto.address ?? null,
-          city: dto.city ?? null,
-          state: dto.state ?? null,
-          pincode: dto.pincode ?? null,
-          designation: dto.designation,
-          categoryId: dto.category_id ?? null,
-          department: dto.department ?? null,
-          employmentType: dto.employment_type,
-          dateOfJoining: new Date(dto.date_of_joining),
-          status: "active",
-          qualification: dto.qualification ?? null,
-          bloodGroup: dto.blood_group ?? null,
-          panNumber: dto.pan_number ?? null,
-          aadhaarNumber: dto.aadhaar_number ?? null,
-          bankAccountNumber: dto.bank_account_number ?? null,
-          bankIfsc: dto.bank_ifsc ?? null,
-          bankName: dto.bank_name ?? null,
-          pfNumber: dto.pf_number ?? null,
-          esiNumber: dto.esi_number ?? null,
-          uanNumber: dto.uan_number ?? null,
-          emergencyContactName: dto.emergency_contact_name ?? null,
-          emergencyContactPhone: dto.emergency_contact_phone ?? null,
-          notes: dto.notes ?? null,
-          updatedAt: now,
-        },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const staff = await insertRow<StaffRow>(client, "staff", tenantId, {
+        branch_id: dto.branch_id,
+        employee_code: employeeCode,
+        first_name: dto.first_name,
+        last_name: dto.last_name ?? null,
+        date_of_birth: toDateOrNull(dto.date_of_birth),
+        gender: dto.gender ?? null,
+        phone: dto.phone ?? null,
+        personal_email: dto.personal_email ?? null,
+        address: dto.address ?? null,
+        city: dto.city ?? null,
+        state: dto.state ?? null,
+        pincode: dto.pincode ?? null,
+        designation: dto.designation,
+        category_id: dto.category_id ?? null,
+        department: dto.department ?? null,
+        employment_type: dto.employment_type,
+        date_of_joining: new Date(dto.date_of_joining),
+        status: "active",
+        qualification: dto.qualification ?? null,
+        blood_group: dto.blood_group ?? null,
+        pan_number: dto.pan_number ?? null,
+        aadhaar_number: dto.aadhaar_number ?? null,
+        bank_account_number: dto.bank_account_number ?? null,
+        bank_ifsc: dto.bank_ifsc ?? null,
+        bank_name: dto.bank_name ?? null,
+        pf_number: dto.pf_number ?? null,
+        esi_number: dto.esi_number ?? null,
+        uan_number: dto.uan_number ?? null,
+        emergency_contact_name: dto.emergency_contact_name ?? null,
+        emergency_contact_phone: dto.emergency_contact_phone ?? null,
+        notes: dto.notes ?? null,
+        updated_at: now,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
         entityTable: "staff",
-        entityId: id,
+        entityId: staff.id,
         action: "create",
         summary: `Added staff member '${dto.first_name} ${dto.last_name ?? ""}'`.trim(),
       });
@@ -188,58 +269,55 @@ export class StaffService {
   async updateStaff(tenantId: string, actorUserId: string, id: string, dto: UpdateStaffDto) {
     const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.db.withTransaction(tenantId, async (client) => {
       // At most one principal per branch -- clear any other staff's flag
       // in this branch first, mirroring setClassTeacher's exclusivity
       // pattern below.
       if (dto.is_principal) {
-        await tx.staff.updateMany({
-          where: { branchId: dto.branch_id, isPrincipal: true, id: { not: id }, deletedAt: null },
-          data: { isPrincipal: false, updatedAt: now, updatedBy: actorUserId },
-        });
+        await client.query(
+          `UPDATE staff SET is_principal = false, updated_at = $1, updated_by = $2
+           WHERE tenant_id = $3 AND branch_id = $4 AND is_principal = true AND id != $5 AND deleted_at IS NULL`,
+          [now, actorUserId, tenantId, dto.branch_id, id],
+        );
       }
 
-      const updated = await tx.staff.update({
-        where: { id },
-        data: {
-          employeeCode: dto.employee_code,
-          firstName: dto.first_name,
-          lastName: dto.last_name ?? null,
-          dateOfBirth: toDateOrNull(dto.date_of_birth),
-          gender: dto.gender ?? null,
-          phone: dto.phone ?? null,
-          personalEmail: dto.personal_email ?? null,
-          address: dto.address ?? null,
-          city: dto.city ?? null,
-          state: dto.state ?? null,
-          pincode: dto.pincode ?? null,
-          designation: dto.designation,
-          categoryId: dto.category_id ?? null,
-          department: dto.department ?? null,
-          employmentType: dto.employment_type,
-          dateOfJoining: new Date(dto.date_of_joining),
-          qualification: dto.qualification ?? null,
-          bloodGroup: dto.blood_group ?? null,
-          signatureUrl: dto.signature_url ?? null,
-          isPrincipal: dto.is_principal ?? false,
-          panNumber: dto.pan_number ?? null,
-          aadhaarNumber: dto.aadhaar_number ?? null,
-          bankAccountNumber: dto.bank_account_number ?? null,
-          bankIfsc: dto.bank_ifsc ?? null,
-          bankName: dto.bank_name ?? null,
-          pfNumber: dto.pf_number ?? null,
-          esiNumber: dto.esi_number ?? null,
-          uanNumber: dto.uan_number ?? null,
-          emergencyContactName: dto.emergency_contact_name ?? null,
-          emergencyContactPhone: dto.emergency_contact_phone ?? null,
-          notes: dto.notes ?? null,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<StaffRow>(client, "staff", tenantId, id, {
+        employee_code: dto.employee_code,
+        first_name: dto.first_name,
+        last_name: dto.last_name ?? null,
+        date_of_birth: toDateOrNull(dto.date_of_birth),
+        gender: dto.gender ?? null,
+        phone: dto.phone ?? null,
+        personal_email: dto.personal_email ?? null,
+        address: dto.address ?? null,
+        city: dto.city ?? null,
+        state: dto.state ?? null,
+        pincode: dto.pincode ?? null,
+        designation: dto.designation,
+        category_id: dto.category_id ?? null,
+        department: dto.department ?? null,
+        employment_type: dto.employment_type,
+        date_of_joining: new Date(dto.date_of_joining),
+        qualification: dto.qualification ?? null,
+        blood_group: dto.blood_group ?? null,
+        signature_url: dto.signature_url ?? null,
+        is_principal: dto.is_principal ?? false,
+        pan_number: dto.pan_number ?? null,
+        aadhaar_number: dto.aadhaar_number ?? null,
+        bank_account_number: dto.bank_account_number ?? null,
+        bank_ifsc: dto.bank_ifsc ?? null,
+        bank_name: dto.bank_name ?? null,
+        pf_number: dto.pf_number ?? null,
+        esi_number: dto.esi_number ?? null,
+        uan_number: dto.uan_number ?? null,
+        emergency_contact_name: dto.emergency_contact_name ?? null,
+        emergency_contact_phone: dto.emergency_contact_phone ?? null,
+        notes: dto.notes ?? null,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
@@ -256,38 +334,38 @@ export class StaffService {
   // Lightweight, permission-free reads for print pages -- resolving a
   // signature to render doesn't need broad staff.view, and every logged-in
   // user (e.g. a teacher printing their own class's register) should be
-  // able to fetch one.
-  async getStaffSignature(id: string) {
-    const staff = await this.prisma.staff.findUnique({ where: { id }, select: { signatureUrl: true } });
-    return { signature_url: staff?.signatureUrl ?? null };
+  // able to fetch one. Still tenant-scoped -- "permission-free" means any
+  // authenticated user of *this* tenant, never a cross-tenant lookup.
+  async getStaffSignature(tenantId: string, id: string) {
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT signature_url FROM staff WHERE id = $1 AND tenant_id = $2",
+      [id, tenantId],
+    );
+    return { signature_url: staff?.signature_url ?? null };
   }
 
-  async getPrincipalSignature(branchId: string) {
-    const principal = await this.prisma.staff.findFirst({
-      where: { branchId, isPrincipal: true, deletedAt: null },
-      select: { signatureUrl: true },
-    });
-    return { signature_url: principal?.signatureUrl ?? null };
+  async getPrincipalSignature(tenantId: string, branchId: string) {
+    const principal = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT signature_url FROM staff WHERE tenant_id = $1 AND branch_id = $2 AND is_principal = true AND deleted_at IS NULL",
+      [tenantId, branchId],
+    );
+    return { signature_url: principal?.signature_url ?? null };
   }
 
   // Deactivates (or reactivates) a staff member -- the soft-delete
   // equivalent for HR records; employment history is preserved.
   async setStaffStatus(tenantId: string, actorUserId: string, staffId: string, dto: SetStaffStatusDto) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.staff.update({
-        where: { id: staffId },
-        data: {
-          status: dto.status,
-          dateOfLeaving: toDateOrNull(dto.date_of_leaving),
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
+        status: dto.status,
+        date_of_leaving: toDateOrNull(dto.date_of_leaving),
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "staff",
@@ -307,32 +385,28 @@ export class StaffService {
   // this codebase (attendance roster, payroll generation, class-teacher
   // picker) already filters on status "active" and so excludes automatically.
   async issueExperienceLetter(tenantId: string, actorUserId: string, staffId: string, dto: IssueExperienceLetterDto) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
-    if (!staff) {
-      throw new NotFoundException("staff member not found");
-    }
-    const now = new Date();
-    const letterNumber = staff.experienceLetterNumber ?? generateExperienceLetterNumber(staff.branchId);
+    return this.db.withTransaction(tenantId, async (client) => {
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      if (!staff) {
+        throw new NotFoundException("staff member not found");
+      }
+      const now = new Date();
+      const letterNumber = staff.experience_letter_number ?? generateExperienceLetterNumber(staff.branch_id);
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.staff.update({
-        where: { id: staffId },
-        data: {
-          reasonForLeaving: dto.reason_for_leaving,
-          dateOfLeaving: new Date(dto.date_of_leaving),
-          conductRemark: dto.conduct_remark ?? null,
-          experienceLetterNumber: letterNumber,
-          experienceLetterIssueDate: staff.experienceLetterIssueDate ?? now,
-          status: "relieved",
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
+        reason_for_leaving: dto.reason_for_leaving,
+        date_of_leaving: new Date(dto.date_of_leaving),
+        conduct_remark: dto.conduct_remark ?? null,
+        experience_letter_number: letterNumber,
+        experience_letter_issue_date: staff.experience_letter_issue_date ?? now,
+        status: "relieved",
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff",
         entityId: staffId,
@@ -345,58 +419,62 @@ export class StaffService {
   }
 
   async getExperienceLetter(tenantId: string, staffId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [staffId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
     return {
       staff_id: staff.id,
-      employee_code: staff.employeeCode,
-      first_name: staff.firstName,
-      last_name: staff.lastName,
+      employee_code: staff.employee_code,
+      first_name: staff.first_name,
+      last_name: staff.last_name,
       designation: staff.designation,
       department: staff.department,
-      date_of_joining: staff.dateOfJoining,
-      date_of_leaving: staff.dateOfLeaving,
-      reason_for_leaving: staff.reasonForLeaving,
-      conduct_remark: staff.conductRemark,
-      experience_letter_number: staff.experienceLetterNumber,
-      experience_letter_issue_date: staff.experienceLetterIssueDate,
+      date_of_joining: staff.date_of_joining,
+      date_of_leaving: staff.date_of_leaving,
+      reason_for_leaving: staff.reason_for_leaving,
+      conduct_remark: staff.conduct_remark,
+      experience_letter_number: staff.experience_letter_number,
+      experience_letter_issue_date: staff.experience_letter_issue_date,
       status: staff.status,
     };
   }
 
   async getQrCode(tenantId: string, staffId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [staffId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
-    return { token: this.qrToken.generate("staff", tenantId, staff.id, staff.qrCodeVersion) };
+    return { token: this.qrToken.generate("staff", tenantId, staff.id, staff.qr_code_version) };
   }
 
-  // Bumping qrCodeVersion instantly invalidates every previously-printed
+  // Bumping qr_code_version instantly invalidates every previously-printed
   // code for this staff member -- see Student.qrCodeVersion for the same
   // scheme on the student side.
   async reissueQrCode(tenantId: string, actorUserId: string, staffId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
-    if (!staff) {
-      throw new NotFoundException("staff member not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      if (!staff) {
+        throw new NotFoundException("staff member not found");
+      }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.staff.update({
-        where: { id: staffId },
-        data: {
-          qrCodeVersion: { increment: 1 },
-          updatedAt: new Date(),
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
+        qr_code_version: staff.qr_code_version + 1,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff",
         entityId: staffId,
@@ -404,20 +482,28 @@ export class StaffService {
         summary: "Reissued QR code",
       });
 
-      return { token: this.qrToken.generate("staff", tenantId, updated.id, updated.qrCodeVersion) };
+      return { token: this.qrToken.generate("staff", tenantId, updated.id, updated.qr_code_version) };
     });
   }
 
   async getQrCodesBulk(tenantId: string, ids: string[]) {
-    const staff = await this.prisma.staff.findMany({ where: { id: { in: ids }, tenantId, deletedAt: null } });
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL",
+      [tenantId, ids],
+    );
     return staff.map((s) => ({
       staff_id: s.id,
-      token: this.qrToken.generate("staff", tenantId, s.id, s.qrCodeVersion),
+      token: this.qrToken.generate("staff", tenantId, s.id, s.qr_code_version),
     }));
   }
 
   async getPhotoUploadUrl(tenantId: string, staffId: string, fileName: string, contentType: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [staffId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
@@ -429,32 +515,29 @@ export class StaffService {
 
   // Single slot, not a list -- see StudentsService.setPhoto for the same pattern.
   async setPhoto(tenantId: string, actorUserId: string, staffId: string, storageKey: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
-    if (!staff) {
-      throw new NotFoundException("staff member not found");
-    }
-    const previousPath = staff.photoPath;
+    const previousPath = await this.db.withTransaction(tenantId, async (client) => {
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      if (!staff) {
+        throw new NotFoundException("staff member not found");
+      }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.staff.update({
-        where: { id: staffId },
-        data: {
-          photoPath: storageKey,
-          updatedAt: new Date(),
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
+        photo_path: storageKey,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff",
         entityId: staffId,
         action: "update",
         summary: "Updated photo",
       });
+
+      return staff.photo_path;
     });
 
     if (previousPath && previousPath !== storageKey) {
@@ -465,104 +548,135 @@ export class StaffService {
   }
 
   async getPhotoUrl(tenantId: string, staffId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [staffId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
-    if (!staff.photoPath) {
+    if (!staff.photo_path) {
       return { url: null };
     }
-    return this.storage.createDownloadUrl(staff.photoPath);
+    return this.storage.createDownloadUrl(staff.photo_path);
   }
 
   async deletePhoto(tenantId: string, actorUserId: string, staffId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
-    if (!staff) {
-      throw new NotFoundException("staff member not found");
-    }
-    if (!staff.photoPath) {
-      return { ok: true };
-    }
-    const previousPath = staff.photoPath;
+    const previousPath = await this.db.withTransaction(tenantId, async (client) => {
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      if (!staff) {
+        throw new NotFoundException("staff member not found");
+      }
+      if (!staff.photo_path) {
+        return null;
+      }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.staff.update({
-        where: { id: staffId },
-        data: { photoPath: null, updatedAt: new Date(), updatedBy: actorUserId, version: { increment: 1 } },
+      await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
+        photo_path: null,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff",
         entityId: staffId,
         action: "update",
         summary: "Removed photo",
       });
+
+      return staff.photo_path;
     });
 
-    await this.storage.deleteObject(previousPath);
+    if (previousPath) {
+      await this.storage.deleteObject(previousPath);
+    }
 
     return { ok: true };
   }
 
   async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
-    const staff = await this.prisma.staff.findMany({
-      where: { id: { in: ids }, tenantId, deletedAt: null, photoPath: { not: null } },
-    });
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND photo_path IS NOT NULL",
+      [tenantId, ids],
+    );
     const entries = await Promise.all(
-      staff.map(async (s) => ({ staff_id: s.id, ...(await this.storage.createDownloadUrl(s.photoPath!)) })),
+      staff.map(async (s) => ({ staff_id: s.id, ...(await this.storage.createDownloadUrl(s.photo_path!)) })),
     );
     return entries;
   }
 
-  async listTeacherAssignments(branchId: string, staffId?: string) {
-    const assignments = await this.prisma.teacherSubjectAssignment.findMany({
-      where: { branchId, deletedAt: null, ...(staffId ? { staffId } : {}) },
-      include: { staff: true, class: true, section: true, subject: true },
-      orderBy: [{ class: { sortOrder: "asc" } }, { staff: { firstName: "asc" } }],
-    });
+  async listTeacherAssignments(tenantId: string, branchId: string, staffId?: string) {
+    const conditions = ["ta.tenant_id = $1", "ta.branch_id = $2", "ta.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, branchId];
+    if (staffId) {
+      values.push(staffId);
+      conditions.push(`ta.staff_id = $${values.length}`);
+    }
 
-    return assignments.map((a) => ({
+    const rows = await this.db.query<{
+      id: string;
+      staff_id: string;
+      staff_first_name: string;
+      staff_last_name: string | null;
+      class_id: string;
+      class_name: string;
+      section_id: string | null;
+      section_name: string | null;
+      subject_id: string;
+      subject_name: string;
+      academic_session_id: string;
+    }>(
+      tenantId,
+      `SELECT ta.id, ta.staff_id, st.first_name AS staff_first_name, st.last_name AS staff_last_name,
+              ta.class_id, c.name AS class_name, ta.section_id, sec.name AS section_name,
+              ta.subject_id, sub.name AS subject_name, ta.academic_session_id
+       FROM teacher_subject_assignments ta
+       JOIN staff st ON st.id = ta.staff_id
+       JOIN classes c ON c.id = ta.class_id
+       LEFT JOIN sections sec ON sec.id = ta.section_id
+       JOIN subjects sub ON sub.id = ta.subject_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY c.sort_order ASC, st.first_name ASC`,
+      values,
+    );
+
+    return rows.map((a) => ({
       id: a.id,
-      staff_id: a.staffId,
-      staff_name: [a.staff.firstName, a.staff.lastName].filter(Boolean).join(" "),
-      class_id: a.classId,
-      class_name: a.class.name,
-      section_id: a.sectionId,
-      section_name: a.section?.name ?? null,
-      subject_id: a.subjectId,
-      subject_name: a.subject.name,
-      academic_session_id: a.academicSessionId,
+      staff_id: a.staff_id,
+      staff_name: [a.staff_first_name, a.staff_last_name].filter(Boolean).join(" "),
+      class_id: a.class_id,
+      class_name: a.class_name,
+      section_id: a.section_id,
+      section_name: a.section_name,
+      subject_id: a.subject_id,
+      subject_name: a.subject_name,
+      academic_session_id: a.academic_session_id,
     }));
   }
 
   async createTeacherAssignment(tenantId: string, actorUserId: string, dto: CreateTeacherAssignmentDto) {
-    const id = randomUUID();
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const created = await tx.teacherSubjectAssignment.create({
-        data: {
-          id,
-          tenantId,
-          branchId: dto.branch_id,
-          staffId: dto.staff_id,
-          classId: dto.class_id,
-          sectionId: dto.section_id ?? null,
-          subjectId: dto.subject_id,
-          academicSessionId: dto.academic_session_id,
-          updatedAt: now,
-        },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const created = await insertRow<TeacherAssignmentRow>(client, "teacher_subject_assignments", tenantId, {
+        branch_id: dto.branch_id,
+        staff_id: dto.staff_id,
+        class_id: dto.class_id,
+        section_id: dto.section_id ?? null,
+        subject_id: dto.subject_id,
+        academic_session_id: dto.academic_session_id,
+        updated_at: new Date(),
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
         entityTable: "teacher_subject_assignments",
-        entityId: id,
+        entityId: created.id,
         action: "create",
         summary: "Assigned teacher to subject/class",
       });
@@ -572,15 +686,16 @@ export class StaffService {
   }
 
   async deleteTeacherAssignment(tenantId: string, actorUserId: string, id: string) {
-    const now = new Date();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const deleted = await softDeleteRow<TeacherAssignmentRow>(
+        client,
+        "teacher_subject_assignments",
+        tenantId,
+        id,
+        actorUserId,
+      );
 
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.teacherSubjectAssignment.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-      });
-
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "teacher_subject_assignments",
@@ -594,32 +709,36 @@ export class StaffService {
   }
 
   async setClassTeacher(tenantId: string, actorUserId: string, sectionId: string, dto: SetClassTeacherDto) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
+    return this.db.withTransaction(tenantId, async (client) => {
       if (dto.staff_id) {
-        const conflict = await tx.section.findFirst({
-          where: { classTeacherStaffId: dto.staff_id, deletedAt: null, id: { not: sectionId } },
-          include: { class: true },
-        });
+        const conflictResult = await client.query<{ id: string; class_name: string; name: string }>(
+          `SELECT s.id, c.name AS class_name, s.name
+           FROM sections s
+           JOIN classes c ON c.id = s.class_id
+           WHERE s.tenant_id = $1 AND s.class_teacher_staff_id = $2 AND s.deleted_at IS NULL AND s.id != $3`,
+          [tenantId, dto.staff_id, sectionId],
+        );
+        const conflict = conflictResult.rows[0];
         if (conflict) {
           throw new BadRequestException(
-            `This staff member is already class teacher of another section (${conflict.class.name} - ${conflict.name}).`,
+            `This staff member is already class teacher of another section (${conflict.class_name} - ${conflict.name}).`,
           );
         }
       }
 
-      const updated = await tx.section.update({
-        where: { id: sectionId },
-        data: {
-          classTeacherStaffId: dto.staff_id ?? null,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
+      const updated = await updateRow<TenantRow & { class_teacher_staff_id: string | null }>(
+        client,
+        "sections",
+        tenantId,
+        sectionId,
+        {
+          class_teacher_staff_id: dto.staff_id ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
         },
-      });
+      );
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "sections",

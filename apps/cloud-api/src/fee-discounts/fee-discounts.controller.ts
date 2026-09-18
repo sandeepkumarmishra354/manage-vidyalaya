@@ -41,8 +41,8 @@ export class FeeDiscountsController {
 
   @Get(":id/assignees")
   @RequirePermission("fees.view")
-  assignees(@Param("id") id: string) {
-    return this.feeDiscountsService.listDiscountAssignees(id);
+  assignees(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.feeDiscountsService.listDiscountAssignees(user.tenant_id, id);
   }
 
   @Post(":id/assign")
@@ -59,8 +59,8 @@ export class FeeDiscountsController {
 
   @Get("suggest-siblings/:studentId")
   @RequirePermission("fees.view")
-  suggestSiblings(@Param("studentId") studentId: string) {
-    return this.feeDiscountsService.suggestSiblingsForDiscount(studentId);
+  suggestSiblings(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.feeDiscountsService.suggestSiblingsForDiscount(user.tenant_id, studentId);
   }
 }
 
@@ -71,7 +71,7 @@ export class StudentFeeDiscountsQueryController {
 
   @Get(":id/fee-discounts")
   @RequirePermission("fees.view")
-  list(@Param("id") id: string) {
-    return this.feeDiscountsService.listStudentDiscounts(id);
+  list(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.feeDiscountsService.listStudentDiscounts(user.tenant_id, id);
   }
 }

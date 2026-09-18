@@ -3,29 +3,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
 import type { ScopedAccessService } from "../common/scoped-access.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { StaffLeaveService } from "./staff-leave.service.js";
 
-function makePrismaMock() {
-  const tx = {
-    staffLeaveRequest: { create: vi.fn(), update: vi.fn() },
-    staffAttendance: { upsert: vi.fn() },
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-    staffLeaveRequest: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    staff: { findFirst: vi.fn() },
-  } as unknown as PrismaService & {
-    __tx: typeof tx;
-    staffLeaveRequest: {
-      create: ReturnType<typeof vi.fn>;
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-      update: ReturnType<typeof vi.fn>;
-    };
-    staff: { findFirst: ReturnType<typeof vi.fn> };
-  };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -37,34 +33,30 @@ function makeScopedAccessMock() {
 }
 
 describe("StaffLeaveService.apply", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let service: StaffLeaveService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new StaffLeaveService(prisma, audit, scopedAccess);
+    service = new StaffLeaveService(db, audit, scopedAccess);
   });
 
   it("creates a pending request for the caller's own linked staff row", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "active" });
-    prisma.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "pending" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "active" });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", status: "pending", tenant_id: "tenant-1" }] });
 
     await service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12", reason: "wedding" });
 
-    expect(prisma.staffLeaveRequest.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          staffId: "staff-1",
-          branchId: "branch-1",
-          status: "pending",
-          requestedByUserId: "user-1",
-        }),
-      }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("staff-1");
+    expect(params).toContain("branch-1");
+    expect(params).toContain("pending");
+    expect(params).toContain("user-1");
   });
 
   it("rejects when the logged-in user has no linked staff record", async () => {
@@ -73,11 +65,11 @@ describe("StaffLeaveService.apply", () => {
     await expect(
       service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12" }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.staffLeaveRequest.create).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("rejects an end date before the start date", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "active" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "active" });
 
     await expect(
       service.apply("tenant-1", "user-1", { start_date: "2026-04-12", end_date: "2026-04-10" }),
@@ -85,88 +77,102 @@ describe("StaffLeaveService.apply", () => {
   });
 
   it("allows an on_leave staff member to apply", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "on_leave" });
-    prisma.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "pending" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "on_leave" });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", status: "pending", tenant_id: "tenant-1" }] });
 
     await service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12" });
 
-    expect(prisma.staffLeaveRequest.create).toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a relieved staff member", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1", status: "relieved" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "relieved" });
 
     await expect(
       service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12" }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.staffLeaveRequest.create).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 });
 
 describe("StaffLeaveService.cancel", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let service: StaffLeaveService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new StaffLeaveService(prisma, audit, scopedAccess);
+    service = new StaffLeaveService(db, audit, scopedAccess);
   });
 
   it("cancels the caller's own pending request", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1" });
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce({ id: "req-1", status: "pending" });
-    prisma.staffLeaveRequest.update.mockResolvedValueOnce({ id: "req-1", status: "cancelled" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "staff-1", status: "pending" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", status: "cancelled" }] });
 
     await service.cancel("tenant-1", "user-1", "req-1");
 
-    expect(prisma.staffLeaveRequest.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "req-1" }, data: expect.objectContaining({ status: "cancelled" }) }),
-    );
+    expect(client.query.mock.calls[1][0]).toContain("UPDATE staff_leave_requests");
+    const [, params] = client.query.mock.calls[1];
+    expect(params).toContain("cancelled");
   });
 
   it("blocks cancelling a request that isn't pending", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1" });
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce({ id: "req-1", status: "approved" });
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "staff-1", status: "approved" }],
+    });
 
     await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toThrow();
-    expect(prisma.staffLeaveRequest.update).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
   });
 
   it("404s when the request isn't the caller's own", async () => {
-    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branchId: "branch-1" });
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce(null);
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("404s when the request belongs to a different staff member", async () => {
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "someone-else", status: "pending" }],
+    });
 
     await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
 describe("StaffLeaveService.file (HR on-behalf)", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let service: StaffLeaveService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new StaffLeaveService(prisma, audit, scopedAccess);
+    service = new StaffLeaveService(db, audit, scopedAccess);
   });
 
   it("creates the request already approved and writes attendance for every date in range", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({
-      id: "staff-1",
-      branchId: "branch-1",
-      firstName: "Asha",
-      lastName: "Rao",
-      status: "active",
+    client.query.mockImplementation(async (text: unknown) => {
+      if (typeof text === "string" && text.includes("FROM staff WHERE")) {
+        return { rows: [{ id: "staff-1", branch_id: "branch-1", first_name: "Asha", last_name: "Rao", status: "active" }] };
+      }
+      if (typeof text === "string" && text.startsWith("INSERT INTO staff_leave_requests")) {
+        return { rows: [{ id: "req-1", status: "approved", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
     });
-    prisma.__tx.staffLeaveRequest.create.mockResolvedValueOnce({ id: "req-1", status: "approved" });
-    prisma.__tx.staffAttendance.upsert.mockResolvedValue({});
 
     await service.file("tenant-1", "hr-1", {
       staff_id: "staff-1",
@@ -174,21 +180,16 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
       end_date: "2026-04-12",
     });
 
-    expect(prisma.__tx.staffLeaveRequest.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: "approved", decidedByUserId: "hr-1" }),
-      }),
+    const attendanceCalls = client.query.mock.calls.filter(
+      ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
     );
     // 3 inclusive days: 10, 11, 12 April.
-    expect(prisma.__tx.staffAttendance.upsert).toHaveBeenCalledTimes(3);
-    for (const call of prisma.__tx.staffAttendance.upsert.mock.calls) {
-      expect(call[0].create.status).toBe("leave");
-    }
+    expect(attendanceCalls).toHaveLength(3);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("404s when the target staff member doesn't exist", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] });
 
     await expect(
       service.file("tenant-1", "hr-1", { staff_id: "missing", start_date: "2026-04-10", end_date: "2026-04-12" }),
@@ -196,72 +197,100 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
   });
 
   it("rejects filing leave for a terminated staff member", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({
-      id: "staff-1",
-      branchId: "branch-1",
-      firstName: "Asha",
-      lastName: "Rao",
-      status: "terminated",
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "staff-1", branch_id: "branch-1", first_name: "Asha", last_name: "Rao", status: "terminated" }],
     });
 
     await expect(
       service.file("tenant-1", "hr-1", { staff_id: "staff-1", start_date: "2026-04-10", end_date: "2026-04-12" }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.__tx.staffLeaveRequest.create).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("StaffLeaveService.decide", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
   let service: StaffLeaveService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     scopedAccess = makeScopedAccessMock();
-    service = new StaffLeaveService(prisma, audit, scopedAccess);
+    service = new StaffLeaveService(db, audit, scopedAccess);
   });
 
-  it("approving writes a StaffAttendance 'leave' row for every date in the range", async () => {
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce({
-      id: "req-1",
-      status: "pending",
-      branchId: "branch-1",
-      staffId: "staff-1",
-      startDate: new Date("2026-04-10T00:00:00.000Z"),
-      endDate: new Date("2026-04-11T00:00:00.000Z"),
-      staff: { firstName: "Asha", lastName: "Rao" },
+  it("approving writes a staff_attendance 'leave' row for every date in the range", async () => {
+    client.query.mockImplementation(async (text: unknown) => {
+      if (typeof text === "string" && text.includes("FROM staff_leave_requests lr")) {
+        return {
+          rows: [
+            {
+              id: "req-1",
+              status: "pending",
+              tenant_id: "tenant-1",
+              branch_id: "branch-1",
+              staff_id: "staff-1",
+              start_date: new Date("2026-04-10T00:00:00.000Z"),
+              end_date: new Date("2026-04-11T00:00:00.000Z"),
+              staff_first_name: "Asha",
+              staff_last_name: "Rao",
+            },
+          ],
+        };
+      }
+      if (typeof text === "string" && text.startsWith("UPDATE staff_leave_requests")) {
+        return { rows: [{ id: "req-1", status: "approved", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
     });
-    prisma.__tx.staffLeaveRequest.update.mockResolvedValueOnce({ id: "req-1", status: "approved" });
-    prisma.__tx.staffAttendance.upsert.mockResolvedValue({});
 
     await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" });
 
-    expect(prisma.__tx.staffAttendance.upsert).toHaveBeenCalledTimes(2);
+    const attendanceCalls = client.query.mock.calls.filter(
+      ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
+    );
+    expect(attendanceCalls).toHaveLength(2);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("rejecting writes no attendance", async () => {
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce({
-      id: "req-1",
-      status: "pending",
-      branchId: "branch-1",
-      staffId: "staff-1",
-      startDate: new Date("2026-04-10T00:00:00.000Z"),
-      endDate: new Date("2026-04-11T00:00:00.000Z"),
-      staff: { firstName: "Asha", lastName: "Rao" },
+    client.query.mockImplementation(async (text: unknown) => {
+      if (typeof text === "string" && text.includes("FROM staff_leave_requests lr")) {
+        return {
+          rows: [
+            {
+              id: "req-1",
+              status: "pending",
+              tenant_id: "tenant-1",
+              branch_id: "branch-1",
+              staff_id: "staff-1",
+              start_date: new Date("2026-04-10T00:00:00.000Z"),
+              end_date: new Date("2026-04-11T00:00:00.000Z"),
+              staff_first_name: "Asha",
+              staff_last_name: "Rao",
+            },
+          ],
+        };
+      }
+      if (typeof text === "string" && text.startsWith("UPDATE staff_leave_requests")) {
+        return { rows: [{ id: "req-1", status: "rejected", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
     });
-    prisma.__tx.staffLeaveRequest.update.mockResolvedValueOnce({ id: "req-1", status: "rejected" });
 
     await service.decide("tenant-1", "hr-1", "req-1", { decision: "rejected", note: "no coverage available" });
 
-    expect(prisma.__tx.staffAttendance.upsert).not.toHaveBeenCalled();
+    const attendanceCalls = client.query.mock.calls.filter(
+      ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
+    );
+    expect(attendanceCalls).toHaveLength(0);
   });
 
   it("blocks deciding a request that's already been decided", async () => {
-    prisma.staffLeaveRequest.findFirst.mockResolvedValueOnce({ id: "req-1", status: "approved" });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", status: "approved" }] });
 
     await expect(service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" })).rejects.toThrow();
   });

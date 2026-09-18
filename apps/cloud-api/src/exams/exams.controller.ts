@@ -19,8 +19,8 @@ export class SubjectsController {
 
   @Get()
   @RequirePermission("exams.view")
-  list(@Query("branch_id") branchId: string) {
-    return this.examsService.listSubjects(branchId);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.examsService.listSubjects(user.tenant_id, branchId);
   }
 
   @Post()
@@ -44,11 +44,12 @@ export class ExamsController {
   @Get()
   @RequirePermission("exams.view")
   list(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("class_id") classId?: string,
     @Query("academic_session_id") academicSessionId?: string,
   ) {
-    return this.examsService.listExams(branchId, classId, academicSessionId);
+    return this.examsService.listExams(user.tenant_id, branchId, classId, academicSessionId);
   }
 
   @Post()
@@ -65,8 +66,8 @@ export class ExamsController {
 
   @Get(":examId/subjects/:subjectId/pending-backpaper")
   @RequirePermission("exams.manage_exams")
-  pendingBackpaper(@Param("examId") examId: string, @Param("subjectId") subjectId: string) {
-    return this.examsService.listStudentsPendingBackpaper(examId, subjectId);
+  pendingBackpaper(@CurrentUser() user: JwtPayload, @Param("examId") examId: string, @Param("subjectId") subjectId: string) {
+    return this.examsService.listStudentsPendingBackpaper(user.tenant_id, examId, subjectId);
   }
 
   // No @RequirePermission -- authorization is additive (exams.enter_marks
@@ -93,14 +94,14 @@ export class ExamsController {
 
   @Get("report-card")
   @RequirePermission("exams.view")
-  reportCard(@Query("student_id") studentId: string, @Query("exam_id") examId: string) {
-    return this.examsService.getReportCard(studentId, examId);
+  reportCard(@CurrentUser() user: JwtPayload, @Query("student_id") studentId: string, @Query("exam_id") examId: string) {
+    return this.examsService.getReportCard(user.tenant_id, studentId, examId);
   }
 
   @Get(":id/submission-status")
   @RequirePermission("exams.view")
-  submissionStatus(@Param("id") id: string) {
-    return this.examsService.getSubmissionStatus(id);
+  submissionStatus(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.examsService.getSubmissionStatus(user.tenant_id, id);
   }
 
   @Post(":id/publish-results")

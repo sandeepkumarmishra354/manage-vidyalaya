@@ -12,6 +12,8 @@ function makeContext(user: unknown) {
   } as any;
 }
 
+const TENANT_USER = { sub: "user-1", tenant_id: "tenant-1" };
+
 describe("PermissionsGuard", () => {
   let scopedAccess: { hasPermission: ReturnType<typeof vi.fn> };
   let reflector: Reflector;
@@ -25,7 +27,7 @@ describe("PermissionsGuard", () => {
 
   it("allows the request through when the handler requires no permission", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
-    const result = await guard.canActivate(makeContext({ sub: "user-1" }));
+    const result = await guard.canActivate(makeContext(TENANT_USER));
     expect(result).toBe(true);
     expect(scopedAccess.hasPermission).not.toHaveBeenCalled();
   });
@@ -39,32 +41,32 @@ describe("PermissionsGuard", () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
     scopedAccess.hasPermission.mockResolvedValueOnce(false);
 
-    await expect(guard.canActivate(makeContext({ sub: "user-1" }))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(makeContext(TENANT_USER))).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("allows a user whose role grants the required permission", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue("users.manage");
     scopedAccess.hasPermission.mockResolvedValueOnce(true);
 
-    const result = await guard.canActivate(makeContext({ sub: "user-1" }));
+    const result = await guard.canActivate(makeContext(TENANT_USER));
     expect(result).toBe(true);
-    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "users.manage");
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("tenant-1", "user-1", "users.manage");
   });
 
   it("allows a user who holds any one of several required permissions (OR)", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(["staff.manage_profile", "master_data.manage_staff_category"]);
     scopedAccess.hasPermission.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
-    const result = await guard.canActivate(makeContext({ sub: "user-1" }));
+    const result = await guard.canActivate(makeContext(TENANT_USER));
     expect(result).toBe(true);
-    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "staff.manage_profile");
-    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("user-1", "master_data.manage_staff_category");
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("tenant-1", "user-1", "staff.manage_profile");
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("tenant-1", "user-1", "master_data.manage_staff_category");
   });
 
   it("rejects a user who holds none of several required permissions", async () => {
     (reflector.get as ReturnType<typeof vi.fn>).mockReturnValue(["staff.manage_profile", "master_data.manage_staff_category"]);
     scopedAccess.hasPermission.mockResolvedValue(false);
 
-    await expect(guard.canActivate(makeContext({ sub: "user-1" }))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(makeContext(TENANT_USER))).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

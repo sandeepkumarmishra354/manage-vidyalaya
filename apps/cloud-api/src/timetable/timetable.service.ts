@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 
 import { AuditService } from "../audit/audit.service.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { CreatePeriodSlotDto } from "./dto/create-period-slot.dto.js";
 import type { SaveSectionTimetableDto } from "./dto/save-section-timetable.dto.js";
@@ -14,32 +16,45 @@ import type { UpdatePeriodSlotDto } from "./dto/update-period-slot.dto.js";
 // Same convention as MAX_ADMISSION_NUMBER_ATTEMPTS in students.service.ts.
 const MAX_PERIOD_SLOT_SORT_ORDER_ATTEMPTS = 20;
 
-function toPeriodSlot(p: {
-  id: string;
-  branchId: string;
-  academicSessionId: string;
+export interface PeriodSlotRow extends TenantRow {
+  branch_id: string;
+  academic_session_id: string;
   name: string;
-  sortOrder: number;
-  startTime: string;
-  endTime: string;
-  periodType: string;
-}) {
+  sort_order: number;
+  start_time: string;
+  end_time: string;
+  period_type: string;
+}
+
+interface TimetableEntryRow extends TenantRow {
+  branch_id: string;
+  academic_session_id: string;
+  class_id: string;
+  section_id: string;
+  day_of_week: number;
+  period_slot_id: string;
+  subject_id: string;
+  staff_id: string;
+  room_name: string | null;
+}
+
+function toPeriodSlot(p: PeriodSlotRow) {
   return {
     id: p.id,
-    branch_id: p.branchId,
-    academic_session_id: p.academicSessionId,
+    branch_id: p.branch_id,
+    academic_session_id: p.academic_session_id,
     name: p.name,
-    sort_order: p.sortOrder,
-    start_time: p.startTime,
-    end_time: p.endTime,
-    period_type: p.periodType,
+    sort_order: p.sort_order,
+    start_time: p.start_time,
+    end_time: p.end_time,
+    period_type: p.period_type,
   };
 }
 
 @Injectable()
 export class TimetableService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly scopedAccess: ScopedAccessService,
     private readonly schoolCalendar: SchoolCalendarService,
@@ -49,17 +64,18 @@ export class TimetableService {
   // timetable.view can view any section; on top of that, a section's own
   // class teacher can view it without that broad permission.
   async assertCanView(tenantId: string, userId: string, sectionId: string): Promise<void> {
-    if (await this.scopedAccess.hasPermission(userId, "timetable.view")) return;
+    if (await this.scopedAccess.hasPermission(tenantId, userId, "timetable.view")) return;
     const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
-    if (staff && (await this.scopedAccess.isClassTeacherOfSection(staff.id, sectionId))) return;
+    if (staff && (await this.scopedAccess.isClassTeacherOfSection(tenantId, staff.id, sectionId))) return;
     throw new ForbiddenException("not authorized to view this section's timetable");
   }
 
   async listPeriodSlots(tenantId: string, branchId: string, academicSessionId: string) {
-    const slots = await this.prisma.periodSlot.findMany({
-      where: { tenantId, branchId, academicSessionId, deletedAt: null },
-      orderBy: { sortOrder: "asc" },
-    });
+    const slots = await this.db.query<PeriodSlotRow>(
+      tenantId,
+      "SELECT * FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL ORDER BY sort_order ASC",
+      [tenantId, branchId, academicSessionId],
+    );
     return slots.map(toPeriodSlot);
   }
 
@@ -73,38 +89,45 @@ export class TimetableService {
   async createPeriodSlot(tenantId: string, actorUserId: string, dto: CreatePeriodSlotDto) {
     const now = new Date();
 
-    const existingCount = await this.prisma.periodSlot.count({
-      where: { tenantId, branchId: dto.branch_id, academicSessionId: dto.academic_session_id, deletedAt: null },
-    });
-    let sortOrder = existingCount;
-    let created: Prisma.PeriodSlotGetPayload<Record<string, never>> | undefined;
+    const countRow = await this.db.queryOne<{ count: string }>(
+      tenantId,
+      "SELECT COUNT(*)::text AS count FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL",
+      [tenantId, dto.branch_id, dto.academic_session_id],
+    );
+    let sortOrder = Number(countRow?.count ?? "0");
+    let created: PeriodSlotRow | undefined;
 
+    // Each attempt runs in its own transaction (rather than one shared
+    // transaction across the whole loop) -- a unique-constraint violation
+    // aborts whatever transaction it happened in, and Postgres refuses any
+    // further statement on that same transaction until it's rolled back, so
+    // retrying on the same connection/transaction would fail every
+    // subsequent attempt with "current transaction is aborted" instead of
+    // actually retrying. This also matches the original Prisma version,
+    // where each create() call was its own separate implicit transaction.
     for (let attempt = 1; attempt <= MAX_PERIOD_SLOT_SORT_ORDER_ATTEMPTS; attempt++) {
       try {
-        created = await this.prisma.periodSlot.create({
-          data: {
-            id: randomUUID(),
-            tenantId,
-            branchId: dto.branch_id,
-            academicSessionId: dto.academic_session_id,
+        created = await this.db.withTransaction(tenantId, (client) =>
+          insertRow<PeriodSlotRow>(client, "period_slots", tenantId, {
+            branch_id: dto.branch_id,
+            academic_session_id: dto.academic_session_id,
             name: dto.name,
-            sortOrder,
-            startTime: dto.start_time,
-            endTime: dto.end_time,
-            periodType: dto.period_type ?? "teaching",
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
-        });
+            sort_order: sortOrder,
+            start_time: dto.start_time,
+            end_time: dto.end_time,
+            period_type: dto.period_type ?? "teaching",
+            updated_at: now,
+            updated_by: actorUserId,
+          }),
+        );
         break;
       } catch (error) {
-        const isUniqueClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-        if (!isUniqueClash) {
+        if (!isUniqueViolation(error)) {
           throw error;
         }
         // Keep retrying with the next value, including on the final attempt --
         // falling out of the loop here (rather than re-throwing the raw
-        // Prisma error) lets the ConflictException below actually surface
+        // error) lets the ConflictException below actually surface
         // instead of a raw constraint-violation message.
         sortOrder += 1;
       }
@@ -114,45 +137,41 @@ export class TimetableService {
       throw new ConflictException("could not allocate a period slot order, please retry");
     }
 
-    await this.audit.record(this.prisma, {
-      tenantId,
-      branchId: dto.branch_id,
-      actorUserId,
-      entityTable: "period_slots",
-      entityId: created.id,
-      action: "create",
-      summary: `Added period slot '${dto.name}'`,
-    });
+    await this.db.withTransaction(tenantId, (client) =>
+      this.audit.record(client, {
+        tenantId,
+        branchId: dto.branch_id,
+        actorUserId,
+        entityTable: "period_slots",
+        entityId: created!.id,
+        action: "create",
+        summary: `Added period slot '${dto.name}'`,
+      }),
+    );
 
     return toPeriodSlot(created);
   }
 
   async updatePeriodSlot(tenantId: string, actorUserId: string, id: string, dto: UpdatePeriodSlotDto) {
-    const existing = await this.prisma.periodSlot.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("period slot not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("period slot not found");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.periodSlot.update({
-        where: { id },
-        data: {
-          name: dto.name,
-          sortOrder: dto.sort_order,
-          startTime: dto.start_time,
-          endTime: dto.end_time,
-          periodType: dto.period_type ?? existing.periodType,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<PeriodSlotRow>(client, "period_slots", tenantId, id, {
+        name: dto.name,
+        sort_order: dto.sort_order,
+        start_time: dto.start_time,
+        end_time: dto.end_time,
+        period_type: dto.period_type ?? existing.period_type,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: existing.branchId,
+        branchId: existing.branch_id,
         actorUserId,
         entityTable: "period_slots",
         entityId: id,
@@ -167,27 +186,29 @@ export class TimetableService {
   // Blocked while any timetable entry still references this slot -- deleting
   // it out from under a saved timetable would silently orphan those rows.
   async deletePeriodSlot(tenantId: string, actorUserId: string, id: string) {
-    const existing = await this.prisma.periodSlot.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("period slot not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("period slot not found");
+      }
 
-    const entryCount = await this.prisma.timetableEntry.count({ where: { periodSlotId: id, deletedAt: null } });
-    if (entryCount > 0) {
-      throw new BadRequestException("cannot delete a period slot that the timetable still uses");
-    }
+      const entryCountResult = await client.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM timetable_entries WHERE tenant_id = $1 AND period_slot_id = $2 AND deleted_at IS NULL",
+        [tenantId, id],
+      );
+      if (Number(entryCountResult.rows[0]?.count ?? "0") > 0) {
+        throw new BadRequestException("cannot delete a period slot that the timetable still uses");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.periodSlot.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+      const deleted = await updateRow<PeriodSlotRow>(client, "period_slots", tenantId, id, {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: existing.branchId,
+        branchId: existing.branch_id,
         actorUserId,
         entityTable: "period_slots",
         entityId: id,
@@ -200,40 +221,52 @@ export class TimetableService {
   }
 
   async getSectionTimetable(tenantId: string, sectionId: string, academicSessionId: string) {
-    const section = await this.prisma.section.findFirst({
-      where: { id: sectionId, tenantId, deletedAt: null },
-      include: { class: true },
-    });
+    const section = await this.db.queryOne<{ id: string; class_id: string; branch_id: string }>(
+      tenantId,
+      `SELECT sec.id, sec.class_id, c.branch_id
+       FROM sections sec
+       JOIN classes c ON c.id = sec.class_id
+       WHERE sec.id = $1 AND sec.tenant_id = $2 AND sec.deleted_at IS NULL`,
+      [sectionId, tenantId],
+    );
     if (!section) {
       throw new NotFoundException("section not found");
     }
-    const branchId = section.class.branchId;
+    const branchId = section.branch_id;
 
     const [slots, entries, calendar] = await Promise.all([
-      this.prisma.periodSlot.findMany({
-        where: { tenantId, branchId, academicSessionId, deletedAt: null },
-        orderBy: { sortOrder: "asc" },
-      }),
-      this.prisma.timetableEntry.findMany({
-        where: { tenantId, sectionId, academicSessionId, deletedAt: null },
-        include: { subject: true, staff: true },
-      }),
+      this.db.query<PeriodSlotRow>(
+        tenantId,
+        "SELECT * FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL ORDER BY sort_order ASC",
+        [tenantId, branchId, academicSessionId],
+      ),
+      this.db.query<
+        TimetableEntryRow & { subject_name: string; first_name: string; last_name: string | null }
+      >(
+        tenantId,
+        `SELECT te.*, sub.name AS subject_name, st.first_name, st.last_name
+         FROM timetable_entries te
+         JOIN subjects sub ON sub.id = te.subject_id
+         JOIN staff st ON st.id = te.staff_id
+         WHERE te.tenant_id = $1 AND te.section_id = $2 AND te.academic_session_id = $3 AND te.deleted_at IS NULL`,
+        [tenantId, sectionId, academicSessionId],
+      ),
       this.schoolCalendar.getCalendar(tenantId, branchId, academicSessionId),
     ]);
 
     return {
       section_id: sectionId,
-      class_id: section.classId,
+      class_id: section.class_id,
       period_slots: slots.map(toPeriodSlot),
       entries: entries.map((e) => ({
         id: e.id,
-        day_of_week: e.dayOfWeek,
-        period_slot_id: e.periodSlotId,
-        subject_id: e.subjectId,
-        subject_name: e.subject.name,
-        staff_id: e.staffId,
-        staff_name: [e.staff.firstName, e.staff.lastName].filter(Boolean).join(" "),
-        room_name: e.roomName,
+        day_of_week: e.day_of_week,
+        period_slot_id: e.period_slot_id,
+        subject_id: e.subject_id,
+        subject_name: e.subject_name,
+        staff_id: e.staff_id,
+        staff_name: [e.first_name, e.last_name].filter(Boolean).join(" "),
+        room_name: e.room_name,
       })),
       weekly_off_days: calendar.weekly_off_days,
       weekly_half_days: calendar.weekly_half_days,
@@ -247,15 +280,24 @@ export class TimetableService {
   // matching TeacherSubjectAssignment, since substitute/early-rollout
   // scenarios shouldn't be blocked outright.
   async saveSectionTimetable(tenantId: string, actorUserId: string, sectionId: string, dto: SaveSectionTimetableDto) {
-    const section = await this.prisma.section.findFirst({ where: { id: sectionId, tenantId, deletedAt: null } });
+    const section = await this.db.queryOne<{ id: string }>(
+      tenantId,
+      "SELECT id FROM sections WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [sectionId, tenantId],
+    );
     if (!section) {
       throw new NotFoundException("section not found");
     }
 
     const periodSlotIds = [...new Set(dto.entries.map((e) => e.period_slot_id))];
-    const slots = await this.prisma.periodSlot.findMany({
-      where: { id: { in: periodSlotIds }, tenantId, deletedAt: null },
-    });
+    const slots =
+      periodSlotIds.length > 0
+        ? await this.db.query<PeriodSlotRow>(
+            tenantId,
+            "SELECT * FROM period_slots WHERE id = ANY($1) AND tenant_id = $2 AND deleted_at IS NULL",
+            [periodSlotIds, tenantId],
+          )
+        : [];
     const slotById = new Map(slots.map((s) => [s.id, s]));
 
     for (const entry of dto.entries) {
@@ -263,7 +305,7 @@ export class TimetableService {
       if (!slot) {
         throw new BadRequestException("unknown period slot");
       }
-      if (slot.periodType !== "teaching") {
+      if (slot.period_type !== "teaching") {
         throw new BadRequestException("cannot assign a subject/teacher to a break or lunch period");
       }
     }
@@ -280,23 +322,25 @@ export class TimetableService {
 
     // Hard validation: double-booking against existing rows in other sections.
     const staffIds = [...new Set(dto.entries.map((e) => e.staff_id))];
-    const conflicting = await this.prisma.timetableEntry.findMany({
-      where: {
-        tenantId,
-        academicSessionId: dto.academic_session_id,
-        staffId: { in: staffIds },
-        sectionId: { not: sectionId },
-        deletedAt: null,
-      },
-      include: { section: true },
-    });
+    const conflicting =
+      staffIds.length > 0
+        ? await this.db.query<{ staff_id: string; day_of_week: number; period_slot_id: string; section_name: string }>(
+            tenantId,
+            `SELECT te.staff_id, te.day_of_week, te.period_slot_id, sec.name AS section_name
+             FROM timetable_entries te
+             JOIN sections sec ON sec.id = te.section_id
+             WHERE te.tenant_id = $1 AND te.academic_session_id = $2 AND te.staff_id = ANY($3)
+               AND te.section_id != $4 AND te.deleted_at IS NULL`,
+            [tenantId, dto.academic_session_id, staffIds, sectionId],
+          )
+        : [];
     for (const entry of dto.entries) {
       const clash = conflicting.find(
-        (c) => c.staffId === entry.staff_id && c.dayOfWeek === entry.day_of_week && c.periodSlotId === entry.period_slot_id,
+        (c) => c.staff_id === entry.staff_id && c.day_of_week === entry.day_of_week && c.period_slot_id === entry.period_slot_id,
       );
       if (clash) {
         throw new BadRequestException(
-          `teacher is already scheduled for section '${clash.section.name}' at this day/period`,
+          `teacher is already scheduled for section '${clash.section_name}' at this day/period`,
         );
       }
     }
@@ -305,6 +349,7 @@ export class TimetableService {
     const warnings: string[] = [];
     for (const entry of dto.entries) {
       const assigned = await this.scopedAccess.isAssignedToSubject(
+        tenantId,
         entry.staff_id,
         dto.class_id,
         entry.subject_id,
@@ -318,35 +363,51 @@ export class TimetableService {
       }
     }
 
-    const now = new Date();
+    await this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
 
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.timetableEntry.updateMany({
-        where: { tenantId, sectionId, academicSessionId: dto.academic_session_id, deletedAt: null },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-      });
+      await client.query(
+        "UPDATE timetable_entries SET deleted_at = $1, updated_at = $1, updated_by = $2, version = version + 1 WHERE tenant_id = $3 AND section_id = $4 AND academic_session_id = $5 AND deleted_at IS NULL",
+        [now, actorUserId, tenantId, sectionId, dto.academic_session_id],
+      );
 
+      // Upsert rather than a blind insert: (section_id, day_of_week,
+      // period_slot_id) is unique on this table, but the soft-delete above
+      // doesn't free that key -- a deleted row still occupies it -- so
+      // re-saving the same day/period (with a new subject/teacher, or
+      // completely unchanged) after a prior save collided on that
+      // constraint. ON CONFLICT resurrects the just-soft-deleted row (or
+      // updates a still-live one) instead, matching the same pattern
+      // already used for student_transport/student_houses/
+      // student_enrollments elsewhere in this codebase.
       for (const entry of dto.entries) {
-        await tx.timetableEntry.create({
-          data: {
-            id: randomUUID(),
+        await client.query(
+          `INSERT INTO timetable_entries
+             (id, tenant_id, branch_id, academic_session_id, class_id, section_id, day_of_week, period_slot_id, subject_id, staff_id, room_name, updated_at, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (section_id, day_of_week, period_slot_id) DO UPDATE SET
+             class_id = EXCLUDED.class_id, subject_id = EXCLUDED.subject_id, staff_id = EXCLUDED.staff_id,
+             room_name = EXCLUDED.room_name, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by,
+             deleted_at = NULL, version = timetable_entries.version + 1`,
+          [
+            randomUUID(),
             tenantId,
-            branchId: dto.branch_id,
-            academicSessionId: dto.academic_session_id,
-            classId: dto.class_id,
+            dto.branch_id,
+            dto.academic_session_id,
+            dto.class_id,
             sectionId,
-            dayOfWeek: entry.day_of_week,
-            periodSlotId: entry.period_slot_id,
-            subjectId: entry.subject_id,
-            staffId: entry.staff_id,
-            roomName: entry.room_name ?? null,
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
-        });
+            entry.day_of_week,
+            entry.period_slot_id,
+            entry.subject_id,
+            entry.staff_id,
+            entry.room_name ?? null,
+            now,
+            actorUserId,
+          ],
+        );
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
@@ -361,31 +422,58 @@ export class TimetableService {
   }
 
   async getStaffTimetable(tenantId: string, staffId: string, academicSessionId: string) {
-    const staff = await this.prisma.staff.findFirst({ where: { id: staffId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<{ id: string }>(
+      tenantId,
+      "SELECT id FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [staffId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
 
-    const entries = await this.prisma.timetableEntry.findMany({
-      where: { tenantId, staffId, academicSessionId, deletedAt: null },
-      include: { subject: true, section: { include: { class: true } }, periodSlot: true },
-      orderBy: [{ dayOfWeek: "asc" }, { periodSlot: { sortOrder: "asc" } }],
-    });
+    const entries = await this.db.query<{
+      id: string;
+      day_of_week: number;
+      period_slot_id: string;
+      period_name: string;
+      start_time: string;
+      end_time: string;
+      class_id: string;
+      class_name: string;
+      section_id: string;
+      section_name: string;
+      subject_id: string;
+      subject_name: string;
+      room_name: string | null;
+    }>(
+      tenantId,
+      `SELECT te.id, te.day_of_week, te.period_slot_id, ps.name AS period_name, ps.start_time, ps.end_time,
+              sec.class_id, c.name AS class_name, te.section_id, sec.name AS section_name,
+              te.subject_id, sub.name AS subject_name, te.room_name
+       FROM timetable_entries te
+       JOIN period_slots ps ON ps.id = te.period_slot_id
+       JOIN sections sec ON sec.id = te.section_id
+       JOIN classes c ON c.id = sec.class_id
+       JOIN subjects sub ON sub.id = te.subject_id
+       WHERE te.tenant_id = $1 AND te.staff_id = $2 AND te.academic_session_id = $3 AND te.deleted_at IS NULL
+       ORDER BY te.day_of_week ASC, ps.sort_order ASC`,
+      [tenantId, staffId, academicSessionId],
+    );
 
     return entries.map((e) => ({
       id: e.id,
-      day_of_week: e.dayOfWeek,
-      period_slot_id: e.periodSlotId,
-      period_name: e.periodSlot.name,
-      start_time: e.periodSlot.startTime,
-      end_time: e.periodSlot.endTime,
-      class_id: e.section.classId,
-      class_name: e.section.class.name,
-      section_id: e.sectionId,
-      section_name: e.section.name,
-      subject_id: e.subjectId,
-      subject_name: e.subject.name,
-      room_name: e.roomName,
+      day_of_week: e.day_of_week,
+      period_slot_id: e.period_slot_id,
+      period_name: e.period_name,
+      start_time: e.start_time,
+      end_time: e.end_time,
+      class_id: e.class_id,
+      class_name: e.class_name,
+      section_id: e.section_id,
+      section_name: e.section_name,
+      subject_id: e.subject_id,
+      subject_name: e.subject_name,
+      room_name: e.room_name,
     }));
   }
 }

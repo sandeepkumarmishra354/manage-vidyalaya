@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Injectable } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
-
-import { PrismaService } from "../prisma/prisma.service.js";
-
-export type AuditableClient = PrismaService | Prisma.TransactionClient;
+import type { PoolClient } from "pg";
 
 export interface AuditEntry {
   tenantId: string;
@@ -20,27 +16,28 @@ export interface AuditEntry {
 }
 
 /// Writes one row to the append-only `audit_log` table. Every mutating
-/// service method calls this via `prisma.$transaction`, so the audit row
-/// and the mutation it describes commit atomically.
+/// service method calls this from inside its own `DbService.withTransaction`,
+/// so the audit row and the mutation it describes commit atomically.
 @Injectable()
 export class AuditService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async record(client: AuditableClient, entry: AuditEntry): Promise<void> {
-    await client.auditLog.create({
-      data: {
-        id: randomUUID(),
-        tenantId: entry.tenantId,
-        branchId: entry.branchId ?? null,
-        actorUserId: entry.actorUserId ?? null,
-        entityTable: entry.entityTable,
-        entityId: entry.entityId,
-        action: entry.action,
-        summary: entry.summary,
-        beforeJson: entry.before as Prisma.InputJsonValue | undefined,
-        afterJson: entry.after as Prisma.InputJsonValue | undefined,
-        createdAt: new Date(),
-      },
-    });
+  async record(client: PoolClient, entry: AuditEntry): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_log
+         (id, tenant_id, branch_id, actor_user_id, entity_table, entity_id, action, summary, before_json, after_json, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        randomUUID(),
+        entry.tenantId,
+        entry.branchId ?? null,
+        entry.actorUserId ?? null,
+        entry.entityTable,
+        entry.entityId,
+        entry.action,
+        entry.summary,
+        entry.before === undefined ? null : JSON.stringify(entry.before),
+        entry.after === undefined ? null : JSON.stringify(entry.after),
+        new Date(),
+      ],
+    );
   }
 }

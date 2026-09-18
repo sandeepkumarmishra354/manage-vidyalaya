@@ -1,17 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { TransportService } from "./transport.service.js";
 
-function makePrismaMock() {
-  const tx = {
-    studentTransport: { upsert: vi.fn().mockResolvedValue({ id: "assignment-1" }) },
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
-  return {
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-  } as unknown as PrismaService & { __tx: typeof tx };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -19,32 +27,40 @@ function makeAuditMock() {
 }
 
 describe("TransportService.assignStudentTransport", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: TransportService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new TransportService(prisma, audit);
+    service = new TransportService(db, audit);
   });
 
-  it("resets deletedAt on the update branch, so re-assigning after a soft-delete becomes visible again", async () => {
+  it("resets deleted_at on the upsert, so re-assigning after a soft-delete becomes visible again", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "assignment-1", tenant_id: "tenant-1", student_id: "student-1", route_id: "route-1", stop_id: "stop-1" }],
+    });
+
     await service.assignStudentTransport("tenant-1", "actor-1", {
       student_id: "student-1",
       route_id: "route-1",
       stop_id: "stop-1",
     });
 
-    expect(prisma.__tx.studentTransport.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { studentId: "student-1" },
-        update: expect.objectContaining({ routeId: "route-1", stopId: "stop-1", deletedAt: null }),
-      }),
-    );
+    const [text, params] = client.query.mock.calls[0];
+    expect(text).toMatch(/ON CONFLICT \(student_id\) DO UPDATE/);
+    expect(text).toMatch(/deleted_at = NULL/);
+    expect(params).toContain("route-1");
+    expect(params).toContain("stop-1");
   });
 
   it("records an audit entry for the assignment", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "assignment-1", tenant_id: "tenant-1", student_id: "student-1", route_id: "route-1", stop_id: "stop-1" }],
+    });
+
     await service.assignStudentTransport("tenant-1", "actor-1", {
       student_id: "student-1",
       route_id: "route-1",
@@ -52,7 +68,7 @@ describe("TransportService.assignStudentTransport", () => {
     });
 
     expect(audit.record).toHaveBeenCalledWith(
-      prisma.__tx,
+      client,
       expect.objectContaining({
         tenantId: "tenant-1",
         actorUserId: "actor-1",

@@ -35,8 +35,8 @@ export class StudentsController {
 
   @Get("in-class/:classId")
   @RequirePermission("students.view")
-  listInClass(@Param("classId") classId: string) {
-    return this.studentsService.listStudentsInClass(classId);
+  listInClass(@CurrentUser() user: JwtPayload, @Param("classId") classId: string) {
+    return this.studentsService.listStudentsInClass(user.tenant_id, classId);
   }
 
   // Must be registered before :id so "qr-codes"/"photo-urls" aren't
@@ -67,8 +67,8 @@ export class StudentsController {
 
   @Get(":id")
   @RequirePermission("students.view")
-  get(@Param("id") id: string) {
-    return this.studentsService.getStudent(id);
+  get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getStudent(user.tenant_id, id);
   }
 
   @Patch(":id")
@@ -85,8 +85,8 @@ export class StudentsController {
 
   @Get(":id/siblings")
   @RequirePermission("students.view")
-  siblings(@Param("id") id: string) {
-    return this.studentsService.getSiblings(id);
+  siblings(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.studentsService.getSiblings(user.tenant_id, id);
   }
 
   @Post(":id/guardians")
@@ -97,8 +97,12 @@ export class StudentsController {
 
   @Get(":id/electives")
   @RequirePermission("students.view")
-  listElectives(@Param("id") id: string, @Query("academic_session_id") academicSessionId?: string) {
-    return this.studentsService.listElectiveChoices(id, academicSessionId);
+  listElectives(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Query("academic_session_id") academicSessionId?: string,
+  ) {
+    return this.studentsService.listElectiveChoices(user.tenant_id, id, academicSessionId);
   }
 
   @Post(":id/electives")
@@ -201,8 +205,8 @@ export class AdmissionsController {
   }
 
   @Get("student/:studentId")
-  forStudent(@Param("studentId") studentId: string) {
-    return this.studentsService.getAdmissionForStudent(studentId);
+  forStudent(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
+    return this.studentsService.getAdmissionForStudent(user.tenant_id, studentId);
   }
 
   @Post(":id/confirm")

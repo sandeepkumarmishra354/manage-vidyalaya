@@ -13,7 +13,7 @@ export class AuthController {
 
   @Post("login")
   login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.email, dto.password);
+    return this.authService.login(dto.email, dto.password, dto.subdomain);
   }
 
   @Post("refresh")
@@ -24,6 +24,6 @@ export class AuthController {
   @Get("me")
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: JwtPayload) {
-    return this.authService.me(user.sub);
+    return this.authService.me(user.tenant_id, user.sub);
   }
 }

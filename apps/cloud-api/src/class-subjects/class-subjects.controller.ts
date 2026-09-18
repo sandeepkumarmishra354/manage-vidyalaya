@@ -17,8 +17,8 @@ export class ClassSubjectsController {
 
   @Get()
   @RequirePermission("exams.view")
-  list(@Param("classId") classId: string) {
-    return this.classSubjectsService.listClassSubjects(classId);
+  list(@CurrentUser() user: JwtPayload, @Param("classId") classId: string) {
+    return this.classSubjectsService.listClassSubjects(user.tenant_id, classId);
   }
 
   @Post()
@@ -47,8 +47,8 @@ export class ClassElectiveGroupsController {
 
   @Get()
   @RequirePermission("exams.view")
-  list(@Param("classId") classId: string) {
-    return this.classSubjectsService.listElectiveGroups(classId);
+  list(@CurrentUser() user: JwtPayload, @Param("classId") classId: string) {
+    return this.classSubjectsService.listElectiveGroups(user.tenant_id, classId);
   }
 
   @Post()

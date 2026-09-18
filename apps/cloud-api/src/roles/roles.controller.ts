@@ -40,8 +40,8 @@ export class RolesController {
   }
 
   @Get(":id/permissions")
-  listPermissions(@Param("id") id: string) {
-    return this.rolesService.listRolePermissions(id);
+  listPermissions(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.rolesService.listRolePermissions(user.tenant_id, id);
   }
 
   @Put(":id/permissions")

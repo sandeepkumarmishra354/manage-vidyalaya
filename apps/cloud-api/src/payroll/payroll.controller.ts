@@ -23,14 +23,14 @@ export class SalaryStructuresController {
 
   @Get("staff/:staffId")
   @RequirePermission("payroll.view")
-  get(@Param("staffId") staffId: string) {
-    return this.payrollService.getSalaryStructure(staffId);
+  get(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
+    return this.payrollService.getSalaryStructure(user.tenant_id, staffId);
   }
 
   @Get("staff/:staffId/history")
   @RequirePermission("payroll.view")
-  history(@Param("staffId") staffId: string) {
-    return this.payrollService.listSalaryHistory(staffId);
+  history(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
+    return this.payrollService.listSalaryHistory(user.tenant_id, staffId);
   }
 
   @Post()
@@ -47,8 +47,8 @@ export class PayrollRunsController {
 
   @Get()
   @RequirePermission("payroll.view")
-  list(@Query("branch_id") branchId: string) {
-    return this.payrollService.listPayrollRuns(branchId);
+  list(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.payrollService.listPayrollRuns(user.tenant_id, branchId);
   }
 
   @Post("generate")
@@ -59,8 +59,8 @@ export class PayrollRunsController {
 
   @Get(":id")
   @RequirePermission("payroll.view")
-  get(@Param("id") id: string) {
-    return this.payrollService.getPayrollRun(id);
+  get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.payrollService.getPayrollRun(user.tenant_id, id);
   }
 
   @Post(":id/finalize")
