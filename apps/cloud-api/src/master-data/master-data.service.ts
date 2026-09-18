@@ -1,18 +1,27 @@
-import { randomUUID } from "node:crypto";
-
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { findOneForTenant, findManyForTenant, insertRow, softDeleteRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateMasterDataItemDto } from "./dto/create-master-data-item.dto.js";
 import type { UpdateMasterDataItemDto } from "./dto/update-master-data-item.dto.js";
 import { isMasterDataType, MANAGE_PERMISSION_BY_TYPE } from "./master-data-types.js";
 
+const TABLE = "master_data_items";
+
+export interface MasterDataItemRow extends TenantRow {
+  type: string;
+  name: string;
+  is_system: boolean;
+  sort_order: number;
+}
+
 @Injectable()
 export class MasterDataService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly scopedAccess: ScopedAccessService,
   ) {}
@@ -22,10 +31,9 @@ export class MasterDataService {
   // lists to populate a dropdown, the same way listClasses/listSections
   // already work.
   listItems(tenantId: string, type: string) {
-    return this.prisma.masterDataItem.findMany({
-      where: { tenantId, type, deletedAt: null },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    });
+    return this.db.withTransaction(tenantId, (client) =>
+      findManyForTenant<MasterDataItemRow>(client, TABLE, tenantId, { type }, "sort_order ASC, name ASC"),
+    );
   }
 
   // Write permission depends on which `type` the request targets, so it
@@ -45,18 +53,21 @@ export class MasterDataService {
     await this.assertCanManage(actorUserId, dto.type);
 
     const now = new Date();
-    const id = randomUUID();
 
-    return this.prisma.$transaction(async (tx) => {
-      const created = await tx.masterDataItem.create({
-        data: { id, tenantId, type: dto.type, name: dto.name, isSystem: false, updatedAt: now, updatedBy: actorUserId },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const created = await insertRow<MasterDataItemRow>(client, TABLE, tenantId, {
+        type: dto.type,
+        name: dto.name,
+        is_system: false,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
-        entityTable: "master_data_items",
-        entityId: id,
+        entityTable: TABLE,
+        entityId: created.id,
         action: "create",
         summary: `Created ${dto.type} master data '${dto.name}'`,
       });
@@ -66,24 +77,24 @@ export class MasterDataService {
   }
 
   async updateItem(tenantId: string, actorUserId: string, id: string, dto: UpdateMasterDataItemDto) {
-    const existing = await this.prisma.masterDataItem.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("master data item not found");
-    }
-    await this.assertCanManage(actorUserId, existing.type);
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<MasterDataItemRow>(client, TABLE, tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("master data item not found");
+      }
+      await this.assertCanManage(actorUserId, existing.type);
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.masterDataItem.update({
-        where: { id },
-        data: { name: dto.name, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+      const now = new Date();
+      const updated = await updateRow<MasterDataItemRow>(client, TABLE, tenantId, id, {
+        name: dto.name,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
-        entityTable: "master_data_items",
+        entityTable: TABLE,
         entityId: id,
         action: "update",
         summary: `Renamed ${existing.type} master data to '${dto.name}'`,
@@ -99,27 +110,22 @@ export class MasterDataService {
   // the dropdown, not orphan anything, but system defaults stay protected
   // for consistency with every other lookup table in this codebase.
   async deleteItem(tenantId: string, actorUserId: string, id: string) {
-    const existing = await this.prisma.masterDataItem.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("master data item not found");
-    }
-    await this.assertCanManage(actorUserId, existing.type);
-    if (existing.isSystem) {
-      throw new BadRequestException("cannot delete a default value");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<MasterDataItemRow>(client, TABLE, tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("master data item not found");
+      }
+      await this.assertCanManage(actorUserId, existing.type);
+      if (existing.is_system) {
+        throw new BadRequestException("cannot delete a default value");
+      }
 
-    const now = new Date();
+      const deleted = await softDeleteRow<MasterDataItemRow>(client, TABLE, tenantId, id, actorUserId);
 
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.masterDataItem.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-      });
-
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
-        entityTable: "master_data_items",
+        entityTable: TABLE,
         entityId: id,
         action: "delete",
         summary: `Deleted ${existing.type} master data '${existing.name}'`,

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
-import { AuditService, type AuditableClient } from "../audit/audit.service.js";
+import { AuditService, type PrismaAuditableClient } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
@@ -43,7 +43,7 @@ export class PayrollService {
   // the plain PrismaService or a $transaction client, since
   // generatePayrollRun needs this resolved consistently inside its own
   // transaction rather than against a separate connection.
-  async getEffectiveSalaryStructure(client: AuditableClient, staffId: string, asOfDate: Date) {
+  async getEffectiveSalaryStructure(client: PrismaAuditableClient, staffId: string, asOfDate: Date) {
     return client.salaryStructure.findFirst({
       where: { staffId, deletedAt: null, effectiveFrom: { lte: asOfDate } },
       orderBy: { effectiveFrom: "desc" },
