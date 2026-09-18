@@ -15,3 +15,12 @@ const { Pool } = pg;
 // every module is converted (see the cutover batch), APP_DATABASE_URL
 // becomes the only connection string the app needs.
 export const pgPool = new Pool({ connectionString: process.env.APP_DATABASE_URL ?? process.env.DATABASE_URL });
+
+// A second pool connecting as the schema-owning `vidyalaya` role, which RLS
+// never restricts (no FORCE) -- reserved for the one class of query that is
+// genuinely, legitimately tenant-less: resolving which tenant a request
+// belongs to in the first place (e.g. login-by-email, before any JWT/tenant
+// context exists yet). See DbService.queryUnscoped. Not a general escape
+// hatch -- everything that already knows its tenantId uses the normal
+// RLS-enforced pgPool above.
+export const pgOwnerPool = new Pool({ connectionString: process.env.DATABASE_URL });

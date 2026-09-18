@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import type { PoolClient, QueryResultRow } from "pg";
 
-import { pgPool } from "./pg-pool.js";
+import { pgOwnerPool, pgPool } from "./pg-pool.js";
 
 // Replaces PrismaService as the thing every service depends on. Every
 // statement runs inside its own (or an inherited) transaction so that
@@ -13,6 +13,7 @@ import { pgPool } from "./pg-pool.js";
 export class DbService implements OnModuleDestroy {
   async onModuleDestroy() {
     await pgPool.end();
+    await pgOwnerPool.end();
   }
 
   async withTransaction<T>(tenantId: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -43,15 +44,17 @@ export class DbService implements OnModuleDestroy {
     return rows[0] ?? null;
   }
 
-  // Escape hatch for genuinely tenant-less queries (pre-login tenant
-  // resolution, lookups against the `tenants` table itself, which has no
-  // tenant_id column / RLS policy of its own). With no app.tenant_id set,
-  // every RLS-protected table returns zero rows rather than every tenant's
-  // rows -- this fails closed, not open -- but it's still a deliberately
-  // named, grep-able exception to "every query is tenant-scoped", so use
-  // it only where there is genuinely no tenant to scope to yet.
+  // Escape hatch for genuinely tenant-less queries -- resolving which
+  // tenant a request belongs to in the first place (e.g. login-by-email,
+  // before any JWT/tenant context exists). Runs through pgOwnerPool (the
+  // schema-owning role, which RLS never restricts) rather than the normal
+  // RLS-enforced pool, precisely because the whole point is to search
+  // across every tenant. This is NOT a general "skip RLS" escape hatch --
+  // it's deliberately named and grep-able, and every other query in this
+  // codebase that already knows its tenantId must use the scoped methods
+  // above instead.
   async queryUnscoped<T extends QueryResultRow>(text: string, params: unknown[] = []): Promise<T[]> {
-    const result = await pgPool.query<T>(text, params);
+    const result = await pgOwnerPool.query<T>(text, params);
     return result.rows;
   }
 }
