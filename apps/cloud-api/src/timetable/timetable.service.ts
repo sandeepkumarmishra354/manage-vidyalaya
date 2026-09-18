@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
@@ -369,20 +371,40 @@ export class TimetableService {
         [now, actorUserId, tenantId, sectionId, dto.academic_session_id],
       );
 
+      // Upsert rather than a blind insert: (section_id, day_of_week,
+      // period_slot_id) is unique on this table, but the soft-delete above
+      // doesn't free that key -- a deleted row still occupies it -- so
+      // re-saving the same day/period (with a new subject/teacher, or
+      // completely unchanged) after a prior save collided on that
+      // constraint. ON CONFLICT resurrects the just-soft-deleted row (or
+      // updates a still-live one) instead, matching the same pattern
+      // already used for student_transport/student_houses/
+      // student_enrollments elsewhere in this codebase.
       for (const entry of dto.entries) {
-        await insertRow<TimetableEntryRow>(client, "timetable_entries", tenantId, {
-          branch_id: dto.branch_id,
-          academic_session_id: dto.academic_session_id,
-          class_id: dto.class_id,
-          section_id: sectionId,
-          day_of_week: entry.day_of_week,
-          period_slot_id: entry.period_slot_id,
-          subject_id: entry.subject_id,
-          staff_id: entry.staff_id,
-          room_name: entry.room_name ?? null,
-          updated_at: now,
-          updated_by: actorUserId,
-        });
+        await client.query(
+          `INSERT INTO timetable_entries
+             (id, tenant_id, branch_id, academic_session_id, class_id, section_id, day_of_week, period_slot_id, subject_id, staff_id, room_name, updated_at, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (section_id, day_of_week, period_slot_id) DO UPDATE SET
+             class_id = EXCLUDED.class_id, subject_id = EXCLUDED.subject_id, staff_id = EXCLUDED.staff_id,
+             room_name = EXCLUDED.room_name, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by,
+             deleted_at = NULL, version = timetable_entries.version + 1`,
+          [
+            randomUUID(),
+            tenantId,
+            dto.branch_id,
+            dto.academic_session_id,
+            dto.class_id,
+            sectionId,
+            entry.day_of_week,
+            entry.period_slot_id,
+            entry.subject_id,
+            entry.staff_id,
+            entry.room_name ?? null,
+            now,
+            actorUserId,
+          ],
+        );
       }
 
       await this.audit.record(client, {
