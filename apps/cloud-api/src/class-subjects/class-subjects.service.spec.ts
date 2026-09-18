@@ -2,25 +2,25 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { ClassSubjectsService } from "./class-subjects.service.js";
 
-function makePrismaMock() {
-  return {
-    class: { findFirst: vi.fn() },
-    classSubject: { findFirst: vi.fn(), findMany: vi.fn() },
-    subjectElectiveGroup: { findFirst: vi.fn() },
-    subjectElectiveGroupMember: { findFirst: vi.fn() },
-    studentElectiveChoice: { count: vi.fn(), findMany: vi.fn() },
-    student: { findFirst: vi.fn() },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-      cb({
-        classSubject: { update: vi.fn().mockResolvedValue({}) },
-        subjectElectiveGroup: { update: vi.fn().mockResolvedValue({}) },
-        subjectElectiveGroupMember: { create: vi.fn().mockResolvedValue({ id: "member-1" }), update: vi.fn().mockResolvedValue({}) },
-      }),
-    ),
-  } as unknown as PrismaService;
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
+  };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -28,19 +28,21 @@ function makeAuditMock() {
 }
 
 describe("ClassSubjectsService.addElectiveGroupMember", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: ClassSubjectsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new ClassSubjectsService(prisma, audit);
+    service = new ClassSubjectsService(db, audit);
   });
 
   it("rejects when the group doesn't exist", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    (prisma.classSubject.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ isElective: true, classId: "class-1" });
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // group lookup
+      .mockResolvedValueOnce({ rows: [{ id: "cs-1", is_elective: true, class_id: "class-1", tenant_id: "tenant-1" }] }); // class subject lookup
 
     await expect(
       service.addElectiveGroupMember("tenant-1", "actor-1", "group-1", { class_subject_id: "cs-1" }),
@@ -48,16 +50,9 @@ describe("ClassSubjectsService.addElectiveGroupMember", () => {
   });
 
   it("rejects a class subject that isn't marked elective", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-1",
-      branchId: "branch-1",
-    });
-    (prisma.classSubject.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "cs-1",
-      isElective: false,
-      classId: "class-1",
-    });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1", branch_id: "branch-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "cs-1", is_elective: false, class_id: "class-1", tenant_id: "tenant-1" }] });
 
     await expect(
       service.addElectiveGroupMember("tenant-1", "actor-1", "group-1", { class_subject_id: "cs-1" }),
@@ -65,16 +60,9 @@ describe("ClassSubjectsService.addElectiveGroupMember", () => {
   });
 
   it("rejects a class subject from a different class than the group", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-1",
-      branchId: "branch-1",
-    });
-    (prisma.classSubject.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "cs-1",
-      isElective: true,
-      classId: "class-2",
-    });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1", branch_id: "branch-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "cs-1", is_elective: true, class_id: "class-2", tenant_id: "tenant-1" }] });
 
     await expect(
       service.addElectiveGroupMember("tenant-1", "actor-1", "group-1", { class_subject_id: "cs-1" }),
@@ -82,16 +70,10 @@ describe("ClassSubjectsService.addElectiveGroupMember", () => {
   });
 
   it("adds the member when the class subject is elective and matches the group's class", async () => {
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "group-1",
-      classId: "class-1",
-      branchId: "branch-1",
-    });
-    (prisma.classSubject.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "cs-1",
-      isElective: true,
-      classId: "class-1",
-    });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1", branch_id: "branch-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "cs-1", is_elective: true, class_id: "class-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "member-1", tenant_id: "tenant-1" }] });
 
     await expect(
       service.addElectiveGroupMember("tenant-1", "actor-1", "group-1", { class_subject_id: "cs-1" }),
@@ -101,23 +83,21 @@ describe("ClassSubjectsService.addElectiveGroupMember", () => {
 });
 
 describe("ClassSubjectsService.deleteElectiveGroup", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: ClassSubjectsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new ClassSubjectsService(prisma, audit);
-    (prisma.subjectElectiveGroup.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "group-1",
-      name: "Elective 1",
-      branchId: "branch-1",
-    });
+    service = new ClassSubjectsService(db, audit);
   });
 
   it("rejects deleting a group that students have already chosen from", async () => {
-    (prisma.studentElectiveChoice.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(3);
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", name: "Elective 1", branch_id: "branch-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ count: "3" }] });
 
     await expect(service.deleteElectiveGroup("tenant-1", "actor-1", "group-1")).rejects.toBeInstanceOf(
       BadRequestException,
@@ -125,7 +105,10 @@ describe("ClassSubjectsService.deleteElectiveGroup", () => {
   });
 
   it("deletes the group when no student has chosen from it", async () => {
-    (prisma.studentElectiveChoice.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", name: "Elective 1", branch_id: "branch-1", tenant_id: "tenant-1" }] })
+      .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "group-1", tenant_id: "tenant-1" }] });
 
     await expect(service.deleteElectiveGroup("tenant-1", "actor-1", "group-1")).resolves.toBeDefined();
     expect(audit.record).toHaveBeenCalledTimes(1);
@@ -133,38 +116,31 @@ describe("ClassSubjectsService.deleteElectiveGroup", () => {
 });
 
 describe("ClassSubjectsService.getApplicableSubjectsForStudent", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let service: ClassSubjectsService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
-    service = new ClassSubjectsService(prisma, audit);
+    service = new ClassSubjectsService(db, audit);
   });
 
   it("returns an empty list when the student has no current class", async () => {
-    (prisma.student.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "student-1",
-      currentClassId: null,
-    });
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
 
     const result = await service.getApplicableSubjectsForStudent("tenant-1", "student-1", "session-1");
     expect(result).toEqual([]);
   });
 
   it("merges mandatory subjects with the student's elected subjects", async () => {
-    (prisma.student.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: "student-1",
-      currentClassId: "class-1",
-    });
-    (prisma.classSubject.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { subjectId: "subj-math", subject: { name: "Mathematics" } },
-      { subjectId: "subj-english", subject: { name: "English" } },
-    ]);
-    (prisma.studentElectiveChoice.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { subjectId: "subj-art", subject: { name: "Art" } },
-    ]);
+    db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: "class-1" });
+    db.query
+      .mockResolvedValueOnce([
+        { subject_id: "subj-math", subject_name: "Mathematics" },
+        { subject_id: "subj-english", subject_name: "English" },
+      ])
+      .mockResolvedValueOnce([{ subject_id: "subj-art", subject_name: "Art" }]);
 
     const result = await service.getApplicableSubjectsForStudent("tenant-1", "student-1", "session-1");
 
