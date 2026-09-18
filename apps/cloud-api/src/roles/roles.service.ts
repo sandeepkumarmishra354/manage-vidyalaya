@@ -1,41 +1,51 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { findManyForTenant, findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateRoleDto } from "./dto/create-role.dto.js";
 import type { SetRolePermissionsDto } from "./dto/set-role-permissions.dto.js";
 import type { UpdateRoleDto } from "./dto/update-role.dto.js";
 
+export interface RoleRow extends TenantRow {
+  name: string;
+  is_system: boolean;
+}
+
+interface RolePermissionRow extends TenantRow {
+  role_id: string;
+  permission_key: string;
+}
+
 @Injectable()
 export class RolesService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
   ) {}
 
   listRoles(tenantId: string) {
-    return this.prisma.role.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { name: "asc" },
-    });
+    return this.db.withTransaction(tenantId, (client) =>
+      findManyForTenant<RoleRow>(client, "roles", tenantId, {}, "name ASC"),
+    );
   }
 
   async createRole(tenantId: string, actorUserId: string, dto: CreateRoleDto) {
-    const id = randomUUID();
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const role = await tx.role.create({
-        data: { id, tenantId, name: dto.name, isSystem: false, updatedAt: now },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const role = await insertRow<RoleRow>(client, "roles", tenantId, {
+        name: dto.name,
+        is_system: false,
+        updated_at: new Date(),
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "roles",
-        entityId: id,
+        entityId: role.id,
         action: "create",
         summary: `Created role '${dto.name}'`,
       });
@@ -45,15 +55,13 @@ export class RolesService {
   }
 
   async updateRole(tenantId: string, actorUserId: string, id: string, dto: UpdateRoleDto) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.role.update({
-        where: { id },
-        data: { name: dto.name, updatedAt: now, version: { increment: 1 } },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const updated = await updateRow<RoleRow>(client, "roles", tenantId, id, {
+        name: dto.name,
+        updated_at: new Date(),
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "roles",
@@ -70,19 +78,21 @@ export class RolesService {
   // accountant, teacher, front_desk) can't be deleted -- other code paths
   // (default role assignment during staff onboarding) assume they exist.
   async deleteRole(tenantId: string, actorUserId: string, id: string) {
-    const role = await this.prisma.role.findUniqueOrThrow({ where: { id } });
-    if (role.isSystem) {
-      throw new BadRequestException("cannot delete a system role");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const role = await findOneForTenant<RoleRow>(client, "roles", tenantId, id);
+      if (!role) {
+        throw new NotFoundException("role not found");
+      }
+      if (role.is_system) {
+        throw new BadRequestException("cannot delete a system role");
+      }
 
-    const now = new Date();
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.role.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
-      });
+      // Role has no updated_by column (unlike most soft-deletable tables in
+      // this schema), so this can't go through the generic softDeleteRow
+      // helper -- set deleted_at directly instead.
+      const deleted = await updateRow<RoleRow>(client, "roles", tenantId, id, { deleted_at: new Date() });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "roles",
@@ -95,41 +105,41 @@ export class RolesService {
     });
   }
 
-  async listRolePermissions(roleId: string) {
-    const grants = await this.prisma.rolePermission.findMany({
-      where: { roleId, deletedAt: null },
-      select: { permissionKey: true },
-    });
-    return grants.map((g) => g.permissionKey);
+  async listRolePermissions(tenantId: string, roleId: string) {
+    const grants = await this.db.query<{ permission_key: string }>(
+      tenantId,
+      "SELECT permission_key FROM role_permissions WHERE tenant_id = $1 AND role_id = $2 AND deleted_at IS NULL",
+      [tenantId, roleId],
+    );
+    return grants.map((g) => g.permission_key);
   }
 
   // Replaces the full permission set for a role: deletes any granted keys
   // not in the new set, inserts any new ones.
   async setRolePermissions(tenantId: string, actorUserId: string, roleId: string, dto: SetRolePermissionsDto) {
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.rolePermission.findMany({
-        where: { roleId, deletedAt: null },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const now = new Date();
+      const existing = await findManyForTenant<RolePermissionRow>(client, "role_permissions", tenantId, {
+        role_id: roleId,
       });
 
-      const toRemove = existing.filter((g) => !dto.permission_keys.includes(g.permissionKey));
+      const toRemove = existing.filter((g) => !dto.permission_keys.includes(g.permission_key));
       for (const grant of toRemove) {
-        await tx.rolePermission.update({
-          where: { id: grant.id },
-          data: { deletedAt: now, updatedAt: now, version: { increment: 1 } },
-        });
+        await updateRow<RolePermissionRow>(client, "role_permissions", tenantId, grant.id, { deleted_at: now });
       }
 
-      const existingKeys = new Set(existing.map((g) => g.permissionKey));
+      const existingKeys = new Set(existing.map((g) => g.permission_key));
       const toAdd = dto.permission_keys.filter((key) => !existingKeys.has(key));
       for (const key of toAdd) {
-        await tx.rolePermission.create({
-          data: { id: randomUUID(), tenantId, roleId, permissionKey: key, updatedAt: now },
+        await insertRow<RolePermissionRow>(client, "role_permissions", tenantId, {
+          id: randomUUID(),
+          role_id: roleId,
+          permission_key: key,
+          updated_at: now,
         });
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "roles",

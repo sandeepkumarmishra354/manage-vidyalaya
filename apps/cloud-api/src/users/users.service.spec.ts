@@ -2,25 +2,21 @@ import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { UsersService } from "./users.service.js";
 
-function makePrismaMock() {
-  const tx = { user: { create: vi.fn() }, staff: { update: vi.fn() } };
-  return {
-    user: {
-      create: vi.fn(),
-      findUnique: vi.fn(),
-      update: vi.fn(),
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    staff: { findFirst: vi.fn() },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
-    __tx: tx,
-  } as unknown as PrismaService & {
-    staff: { findFirst: ReturnType<typeof vi.fn> };
-    __tx: typeof tx;
-  };
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & { query: ReturnType<typeof vi.fn>; queryOne: ReturnType<typeof vi.fn> };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -28,14 +24,15 @@ function makeAuditMock() {
 }
 
 describe("UsersService", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: UsersService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new UsersService(prisma, audit);
+    service = new UsersService(db, audit);
   });
 
   describe("createUser", () => {
@@ -51,7 +48,7 @@ describe("UsersService", () => {
     });
 
     it("hashes the password rather than storing it in plaintext", async () => {
-      (prisma.user.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "user-1" });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "user-1" }] });
 
       await service.createUser("tenant-a", {
         tenant_id: "tenant-a",
@@ -60,14 +57,14 @@ describe("UsersService", () => {
         password: "correct-horse-battery-staple",
       });
 
-      const createCall = (prisma.user.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(createCall.data.passwordHash).toBeDefined();
-      expect(createCall.data.passwordHash).not.toBe("correct-horse-battery-staple");
-      expect(createCall.data.passwordHash.length).toBeGreaterThan(20);
+      const [, params] = client.query.mock.calls[0];
+      const passwordHash = (params as unknown[]).find((p) => typeof p === "string" && p.startsWith("$2"));
+      expect(passwordHash).toBeDefined();
+      expect(passwordHash).not.toBe("correct-horse-battery-staple");
     });
 
     it("returns the new user's id", async () => {
-      (prisma.user.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "user-42" });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "user-42" }] });
 
       const result = await service.createUser("tenant-a", {
         tenant_id: "tenant-a",
@@ -82,42 +79,31 @@ describe("UsersService", () => {
 
   describe("resetPassword", () => {
     it("throws NotFoundException for a user that doesn't exist", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+      client.query.mockResolvedValueOnce({ rows: [] });
 
       await expect(
         service.resetPassword("tenant-a", "actor-1", "missing-user", "new-password"),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it("rejects resetting a password for another tenant's user", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        id: "user-1",
-        tenantId: "tenant-b",
-      });
-
-      await expect(
-        service.resetPassword("tenant-a", "actor-1", "user-1", "new-password"),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
     it("hashes the new password before storing it", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        id: "user-1",
-        tenantId: "tenant-a",
-      });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+        .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }); // updateRow
 
       await service.resetPassword("tenant-a", "actor-1", "user-1", "brand-new-password");
 
-      const updateCall = (prisma.user.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(updateCall.where).toEqual({ id: "user-1" });
-      expect(updateCall.data.passwordHash).not.toBe("brand-new-password");
-      expect(updateCall.data.passwordHash.length).toBeGreaterThan(20);
+      const [updateSql, updateParams] = client.query.mock.calls[1];
+      expect(updateSql).toContain("UPDATE users");
+      const passwordHash = updateParams[0];
+      expect(passwordHash).not.toBe("brand-new-password");
+      expect(String(passwordHash).length).toBeGreaterThan(20);
     });
   });
 
   describe("createStaffLogin", () => {
     it("404s when the target staff member doesn't exist", async () => {
-      prisma.staff.findFirst.mockResolvedValueOnce(null);
+      client.query.mockResolvedValueOnce({ rows: [] });
 
       await expect(
         service.createStaffLogin("tenant-a", "actor-1", {
@@ -128,11 +114,10 @@ describe("UsersService", () => {
           branch_id: "branch-1",
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it("rejects creating a login for a relieved staff member", async () => {
-      prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", status: "relieved" });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "staff-1", status: "relieved" }] });
 
       await expect(
         service.createStaffLogin("tenant-a", "actor-1", {
@@ -143,12 +128,13 @@ describe("UsersService", () => {
           branch_id: "branch-1",
         }),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it("creates a login for an active staff member", async () => {
-      prisma.staff.findFirst.mockResolvedValueOnce({ id: "staff-1", status: "active" });
-      prisma.__tx.user.create.mockResolvedValueOnce({ id: "user-1" });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", status: "active" }] }) // findOneForTenant staff
+        .mockResolvedValueOnce({ rows: [{ id: "user-1" }] }) // insertRow users
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", user_id: "user-1" }] }); // updateRow staff
 
       const result = await service.createStaffLogin("tenant-a", "actor-1", {
         staff_id: "staff-1",
@@ -159,37 +145,29 @@ describe("UsersService", () => {
       });
 
       expect(result).toEqual({ id: "user-1" });
-      expect(prisma.__tx.staff.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: "staff-1" }, data: expect.objectContaining({ userId: "user-1" }) }),
-      );
+      const [updateSql, updateParams] = client.query.mock.calls[2];
+      expect(updateSql).toContain("UPDATE staff");
+      expect(updateParams).toContain("user-1");
     });
   });
 
   describe("listUsers", () => {
     it("scopes to the tenant with no extra filters when none are given", async () => {
       await service.listUsers("tenant-a");
-      expect(prisma.user.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { tenantId: "tenant-a", deletedAt: null },
-        }),
+      expect(db.query).toHaveBeenCalledWith(
+        "tenant-a",
+        expect.stringContaining("u.tenant_id = $1"),
+        ["tenant-a"],
       );
     });
 
     it("combines search and role filters with AND", async () => {
       await service.listUsers("tenant-a", "jane", "role-1");
-      expect(prisma.user.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            tenantId: "tenant-a",
-            deletedAt: null,
-            userRoles: { some: { roleId: "role-1" } },
-            OR: [
-              { fullName: { contains: "jane", mode: "insensitive" } },
-              { email: { contains: "jane", mode: "insensitive" } },
-            ],
-          },
-        }),
-      );
+      const [, sql, params] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(sql).toContain("u.tenant_id = $1");
+      expect(sql).toContain("EXISTS");
+      expect(sql).toContain("ILIKE");
+      expect(params).toEqual(["tenant-a", "role-1", "%jane%"]);
     });
   });
 });
