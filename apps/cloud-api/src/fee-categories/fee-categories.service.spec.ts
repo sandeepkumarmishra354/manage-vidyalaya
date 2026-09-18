@@ -2,20 +2,25 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { FeeCategoriesService } from "./fee-categories.service.js";
 
-function makePrismaMock() {
-  return {
-    feeCategory: { findFirst: vi.fn(), update: vi.fn() },
-    feeStructure: { count: vi.fn() },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-      cb({ feeCategory: { create: vi.fn().mockResolvedValue({ id: "cat-1" }), update: vi.fn().mockResolvedValue({}) } }),
-    ),
-  } as unknown as PrismaService & {
-    feeCategory: { findFirst: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
-    feeStructure: { count: ReturnType<typeof vi.fn> };
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -23,34 +28,37 @@ function makeAuditMock() {
 }
 
 describe("FeeCategoriesService.createCategory", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: FeeCategoriesService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new FeeCategoriesService(prisma, audit);
+    service = new FeeCategoriesService(db, audit);
   });
 
   it("derives a slug key from the display name", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce(null);
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // duplicate check
+      .mockResolvedValueOnce({ rows: [{ id: "cat-1", tenant_id: "tenant-1" }] }); // insert
 
     await service.createCategory("tenant-1", "actor-1", { name: "Sports Fee" });
 
-    expect(prisma.feeCategory.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ key: "sports_fee" }) }),
-    );
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain("sports_fee");
   });
 
   it("rejects a name that produces an empty slug", async () => {
     await expect(service.createCategory("tenant-1", "actor-1", { name: "***" })).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("rejects a duplicate category (same slug already exists)", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce({ id: "existing" });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "existing", tenant_id: "tenant-1" }] });
 
     await expect(service.createCategory("tenant-1", "actor-1", { name: "Tuition" })).rejects.toBeInstanceOf(
       ConflictException,
@@ -59,18 +67,19 @@ describe("FeeCategoriesService.createCategory", () => {
 });
 
 describe("FeeCategoriesService.deleteCategory", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let service: FeeCategoriesService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new FeeCategoriesService(prisma, audit);
+    service = new FeeCategoriesService(db, audit);
   });
 
   it("throws NotFoundException when the category doesn't exist", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] });
 
     await expect(service.deleteCategory("tenant-1", "actor-1", "missing")).rejects.toBeInstanceOf(
       NotFoundException,
@@ -78,7 +87,9 @@ describe("FeeCategoriesService.deleteCategory", () => {
   });
 
   it("rejects deleting a default (system-seeded) category", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce({ id: "cat-1", name: "Tuition", key: "tuition", isSystem: true });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "cat-1", tenant_id: "tenant-1", name: "Tuition", key: "tuition", is_system: true }],
+    });
 
     await expect(service.deleteCategory("tenant-1", "actor-1", "cat-1")).rejects.toBeInstanceOf(
       BadRequestException,
@@ -86,8 +97,11 @@ describe("FeeCategoriesService.deleteCategory", () => {
   });
 
   it("rejects deleting a category still referenced by a fee structure", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce({ id: "cat-1", name: "Custom", key: "custom", isSystem: false });
-    prisma.feeStructure.count.mockResolvedValueOnce(2);
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "cat-1", tenant_id: "tenant-1", name: "Custom", key: "custom", is_system: false }],
+      })
+      .mockResolvedValueOnce({ rows: [{ count: "2" }] });
 
     await expect(service.deleteCategory("tenant-1", "actor-1", "cat-1")).rejects.toBeInstanceOf(
       BadRequestException,
@@ -95,8 +109,12 @@ describe("FeeCategoriesService.deleteCategory", () => {
   });
 
   it("deletes a custom, unreferenced category", async () => {
-    prisma.feeCategory.findFirst.mockResolvedValueOnce({ id: "cat-1", name: "Custom", key: "custom", isSystem: false });
-    prisma.feeStructure.count.mockResolvedValueOnce(0);
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "cat-1", tenant_id: "tenant-1", name: "Custom", key: "custom", is_system: false }],
+      })
+      .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "cat-1", tenant_id: "tenant-1" }] });
 
     await expect(service.deleteCategory("tenant-1", "actor-1", "cat-1")).resolves.toBeDefined();
     expect(audit.record).toHaveBeenCalledTimes(1);

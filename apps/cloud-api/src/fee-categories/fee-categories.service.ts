@@ -1,11 +1,17 @@
-import { randomUUID } from "node:crypto";
-
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { findOneForTenant, insertRow, softDeleteRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateFeeCategoryDto } from "./dto/create-fee-category.dto.js";
 import type { UpdateFeeCategoryDto } from "./dto/update-fee-category.dto.js";
+
+export interface FeeCategoryRow extends TenantRow {
+  name: string;
+  key: string;
+  is_system: boolean;
+}
 
 // A stable slug (matches FeeStructure.feeType convention) derived from the
 // display name -- e.g. "Sports Fee" -> "sports_fee".
@@ -20,15 +26,16 @@ function slugify(name: string): string {
 @Injectable()
 export class FeeCategoriesService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
   ) {}
 
   listCategories(tenantId: string) {
-    return this.prisma.feeCategory.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { name: "asc" },
-    });
+    return this.db.query<FeeCategoryRow>(
+      tenantId,
+      "SELECT * FROM fee_categories WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY name ASC",
+      [tenantId],
+    );
   }
 
   async createCategory(tenantId: string, actorUserId: string, dto: CreateFeeCategoryDto) {
@@ -37,24 +44,28 @@ export class FeeCategoriesService {
       throw new BadRequestException("invalid category name");
     }
 
-    const existing = await this.prisma.feeCategory.findFirst({ where: { tenantId, key, deletedAt: null } });
-    if (existing) {
-      throw new ConflictException("a fee category with this name already exists");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existingResult = await client.query<FeeCategoryRow>(
+        "SELECT * FROM fee_categories WHERE tenant_id = $1 AND key = $2 AND deleted_at IS NULL",
+        [tenantId, key],
+      );
+      if (existingResult.rows[0]) {
+        throw new ConflictException("a fee category with this name already exists");
+      }
 
-    const now = new Date();
-    const id = randomUUID();
-
-    return this.prisma.$transaction(async (tx) => {
-      const created = await tx.feeCategory.create({
-        data: { id, tenantId, name: dto.name, key, isSystem: false, updatedAt: now, updatedBy: actorUserId },
+      const created = await insertRow<FeeCategoryRow>(client, "fee_categories", tenantId, {
+        name: dto.name,
+        key,
+        is_system: false,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "fee_categories",
-        entityId: id,
+        entityId: created.id,
         action: "create",
         summary: `Created fee category '${dto.name}'`,
       });
@@ -66,20 +77,19 @@ export class FeeCategoriesService {
   // Renames the display name only -- key stays stable since it's already
   // referenced by FeeStructure.feeType rows.
   async updateCategory(tenantId: string, actorUserId: string, id: string, dto: UpdateFeeCategoryDto) {
-    const existing = await this.prisma.feeCategory.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("fee category not found");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<FeeCategoryRow>(client, "fee_categories", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("fee category not found");
+      }
 
-    const now = new Date();
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.feeCategory.update({
-        where: { id },
-        data: { name: dto.name, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+      const updated = await updateRow<FeeCategoryRow>(client, "fee_categories", tenantId, id, {
+        name: dto.name,
+        updated_at: new Date(),
+        updated_by: actorUserId,
       });
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "fee_categories",
@@ -96,30 +106,27 @@ export class FeeCategoriesService {
   // structure -- deleting it out from under an in-use structure would
   // silently orphan its fee_type.
   async deleteCategory(tenantId: string, actorUserId: string, id: string) {
-    const existing = await this.prisma.feeCategory.findFirst({ where: { id, tenantId, deletedAt: null } });
-    if (!existing) {
-      throw new NotFoundException("fee category not found");
-    }
-    if (existing.isSystem) {
-      throw new BadRequestException("cannot delete a default fee category");
-    }
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<FeeCategoryRow>(client, "fee_categories", tenantId, id);
+      if (!existing) {
+        throw new NotFoundException("fee category not found");
+      }
+      if (existing.is_system) {
+        throw new BadRequestException("cannot delete a default fee category");
+      }
 
-    const referencedCount = await this.prisma.feeStructure.count({
-      where: { tenantId, feeType: existing.key, deletedAt: null },
-    });
-    if (referencedCount > 0) {
-      throw new BadRequestException("cannot delete a category that is still used by a fee structure");
-    }
+      const referencedResult = await client.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM fee_structures WHERE tenant_id = $1 AND fee_type = $2 AND deleted_at IS NULL",
+        [tenantId, existing.key],
+      );
+      const referencedCount = Number(referencedResult.rows[0]?.count ?? "0");
+      if (referencedCount > 0) {
+        throw new BadRequestException("cannot delete a category that is still used by a fee structure");
+      }
 
-    const now = new Date();
+      const deleted = await softDeleteRow<FeeCategoryRow>(client, "fee_categories", tenantId, id, actorUserId);
 
-    return this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.feeCategory.update({
-        where: { id },
-        data: { deletedAt: now, updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
-      });
-
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         actorUserId,
         entityTable: "fee_categories",
