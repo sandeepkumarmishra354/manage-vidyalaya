@@ -60,16 +60,41 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
-  // The one genuinely tenant-less query in this service: we don't know
-  // which tenant a login belongs to until we've found the row by email, so
-  // this searches across every tenant via DbService.queryUnscoped rather
-  // than the normal RLS-scoped path.
-  async login(email: string, password: string): Promise<LoginResult> {
-    const user = await this.db.queryUnscoped<UserRow>(
-      "SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL AND is_active = true LIMIT 1",
-      [email],
-    );
-    const found = user[0];
+  // `email` is only unique per (tenant_id, email) -- the same email can
+  // legitimately exist in two different schools' tenants -- so a plain
+  // cross-tenant email scan is ambiguous the moment more than one tenant
+  // exists. When the frontend can tell us which school's subdomain the
+  // login came from, we resolve that to a tenant first (still a tenant-less
+  // lookup, via queryUnscoped) and then scope the user lookup to it through
+  // the normal RLS-enforced path, which is unambiguous. When it can't
+  // (local dev, or a tenant with no subdomain assigned yet), we fall back
+  // to the old tenant-less scan via queryUnscoped, since that path never
+  // learns a tenantId to scope a normal query by.
+  async login(email: string, password: string, subdomain?: string): Promise<LoginResult> {
+    let tenantId: string | undefined;
+    if (subdomain) {
+      const tenant = await this.db.queryUnscoped<{ id: string }>(
+        "SELECT id FROM tenants WHERE subdomain = $1",
+        [subdomain],
+      );
+      if (!tenant[0]) {
+        throw new UnauthorizedException("Invalid email or password");
+      }
+      tenantId = tenant[0].id;
+    }
+
+    const found = tenantId
+      ? await this.db.queryOne<UserRow>(
+          tenantId,
+          "SELECT * FROM users WHERE tenant_id = $1 AND email = $2 AND deleted_at IS NULL AND is_active = true",
+          [tenantId, email],
+        )
+      : (
+          await this.db.queryUnscoped<UserRow>(
+            "SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL AND is_active = true LIMIT 1",
+            [email],
+          )
+        )[0];
 
     if (!found || !found.password_hash) {
       throw new UnauthorizedException("Invalid email or password");
