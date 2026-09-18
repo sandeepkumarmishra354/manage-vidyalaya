@@ -76,7 +76,7 @@ into a much smaller problem: build, upload, done.
 
 ### 3. Real tenant onboarding (replace the demo seed)
 
-Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
+Today, `apps/cloud-api/scripts/seed.ts` hardcodes one demo tenant. Before a real client:
 
 - Build a minimal provisioning path: even a manual one is fine at first
   (you, the vendor, run a script that creates their tenant + first admin
@@ -95,7 +95,7 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   Postgres backup story (see above) -- a lost/stolen laptop carries no data
   with it, only a cached JWT. One deliberate simplification remains: the
   *seeded demo* tenant/branch/roles still use fixed ids rather than ones
-  from a real provisioning flow (`apps/cloud-api/prisma/seed.ts`) -- revisit
+  from a real provisioning flow (`apps/cloud-api/scripts/seed.ts`) -- revisit
   once real school signup exists (see item 3 above).
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
@@ -120,9 +120,12 @@ Today, `prisma/seed.ts` hardcodes one demo tenant. Before a real client:
   deploy that ships the web build, not as a follow-up.
 - Run the `security-review` workflow (or equivalent manual review) against
   the current diff before your first deploy, specifically checking: every
-  Prisma query goes through the query builder (no raw SQL string
-  concatenation) so there's no injection surface to audit table-by-table,
-  and JWT secret strength.
+  raw SQL query is parameterized (`$1`/`$2`/...), never built by
+  concatenating/interpolating request input into the query string, and
+  every query includes its own `tenant_id` predicate (Row-Level Security
+  is the backstop for a forgotten one, not a reason to skip writing it --
+  see `docs/architecture.md`'s "Data access & tenant isolation"), and JWT
+  secret strength.
 
 ### 6. Support & legal basics
 

@@ -22,7 +22,6 @@ import { LibraryModule } from "./library/library.module.js";
 import { MasterDataModule } from "./master-data/master-data.module.js";
 import { ModuleSettingsModule } from "./module-settings/module-settings.module.js";
 import { PayrollModule } from "./payroll/payroll.module.js";
-import { PrismaModule } from "./prisma/prisma.module.js";
 import { PromotionModule } from "./promotion/promotion.module.js";
 import { QrModule } from "./qr/qr.module.js";
 import { RolesModule } from "./roles/roles.module.js";
@@ -38,7 +37,6 @@ import { UsersModule } from "./users/users.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    PrismaModule,
     DbModule,
     CommonModule,
     AuthModule,
