@@ -37,7 +37,7 @@ function makePrismaMock() {
 
 function makeScopedAccessMock(grants: Record<string, boolean> = {}) {
   return {
-    hasPermission: vi.fn(async (_userId: string, key: string) => grants[key] ?? false),
+    hasPermission: vi.fn(async (_tenantId: string, _userId: string, key: string) => grants[key] ?? false),
   } as unknown as ScopedAccessService & { hasPermission: ReturnType<typeof vi.fn> };
 }
 
@@ -58,7 +58,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock({ "fees.view": false });
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(stats).not.toHaveProperty("fee_collected_paise");
     expect(stats).not.toHaveProperty("fee_pending_paise");
@@ -72,7 +72,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock({ "fees.view": true });
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(stats.fee_collected_paise).toBe(50_000);
     expect(stats.fee_pending_paise).toBe(30_000);
@@ -82,7 +82,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock({ "exams.view": false });
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(prisma.exam.findMany).not.toHaveBeenCalled();
     expect(stats.upcoming_exams).toEqual([]);
@@ -95,7 +95,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock({ "exams.view": true });
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(prisma.exam.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ branchId: "branch-1" }) }),
@@ -118,7 +118,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock();
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(stats.birthdays_today).toEqual([
       { id: "student-1", name: "Asha Rao", role: "student" },
@@ -134,7 +134,7 @@ describe("DashboardService.getStats", () => {
     const scopedAccess = makeScopedAccessMock();
     const service = new DashboardService(prisma, scopedAccess);
 
-    const stats = await service.getStats("user-1", "branch-1");
+    const stats = await service.getStats("tenant-1", "user-1", "branch-1");
 
     expect(prisma.calendarHoliday.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

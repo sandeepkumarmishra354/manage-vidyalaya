@@ -12,6 +12,6 @@ export class DashboardController {
 
   @Get("stats")
   stats(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
-    return this.dashboardService.getStats(user.sub, branchId);
+    return this.dashboardService.getStats(user.tenant_id, user.sub, branchId);
   }
 }

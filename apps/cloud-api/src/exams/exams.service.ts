@@ -157,7 +157,7 @@ export class ExamsService {
       throw new NotFoundException("exam not found");
     }
 
-    if (await this.scopedAccess.hasPermission(userId, "exams.enter_marks")) {
+    if (await this.scopedAccess.hasPermission(tenantId, userId, "exams.enter_marks")) {
       return { exam, sectionId: null as string | null };
     }
 

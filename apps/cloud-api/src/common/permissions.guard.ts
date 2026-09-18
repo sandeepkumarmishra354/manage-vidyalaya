@@ -34,7 +34,9 @@ export class PermissionsGuard implements CanActivate {
 
     // Array = OR semantics: any one of the listed permissions is enough.
     const required = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
-    const grants = await Promise.all(required.map((key) => this.scopedAccess.hasPermission(user.sub, key)));
+    const grants = await Promise.all(
+      required.map((key) => this.scopedAccess.hasPermission(user.tenant_id, user.sub, key)),
+    );
     if (!grants.some(Boolean)) {
       throw new ForbiddenException(`missing permission: ${required.join(" or ")}`);
     }

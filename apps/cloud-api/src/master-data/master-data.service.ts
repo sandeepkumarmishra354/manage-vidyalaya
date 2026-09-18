@@ -39,18 +39,18 @@ export class MasterDataService {
   // Write permission depends on which `type` the request targets, so it
   // can't be a static @RequirePermission on the controller handler -- it's
   // checked here instead, once the type is known.
-  private async assertCanManage(actorUserId: string, type: string) {
+  private async assertCanManage(tenantId: string, actorUserId: string, type: string) {
     if (!isMasterDataType(type)) {
       throw new BadRequestException(`unknown master data type '${type}'`);
     }
     const permission = MANAGE_PERMISSION_BY_TYPE[type];
-    if (!(await this.scopedAccess.hasPermission(actorUserId, permission))) {
+    if (!(await this.scopedAccess.hasPermission(tenantId, actorUserId, permission))) {
       throw new ForbiddenException(`missing permission: ${permission}`);
     }
   }
 
   async createItem(tenantId: string, actorUserId: string, dto: CreateMasterDataItemDto) {
-    await this.assertCanManage(actorUserId, dto.type);
+    await this.assertCanManage(tenantId, actorUserId, dto.type);
 
     const now = new Date();
 
@@ -82,7 +82,7 @@ export class MasterDataService {
       if (!existing) {
         throw new NotFoundException("master data item not found");
       }
-      await this.assertCanManage(actorUserId, existing.type);
+      await this.assertCanManage(tenantId, actorUserId, existing.type);
 
       const now = new Date();
       const updated = await updateRow<MasterDataItemRow>(client, TABLE, tenantId, id, {
@@ -115,7 +115,7 @@ export class MasterDataService {
       if (!existing) {
         throw new NotFoundException("master data item not found");
       }
-      await this.assertCanManage(actorUserId, existing.type);
+      await this.assertCanManage(tenantId, actorUserId, existing.type);
       if (existing.is_system) {
         throw new BadRequestException("cannot delete a default value");
       }

@@ -1,3 +1,9 @@
+// Must be the first import: src/db/pg-pool.ts reads process.env at module
+// load time (not lazily, unlike Prisma's generated client, which bundles
+// its own internal dotenv loading -- nothing else in this app explicitly
+// loaded .env before now because nothing needed to).
+import "dotenv/config";
+
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { json, urlencoded } from "express";

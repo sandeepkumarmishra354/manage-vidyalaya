@@ -49,9 +49,9 @@ export class TimetableService {
   // timetable.view can view any section; on top of that, a section's own
   // class teacher can view it without that broad permission.
   async assertCanView(tenantId: string, userId: string, sectionId: string): Promise<void> {
-    if (await this.scopedAccess.hasPermission(userId, "timetable.view")) return;
+    if (await this.scopedAccess.hasPermission(tenantId, userId, "timetable.view")) return;
     const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
-    if (staff && (await this.scopedAccess.isClassTeacherOfSection(staff.id, sectionId))) return;
+    if (staff && (await this.scopedAccess.isClassTeacherOfSection(tenantId, staff.id, sectionId))) return;
     throw new ForbiddenException("not authorized to view this section's timetable");
   }
 
@@ -305,6 +305,7 @@ export class TimetableService {
     const warnings: string[] = [];
     for (const entry of dto.entries) {
       const assigned = await this.scopedAccess.isAssignedToSubject(
+        tenantId,
         entry.staff_id,
         dto.class_id,
         entry.subject_id,

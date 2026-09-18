@@ -30,10 +30,10 @@ export class AttendanceService {
   // that narrower right only applies when a section_id is actually given
   // (there's no "my sections" relationship to fall back to without one).
   async assertCanView(tenantId: string, userId: string, sectionId: string | undefined) {
-    if (await this.scopedAccess.hasPermission(userId, "attendance.view")) return;
+    if (await this.scopedAccess.hasPermission(tenantId, userId, "attendance.view")) return;
     if (sectionId) {
       const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
-      if (staff && (await this.scopedAccess.isClassTeacherOfSection(staff.id, sectionId))) return;
+      if (staff && (await this.scopedAccess.isClassTeacherOfSection(tenantId, staff.id, sectionId))) return;
     }
     throw new ForbiddenException("not authorized to view attendance for this section");
   }
@@ -48,10 +48,10 @@ export class AttendanceService {
   // frontend decide whether to show the "Save" affordance at all, rather
   // than showing it and letting the POST fail.
   async canMark(tenantId: string, userId: string, sectionId: string | null | undefined): Promise<boolean> {
-    if (await this.scopedAccess.hasPermission(userId, "attendance.mark")) return true;
+    if (await this.scopedAccess.hasPermission(tenantId, userId, "attendance.mark")) return true;
     if (sectionId) {
       const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
-      if (staff && (await this.scopedAccess.isClassTeacherOfSection(staff.id, sectionId))) return true;
+      if (staff && (await this.scopedAccess.isClassTeacherOfSection(tenantId, staff.id, sectionId))) return true;
     }
     return false;
   }

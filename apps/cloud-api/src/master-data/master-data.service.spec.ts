@@ -48,7 +48,7 @@ describe("MasterDataService.createItem", () => {
     await expect(
       service.createItem("tenant-1", "actor-1", { type: "religion", name: "Buddhism" }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("actor-1", "master_data.manage_religion");
+    expect(scopedAccess.hasPermission).toHaveBeenCalledWith("tenant-1", "actor-1", "master_data.manage_religion");
   });
 
   it("creates the item when permitted", async () => {

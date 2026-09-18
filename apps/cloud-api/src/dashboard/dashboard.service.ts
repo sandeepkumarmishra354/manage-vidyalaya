@@ -20,7 +20,7 @@ export class DashboardService {
     private readonly scopedAccess: ScopedAccessService,
   ) {}
 
-  async getStats(userId: string, branchId: string) {
+  async getStats(tenantId: string, userId: string, branchId: string) {
     const today = todayUtcMidnight();
     const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
     const fourteenDaysAgo = new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000);
@@ -32,8 +32,8 @@ export class DashboardService {
     // fees.view. Upcoming exams are similarly gated by exams.view; birthdays
     // and holidays aren't sensitive, so they're open to any authenticated user.
     const [canViewFees, canViewExams] = await Promise.all([
-      this.scopedAccess.hasPermission(userId, "fees.view"),
-      this.scopedAccess.hasPermission(userId, "exams.view"),
+      this.scopedAccess.hasPermission(tenantId, userId, "fees.view"),
+      this.scopedAccess.hasPermission(tenantId, userId, "exams.view"),
     ]);
 
     const [
@@ -51,47 +51,48 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.student.groupBy({
         by: ["status"],
-        where: { branchId, deletedAt: null },
+        where: { tenantId, branchId, deletedAt: null },
         _count: { status: true },
       }),
       this.prisma.attendanceRecord.findMany({
-        where: { branchId, attendanceDate: today, deletedAt: null },
+        where: { tenantId, branchId, attendanceDate: today, deletedAt: null },
         select: { status: true },
       }),
       this.prisma.feeInvoice.aggregate({
-        where: { branchId, deletedAt: null },
+        where: { tenantId, branchId, deletedAt: null },
         _sum: { amountPaid: true, amountDue: true },
       }),
       this.prisma.libraryIssue.count({
-        where: { branchId, status: "issued", dueDate: { lt: today }, deletedAt: null },
+        where: { tenantId, branchId, status: "issued", dueDate: { lt: today }, deletedAt: null },
       }),
       this.prisma.class.findMany({
-        where: { branchId, deletedAt: null },
+        where: { tenantId, branchId, deletedAt: null },
         orderBy: { sortOrder: "asc" },
         include: {
           studentsCurrent: { where: { status: "enrolled", deletedAt: null }, select: { id: true } },
         },
       }),
       this.prisma.attendanceRecord.findMany({
-        where: { branchId, deletedAt: null, attendanceDate: { gte: fourteenDaysAgo } },
+        where: { tenantId, branchId, deletedAt: null, attendanceDate: { gte: fourteenDaysAgo } },
         select: { attendanceDate: true, status: true },
       }),
       this.prisma.feeInvoice.groupBy({
         by: ["status"],
-        where: { branchId, deletedAt: null },
+        where: { tenantId, branchId, deletedAt: null },
         _count: { status: true },
         _sum: { amountDue: true, amountPaid: true },
       }),
       this.prisma.student.findMany({
-        where: { branchId, deletedAt: null, status: "enrolled", dateOfBirth: { not: null } },
+        where: { tenantId, branchId, deletedAt: null, status: "enrolled", dateOfBirth: { not: null } },
         select: { id: true, firstName: true, lastName: true, dateOfBirth: true },
       }),
       this.prisma.staff.findMany({
-        where: { branchId, deletedAt: null, status: "active", dateOfBirth: { not: null } },
+        where: { tenantId, branchId, deletedAt: null, status: "active", dateOfBirth: { not: null } },
         select: { id: true, firstName: true, lastName: true, dateOfBirth: true },
       }),
       this.prisma.calendarHoliday.findMany({
         where: {
+          tenantId,
           deletedAt: null,
           date: { gte: today, lte: fourteenDaysAhead },
           schoolCalendar: { branchId, deletedAt: null },
@@ -101,7 +102,7 @@ export class DashboardService {
       }),
       canViewExams
         ? this.prisma.exam.findMany({
-            where: { branchId, deletedAt: null, examDate: { gte: today, lte: fourteenDaysAhead } },
+            where: { tenantId, branchId, deletedAt: null, examDate: { gte: today, lte: fourteenDaysAhead } },
             orderBy: { examDate: "asc" },
             take: 5,
           })
