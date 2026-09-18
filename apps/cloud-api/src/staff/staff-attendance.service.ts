@@ -3,12 +3,23 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import type { BulkMarkStaffAttendanceDto } from "./dto/bulk-mark-staff-attendance.dto.js";
 import type { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
+import type { StaffRow } from "./staff.service.js";
 import { staffAllowsAccess } from "./staff-status.js";
+
+export interface StaffAttendanceRow extends TenantRow {
+  branch_id: string;
+  staff_id: string;
+  attendance_date: Date;
+  status: string;
+  remarks: string | null;
+  marked_by: string | null;
+}
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -17,31 +28,38 @@ function todayIso(): string {
 @Injectable()
 export class StaffAttendanceService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly schoolCalendar: SchoolCalendarService,
     private readonly qrToken: QrTokenService,
   ) {}
 
-  async getRoster(branchId: string, date: string) {
+  async getRoster(tenantId: string, branchId: string, date: string) {
     const attendanceDate = new Date(date);
 
-    const staff = await this.prisma.staff.findMany({
-      where: { branchId, deletedAt: null, status: "active" },
-      orderBy: { firstName: "asc" },
-    });
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND branch_id = $2 AND deleted_at IS NULL AND status = 'active' ORDER BY first_name ASC",
+      [tenantId, branchId],
+    );
+    const staffIds = staff.map((s) => s.id);
 
-    const records = await this.prisma.staffAttendance.findMany({
-      where: { attendanceDate, deletedAt: null, staffId: { in: staff.map((s) => s.id) } },
-    });
-    const recordByStaff = new Map(records.map((r) => [r.staffId, r]));
+    const records =
+      staffIds.length > 0
+        ? await this.db.query<StaffAttendanceRow>(
+            tenantId,
+            "SELECT * FROM staff_attendance WHERE tenant_id = $1 AND attendance_date = $2 AND deleted_at IS NULL AND staff_id = ANY($3)",
+            [tenantId, attendanceDate, staffIds],
+          )
+        : [];
+    const recordByStaff = new Map(records.map((r) => [r.staff_id, r]));
 
     return staff.map((s) => {
       const record = recordByStaff.get(s.id);
       return {
         staff_id: s.id,
-        first_name: s.firstName,
-        last_name: s.lastName,
+        first_name: s.first_name,
+        last_name: s.last_name,
         designation: s.designation,
         status: record?.status ?? null,
         remarks: record?.remarks ?? null,
@@ -52,35 +70,37 @@ export class StaffAttendanceService {
   // Same roster shape as getRoster, but pre-fills a whole date range (used
   // by the month-grid calendar view) instead of a single date -- each
   // staff member's `days` map is keyed by ISO date (YYYY-MM-DD).
-  async getRosterRange(branchId: string, startDate: string, endDate: string) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+  async getRosterRange(tenantId: string, branchId: string, startDate: string, endDate: string) {
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND branch_id = $2 AND deleted_at IS NULL AND status = 'active' ORDER BY first_name ASC",
+      [tenantId, branchId],
+    );
+    const staffIds = staff.map((s) => s.id);
 
-    const staff = await this.prisma.staff.findMany({
-      where: { branchId, deletedAt: null, status: "active" },
-      orderBy: { firstName: "asc" },
-    });
-
-    const records = await this.prisma.staffAttendance.findMany({
-      where: {
-        attendanceDate: { gte: start, lte: end },
-        deletedAt: null,
-        staffId: { in: staff.map((s) => s.id) },
-      },
-    });
+    const records =
+      staffIds.length > 0
+        ? await this.db.query<StaffAttendanceRow>(
+            tenantId,
+            `SELECT * FROM staff_attendance
+             WHERE tenant_id = $1 AND attendance_date >= $2 AND attendance_date <= $3
+               AND deleted_at IS NULL AND staff_id = ANY($4)`,
+            [tenantId, new Date(startDate), new Date(endDate), staffIds],
+          )
+        : [];
 
     const daysByStaff = new Map<string, Record<string, { status: string; remarks: string | null }>>();
     for (const record of records) {
-      const isoDate = record.attendanceDate.toISOString().slice(0, 10);
-      const days = daysByStaff.get(record.staffId) ?? {};
+      const isoDate = record.attendance_date.toISOString().slice(0, 10);
+      const days = daysByStaff.get(record.staff_id) ?? {};
       days[isoDate] = { status: record.status, remarks: record.remarks };
-      daysByStaff.set(record.staffId, days);
+      daysByStaff.set(record.staff_id, days);
     }
 
     return staff.map((s) => ({
       staff_id: s.id,
-      first_name: s.firstName,
-      last_name: s.lastName,
+      first_name: s.first_name,
+      last_name: s.last_name,
       designation: s.designation,
       days: daysByStaff.get(s.id) ?? {},
     }));
@@ -93,44 +113,36 @@ export class StaffAttendanceService {
     if (dto.entries.some((e) => e.attendance_date > today)) {
       throw new BadRequestException("cannot mark attendance for a future date");
     }
-    await this.assertTargetsAllowAttendance(dto.entries.map((e) => e.staff_id));
+    await this.assertTargetsAllowAttendance(
+      tenantId,
+      dto.entries.map((e) => e.staff_id),
+    );
     const now = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.db.withTransaction(tenantId, async (client) => {
       for (const entry of dto.entries) {
-        const attendanceDate = new Date(entry.attendance_date);
-        await tx.staffAttendance.upsert({
-          where: {
-            tenantId_staffId_attendanceDate: {
-              tenantId,
-              staffId: entry.staff_id,
-              attendanceDate,
-            },
-          },
-          create: {
-            id: randomUUID(),
+        await client.query(
+          `INSERT INTO staff_attendance (id, tenant_id, branch_id, staff_id, attendance_date, status, remarks, marked_by, updated_at, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (tenant_id, staff_id, attendance_date)
+           DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks, marked_by = EXCLUDED.marked_by,
+             updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, version = staff_attendance.version + 1`,
+          [
+            randomUUID(),
             tenantId,
-            branchId: dto.branch_id,
-            staffId: entry.staff_id,
-            attendanceDate,
-            status: entry.status,
-            remarks: entry.remarks ?? null,
-            markedBy: actorUserId,
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
-          update: {
-            status: entry.status,
-            remarks: entry.remarks ?? null,
-            markedBy: actorUserId,
-            updatedAt: now,
-            updatedBy: actorUserId,
-            version: { increment: 1 },
-          },
-        });
+            dto.branch_id,
+            entry.staff_id,
+            new Date(entry.attendance_date),
+            entry.status,
+            entry.remarks ?? null,
+            actorUserId,
+            now,
+            actorUserId,
+          ],
+        );
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
         branchId: dto.branch_id,
         actorUserId,
@@ -146,70 +158,68 @@ export class StaffAttendanceService {
     if (dto.attendance_date > todayIso()) {
       throw new BadRequestException("cannot mark attendance for a future date");
     }
-    await this.assertTargetsAllowAttendance(dto.entries.map((e) => e.staff_id));
+    await this.assertTargetsAllowAttendance(
+      tenantId,
+      dto.entries.map((e) => e.staff_id),
+    );
     const now = new Date();
     const attendanceDate = new Date(dto.attendance_date);
 
-    await this.prisma.$transaction(
-      dto.entries.map((entry) =>
-        this.prisma.staffAttendance.upsert({
-          where: {
-            tenantId_staffId_attendanceDate: {
-              tenantId,
-              staffId: entry.staff_id,
-              attendanceDate,
-            },
-          },
-          create: {
-            id: randomUUID(),
+    await this.db.withTransaction(tenantId, async (client) => {
+      for (const entry of dto.entries) {
+        await client.query(
+          `INSERT INTO staff_attendance (id, tenant_id, branch_id, staff_id, attendance_date, status, remarks, marked_by, updated_at, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (tenant_id, staff_id, attendance_date)
+           DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks, marked_by = EXCLUDED.marked_by,
+             updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, version = staff_attendance.version + 1`,
+          [
+            randomUUID(),
             tenantId,
-            branchId: dto.branch_id,
-            staffId: entry.staff_id,
+            dto.branch_id,
+            entry.staff_id,
             attendanceDate,
-            status: entry.status,
-            remarks: entry.remarks ?? null,
-            markedBy: actorUserId,
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
-          update: {
-            status: entry.status,
-            remarks: entry.remarks ?? null,
-            markedBy: actorUserId,
-            updatedAt: now,
-            updatedBy: actorUserId,
-            version: { increment: 1 },
-          },
-        }),
-      ),
-    );
+            entry.status,
+            entry.remarks ?? null,
+            actorUserId,
+            now,
+            actorUserId,
+          ],
+        );
+      }
+    });
   }
 
   // Per-staff present/absent/late/half_day/leave counts over a date range,
   // mirroring AttendanceService.getReport for students. Backs the on-screen
   // attendance report + its CSV export.
   async getReport(tenantId: string, branchId: string, startDate: string, endDate: string) {
-    const staff = await this.prisma.staff.findMany({
-      where: { tenantId, branchId, deletedAt: null, status: "active" },
-      orderBy: { firstName: "asc" },
-    });
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND branch_id = $2 AND deleted_at IS NULL AND status = 'active' ORDER BY first_name ASC",
+      [tenantId, branchId],
+    );
+    const staffIds = staff.map((s) => s.id);
 
-    const records = await this.prisma.staffAttendance.findMany({
-      where: {
-        attendanceDate: { gte: new Date(startDate), lte: new Date(endDate) },
-        deletedAt: null,
-        staffId: { in: staff.map((s) => s.id) },
-      },
-    });
+    const records =
+      staffIds.length > 0
+        ? await this.db.query<StaffAttendanceRow>(
+            tenantId,
+            `SELECT * FROM staff_attendance
+             WHERE tenant_id = $1 AND attendance_date >= $2 AND attendance_date <= $3
+               AND deleted_at IS NULL AND staff_id = ANY($4)`,
+            [tenantId, new Date(startDate), new Date(endDate), staffIds],
+          )
+        : [];
 
     const dayTypes = await this.schoolCalendar.getDayTypesInRange(tenantId, branchId, startDate, endDate);
     const workingDays = Object.values(dayTypes).reduce((sum, t) => sum + dayWeight(t), 0);
 
     const countsByStaff = new Map<string, Record<string, number>>();
     for (const record of records) {
-      const counts = countsByStaff.get(record.staffId) ?? {};
+      const counts = countsByStaff.get(record.staff_id) ?? {};
       counts[record.status] = (counts[record.status] ?? 0) + 1;
-      countsByStaff.set(record.staffId, counts);
+      countsByStaff.set(record.staff_id, counts);
     }
 
     return staff.map((s) => {
@@ -217,7 +227,7 @@ export class StaffAttendanceService {
       const present = counts.present ?? 0;
       return {
         staff_id: s.id,
-        staff_name: [s.firstName, s.lastName].filter(Boolean).join(" "),
+        staff_name: [s.first_name, s.last_name].filter(Boolean).join(" "),
         present,
         absent: counts.absent ?? 0,
         late: counts.late ?? 0,
@@ -232,28 +242,36 @@ export class StaffAttendanceService {
   // Marking attendance goes straight from staff_id to an upsert, bypassing
   // getRoster's status:"active" filter -- so a relieved/terminated staff id
   // (submitted directly rather than via the roster UI) needs its own check
-  // here.
-  private async assertTargetsAllowAttendance(staffIds: string[]) {
+  // here. Tenant-scoped: a staff_id belonging to another tenant is treated
+  // the same as a missing one (rejected), never silently written into this
+  // tenant's attendance table.
+  private async assertTargetsAllowAttendance(tenantId: string, staffIds: string[]) {
     const uniqueIds = [...new Set(staffIds)];
-    const staff = await this.prisma.staff.findMany({
-      where: { id: { in: uniqueIds } },
-      select: { id: true, status: true, firstName: true, lastName: true },
-    });
+    const staff = await this.db.query<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2)",
+      [tenantId, uniqueIds],
+    );
+    const foundIds = new Set(staff.map((s) => s.id));
+    const missing = uniqueIds.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      throw new NotFoundException("one or more staff members not found");
+    }
     const blocked = staff.filter((s) => !staffAllowsAccess(s.status));
     if (blocked.length > 0) {
-      const names = blocked.map((s) => `${s.firstName} ${s.lastName ?? ""}`.trim()).join(", ");
+      const names = blocked.map((s) => `${s.first_name} ${s.last_name ?? ""}`.trim()).join(", ");
       throw new BadRequestException(`Cannot mark attendance for staff who aren't active: ${names}`);
     }
   }
 
-  async getStaffHistory(staffId: string) {
-    const records = await this.prisma.staffAttendance.findMany({
-      where: { staffId, deletedAt: null },
-      orderBy: { attendanceDate: "desc" },
-      take: 90,
-    });
+  async getStaffHistory(tenantId: string, staffId: string) {
+    const records = await this.db.query<StaffAttendanceRow>(
+      tenantId,
+      "SELECT * FROM staff_attendance WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL ORDER BY attendance_date DESC LIMIT 90",
+      [tenantId, staffId],
+    );
 
-    return records.map((r) => ({ attendance_date: r.attendanceDate, status: r.status, remarks: r.remarks }));
+    return records.map((r) => ({ attendance_date: r.attendance_date, status: r.status, remarks: r.remarks }));
   }
 
   // Scan-to-mark, mirroring AttendanceService.scanMark for students. No
@@ -266,12 +284,16 @@ export class StaffAttendanceService {
       throw new BadRequestException("not a staff QR code");
     }
 
-    const staff = await this.prisma.staff.findFirst({ where: { id: parsed.entityId, tenantId, deletedAt: null } });
+    const staff = await this.db.queryOne<StaffRow>(
+      tenantId,
+      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+      [parsed.entityId, tenantId],
+    );
     if (!staff) {
       throw new NotFoundException("staff member not found");
     }
-    if (!this.qrToken.verifySignature(token, parsed, tenantId, staff.qrCodeVersion)) {
-      if (parsed.version < staff.qrCodeVersion) {
+    if (!this.qrToken.verifySignature(token, parsed, tenantId, staff.qr_code_version)) {
+      if (parsed.version < staff.qr_code_version) {
         throw new UnauthorizedException("QR code has been reissued");
       }
       throw new UnauthorizedException("invalid QR code");
@@ -281,54 +303,43 @@ export class StaffAttendanceService {
     }
 
     const today = todayIso();
-    const dayType = await this.schoolCalendar.getDayType(tenantId, staff.branchId, today);
+    const dayType = await this.schoolCalendar.getDayType(tenantId, staff.branch_id, today);
     if (dayType === "holiday") {
       throw new BadRequestException("cannot mark attendance on a holiday");
     }
 
-    const name = [staff.firstName, staff.lastName].filter(Boolean).join(" ");
+    const name = [staff.first_name, staff.last_name].filter(Boolean).join(" ");
     const personInfo = {
       staff_id: staff.id,
       name,
       designation: staff.designation,
-      photo_path: staff.photoPath,
+      photo_path: staff.photo_path,
     };
 
     const attendanceDate = new Date(today);
-    const existing = await this.prisma.staffAttendance.findUnique({
-      where: { tenantId_staffId_attendanceDate: { tenantId, staffId: staff.id, attendanceDate } },
-    });
-    if (existing && !existing.deletedAt) {
+    const existing = await this.db.queryOne<StaffAttendanceRow>(
+      tenantId,
+      "SELECT * FROM staff_attendance WHERE tenant_id = $1 AND staff_id = $2 AND attendance_date = $3",
+      [tenantId, staff.id, attendanceDate],
+    );
+    if (existing && !existing.deleted_at) {
       return { status: "already_marked" as const, existing_status: existing.status, ...personInfo };
     }
 
     const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.staffAttendance.upsert({
-        where: { tenantId_staffId_attendanceDate: { tenantId, staffId: staff.id, attendanceDate } },
-        create: {
-          id: randomUUID(),
-          tenantId,
-          branchId: staff.branchId,
-          staffId: staff.id,
-          attendanceDate,
-          status: "present",
-          markedBy: actorUserId,
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
-        update: {
-          status: "present",
-          markedBy: actorUserId,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
-      });
+    await this.db.withTransaction(tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO staff_attendance (id, tenant_id, branch_id, staff_id, attendance_date, status, marked_by, updated_at, updated_by)
+         VALUES ($1, $2, $3, $4, $5, 'present', $6, $7, $6)
+         ON CONFLICT (tenant_id, staff_id, attendance_date)
+         DO UPDATE SET status = 'present', marked_by = EXCLUDED.marked_by,
+           updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, version = staff_attendance.version + 1`,
+        [randomUUID(), tenantId, staff.branch_id, staff.id, attendanceDate, actorUserId, now],
+      );
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff_attendance",
         entityId: staff.id,

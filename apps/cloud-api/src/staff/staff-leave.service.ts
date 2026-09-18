@@ -1,48 +1,53 @@
 import { randomUUID } from "node:crypto";
 
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { DbService } from "../db/db.service.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import type { TenantRow } from "../db/tenant-repo.js";
 import type { ApplyStaffLeaveDto } from "./dto/apply-staff-leave.dto.js";
 import type { DecideStaffLeaveDto } from "./dto/decide-staff-leave.dto.js";
 import type { FileStaffLeaveDto } from "./dto/file-staff-leave.dto.js";
+import type { StaffRow } from "./staff.service.js";
 import { staffAllowsAccess } from "./staff-status.js";
 
-function toListItem(r: {
-  id: string;
-  staffId: string;
-  startDate: Date;
-  endDate: Date;
+export interface StaffLeaveRequestRow extends TenantRow {
+  branch_id: string;
+  staff_id: string;
+  start_date: Date;
+  end_date: Date;
   reason: string | null;
   status: string;
-  requestedByUserId: string;
-  decidedByUserId: string | null;
-  decidedAt: Date | null;
-  decisionNote: string | null;
-  createdAt: Date;
-}) {
+  requested_by_user_id: string;
+  decided_by_user_id: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
+  created_at: Date;
+}
+
+function toListItem(r: StaffLeaveRequestRow) {
   return {
     id: r.id,
-    staff_id: r.staffId,
-    start_date: r.startDate,
-    end_date: r.endDate,
+    staff_id: r.staff_id,
+    start_date: r.start_date,
+    end_date: r.end_date,
     reason: r.reason,
     status: r.status,
-    requested_by_user_id: r.requestedByUserId,
-    decided_by_user_id: r.decidedByUserId,
-    decided_at: r.decidedAt,
-    decision_note: r.decisionNote,
-    created_at: r.createdAt,
+    requested_by_user_id: r.requested_by_user_id,
+    decided_by_user_id: r.decided_by_user_id,
+    decided_at: r.decided_at,
+    decision_note: r.decision_note,
+    created_at: r.created_at,
   };
 }
 
 @Injectable()
 export class StaffLeaveService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly scopedAccess: ScopedAccessService,
   ) {}
@@ -56,7 +61,7 @@ export class StaffLeaveService {
     if (!staff) {
       throw new ForbiddenException("your account isn't linked to a staff record");
     }
-    return staff;
+    return staff as StaffRow;
   }
 
   async apply(tenantId: string, actorUserId: string, dto: ApplyStaffLeaveDto) {
@@ -69,49 +74,49 @@ export class StaffLeaveService {
     }
     const now = new Date();
 
-    return this.prisma.staffLeaveRequest.create({
-      data: {
-        id: randomUUID(),
-        tenantId,
-        branchId: staff.branchId,
-        staffId: staff.id,
-        startDate: new Date(dto.start_date),
-        endDate: new Date(dto.end_date),
+    return this.db.withTransaction(tenantId, async (client) => {
+      return insertRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, {
+        branch_id: staff.branch_id,
+        staff_id: staff.id,
+        start_date: new Date(dto.start_date),
+        end_date: new Date(dto.end_date),
         reason: dto.reason ?? null,
         status: "pending",
-        requestedByUserId: actorUserId,
-        createdAt: now,
-        updatedAt: now,
-        updatedBy: actorUserId,
-      },
+        requested_by_user_id: actorUserId,
+        created_at: now,
+        updated_at: now,
+        updated_by: actorUserId,
+      });
     });
   }
 
   async listMine(tenantId: string, actorUserId: string) {
     const staff = await this.requireActingStaff(tenantId, actorUserId);
-    const rows = await this.prisma.staffLeaveRequest.findMany({
-      where: { staffId: staff.id, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-    });
+    const rows = await this.db.query<StaffLeaveRequestRow>(
+      tenantId,
+      "SELECT * FROM staff_leave_requests WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC",
+      [tenantId, staff.id],
+    );
     return rows.map(toListItem);
   }
 
   async cancel(tenantId: string, actorUserId: string, id: string) {
     const staff = await this.requireActingStaff(tenantId, actorUserId);
-    const existing = await this.prisma.staffLeaveRequest.findFirst({
-      where: { id, staffId: staff.id, deletedAt: null },
-    });
-    if (!existing) {
-      throw new NotFoundException("leave request not found");
-    }
-    if (existing.status !== "pending") {
-      throw new BadRequestException("only a pending request can be cancelled");
-    }
-    const now = new Date();
 
-    return this.prisma.staffLeaveRequest.update({
-      where: { id },
-      data: { status: "cancelled", updatedAt: now, updatedBy: actorUserId, version: { increment: 1 } },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existing = await findOneForTenant<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id);
+      if (!existing || existing.staff_id !== staff.id) {
+        throw new NotFoundException("leave request not found");
+      }
+      if (existing.status !== "pending") {
+        throw new BadRequestException("only a pending request can be cancelled");
+      }
+
+      return updateRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id, {
+        status: "cancelled",
+        updated_at: new Date(),
+        updated_by: actorUserId,
+      });
     });
   }
 
@@ -122,46 +127,42 @@ export class StaffLeaveService {
     if (dto.end_date < dto.start_date) {
       throw new BadRequestException("end date must be on or after the start date");
     }
-    const staff = await this.prisma.staff.findFirst({ where: { id: dto.staff_id, tenantId, deletedAt: null } });
-    if (!staff) {
-      throw new NotFoundException("staff member not found");
-    }
-    if (!staffAllowsAccess(staff.status)) {
-      throw new ForbiddenException("Cannot file leave for a staff member who isn't active.");
-    }
-    const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      const id = randomUUID();
-      const request = await tx.staffLeaveRequest.create({
-        data: {
-          id,
-          tenantId,
-          branchId: staff.branchId,
-          staffId: staff.id,
-          startDate: new Date(dto.start_date),
-          endDate: new Date(dto.end_date),
-          reason: dto.reason ?? null,
-          status: "approved",
-          requestedByUserId: actorUserId,
-          decidedByUserId: actorUserId,
-          decidedAt: now,
-          createdAt: now,
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
+    return this.db.withTransaction(tenantId, async (client) => {
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, dto.staff_id);
+      if (!staff) {
+        throw new NotFoundException("staff member not found");
+      }
+      if (!staffAllowsAccess(staff.status)) {
+        throw new ForbiddenException("Cannot file leave for a staff member who isn't active.");
+      }
+      const now = new Date();
+
+      const request = await insertRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, {
+        branch_id: staff.branch_id,
+        staff_id: staff.id,
+        start_date: new Date(dto.start_date),
+        end_date: new Date(dto.end_date),
+        reason: dto.reason ?? null,
+        status: "approved",
+        requested_by_user_id: actorUserId,
+        decided_by_user_id: actorUserId,
+        decided_at: now,
+        created_at: now,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
-      await this.writeAttendanceForRange(tx, tenantId, staff.branchId, staff.id, dto.start_date, dto.end_date, actorUserId);
+      await this.writeAttendanceForRange(client, tenantId, staff.branch_id, staff.id, dto.start_date, dto.end_date, actorUserId);
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: staff.branchId,
+        branchId: staff.branch_id,
         actorUserId,
         entityTable: "staff_leave_requests",
-        entityId: id,
+        entityId: request.id,
         action: "create",
-        summary: `Filed and approved leave for ${staff.firstName} ${staff.lastName ?? ""}`.trim(),
+        summary: `Filed and approved leave for ${staff.first_name} ${staff.last_name ?? ""}`.trim(),
       });
 
       return request;
@@ -169,64 +170,80 @@ export class StaffLeaveService {
   }
 
   async listForBranch(tenantId: string, branchId: string, status?: string) {
-    const rows = await this.prisma.staffLeaveRequest.findMany({
-      where: { tenantId, branchId, deletedAt: null, ...(status ? { status } : {}) },
-      include: { staff: true },
-      orderBy: { createdAt: "desc" },
-    });
+    const conditions = ["lr.tenant_id = $1", "lr.branch_id = $2", "lr.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, branchId];
+    if (status) {
+      values.push(status);
+      conditions.push(`lr.status = $${values.length}`);
+    }
+
+    const rows = await this.db.query<
+      StaffLeaveRequestRow & { staff_first_name: string; staff_last_name: string | null }
+    >(
+      tenantId,
+      `SELECT lr.*, s.first_name AS staff_first_name, s.last_name AS staff_last_name
+       FROM staff_leave_requests lr
+       JOIN staff s ON s.id = lr.staff_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY lr.created_at DESC`,
+      values,
+    );
+
     return rows.map((r) => ({
       ...toListItem(r),
-      staff_name: [r.staff.firstName, r.staff.lastName].filter(Boolean).join(" "),
+      staff_name: [r.staff_first_name, r.staff_last_name].filter(Boolean).join(" "),
     }));
   }
 
   async decide(tenantId: string, actorUserId: string, id: string, dto: DecideStaffLeaveDto) {
-    const existing = await this.prisma.staffLeaveRequest.findFirst({
-      where: { id, tenantId, deletedAt: null },
-      include: { staff: true },
-    });
-    if (!existing) {
-      throw new NotFoundException("leave request not found");
-    }
-    if (existing.status !== "pending") {
-      throw new BadRequestException("this request has already been decided");
-    }
-    const now = new Date();
+    return this.db.withTransaction(tenantId, async (client) => {
+      const existingResult = await client.query<
+        StaffLeaveRequestRow & { staff_first_name: string; staff_last_name: string | null }
+      >(
+        `SELECT lr.*, s.first_name AS staff_first_name, s.last_name AS staff_last_name
+         FROM staff_leave_requests lr
+         JOIN staff s ON s.id = lr.staff_id
+         WHERE lr.id = $1 AND lr.tenant_id = $2 AND lr.deleted_at IS NULL`,
+        [id, tenantId],
+      );
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        throw new NotFoundException("leave request not found");
+      }
+      if (existing.status !== "pending") {
+        throw new BadRequestException("this request has already been decided");
+      }
+      const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.staffLeaveRequest.update({
-        where: { id },
-        data: {
-          status: dto.decision,
-          decidedByUserId: actorUserId,
-          decidedAt: now,
-          decisionNote: dto.note ?? null,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
+      const updated = await updateRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id, {
+        status: dto.decision,
+        decided_by_user_id: actorUserId,
+        decided_at: now,
+        decision_note: dto.note ?? null,
+        updated_at: now,
+        updated_by: actorUserId,
       });
 
       if (dto.decision === "approved") {
         await this.writeAttendanceForRange(
-          tx,
+          client,
           tenantId,
-          existing.branchId,
-          existing.staffId,
-          existing.startDate.toISOString().slice(0, 10),
-          existing.endDate.toISOString().slice(0, 10),
+          existing.branch_id,
+          existing.staff_id,
+          existing.start_date.toISOString().slice(0, 10),
+          existing.end_date.toISOString().slice(0, 10),
           actorUserId,
         );
       }
 
-      await this.audit.record(tx, {
+      await this.audit.record(client, {
         tenantId,
-        branchId: existing.branchId,
+        branchId: existing.branch_id,
         actorUserId,
         entityTable: "staff_leave_requests",
         entityId: id,
         action: "update",
-        summary: `${dto.decision === "approved" ? "Approved" : "Rejected"} leave request for ${existing.staff.firstName} ${existing.staff.lastName ?? ""}`.trim(),
+        summary: `${dto.decision === "approved" ? "Approved" : "Rejected"} leave request for ${existing.staff_first_name} ${existing.staff_last_name ?? ""}`.trim(),
       });
 
       return updated;
@@ -239,7 +256,7 @@ export class StaffLeaveService {
   // already treats "leave" as a fully paid, non-deducted day, so no payroll
   // changes are needed here.
   private async writeAttendanceForRange(
-    tx: Prisma.TransactionClient,
+    client: PoolClient,
     tenantId: string,
     branchId: string,
     staffId: string,
@@ -251,27 +268,14 @@ export class StaffLeaveService {
     const end = new Date(endDate);
     for (const d = new Date(startDate); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const attendanceDate = new Date(d);
-      await tx.staffAttendance.upsert({
-        where: { tenantId_staffId_attendanceDate: { tenantId, staffId, attendanceDate } },
-        create: {
-          id: randomUUID(),
-          tenantId,
-          branchId,
-          staffId,
-          attendanceDate,
-          status: "leave",
-          markedBy: actorUserId,
-          updatedAt: now,
-          updatedBy: actorUserId,
-        },
-        update: {
-          status: "leave",
-          markedBy: actorUserId,
-          updatedAt: now,
-          updatedBy: actorUserId,
-          version: { increment: 1 },
-        },
-      });
+      await client.query(
+        `INSERT INTO staff_attendance (id, tenant_id, branch_id, staff_id, attendance_date, status, marked_by, updated_at, updated_by)
+         VALUES ($1, $2, $3, $4, $5, 'leave', $6, $7, $6)
+         ON CONFLICT (tenant_id, staff_id, attendance_date)
+         DO UPDATE SET status = 'leave', marked_by = EXCLUDED.marked_by,
+           updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, version = staff_attendance.version + 1`,
+        [randomUUID(), tenantId, branchId, staffId, attendanceDate, actorUserId, now],
+      );
     }
   }
 }

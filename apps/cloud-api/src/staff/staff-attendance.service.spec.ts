@@ -2,31 +2,27 @@ import { BadRequestException, NotFoundException, UnauthorizedException } from "@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
-import type { PrismaService } from "../prisma/prisma.service.js";
+import type { DbService } from "../db/db.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
 
-function makePrismaMock() {
-  const tx = { staffAttendance: { upsert: vi.fn() } };
-  return {
-    // markAttendanceBulk uses the callback form; markAttendance passes an
-    // array of promises (Prisma's array-form transaction) -- support both.
-    $transaction: vi.fn(async (arg: unknown) =>
-      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(tx),
-    ),
-    __tx: tx,
-    staff: { findMany: vi.fn(), findFirst: vi.fn() },
-    staffAttendance: { findMany: vi.fn(), upsert: vi.fn(), findUnique: vi.fn() },
-  } as unknown as PrismaService & {
-    __tx: typeof tx;
-    staff: { findMany: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
-    staffAttendance: {
-      findMany: ReturnType<typeof vi.fn>;
-      upsert: ReturnType<typeof vi.fn>;
-      findUnique: ReturnType<typeof vi.fn>;
-    };
+interface FakeClient {
+  query: ReturnType<typeof vi.fn>;
+}
+
+function makeDbMock() {
+  const client: FakeClient = { query: vi.fn() };
+  const db = {
+    withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn(),
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
+  return { db, client };
 }
 
 function makeAuditMock() {
@@ -38,29 +34,35 @@ function makeSchoolCalendarMock() {
 }
 
 describe("StaffAttendanceService.getRosterRange", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: StaffAttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db } = makeDbMock());
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
+    service = new StaffAttendanceService(db, audit, schoolCalendar, new QrTokenService());
   });
 
   it("groups records into a per-staff, per-ISO-date map", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([
-      { id: "staff-1", firstName: "Asha", lastName: "Rao", designation: "Teacher" },
-      { id: "staff-2", firstName: "Bilal", lastName: null, designation: "Clerk" },
-    ]);
-    prisma.staffAttendance.findMany.mockResolvedValueOnce([
-      { staffId: "staff-1", attendanceDate: new Date("2026-01-10T00:00:00.000Z"), status: "present", remarks: null },
-      { staffId: "staff-1", attendanceDate: new Date("2026-01-11T00:00:00.000Z"), status: "half_day", remarks: "left early" },
-    ]);
+    db.query
+      .mockResolvedValueOnce([
+        { id: "staff-1", first_name: "Asha", last_name: "Rao", designation: "Teacher" },
+        { id: "staff-2", first_name: "Bilal", last_name: null, designation: "Clerk" },
+      ])
+      .mockResolvedValueOnce([
+        { staff_id: "staff-1", attendance_date: new Date("2026-01-10T00:00:00.000Z"), status: "present", remarks: null },
+        {
+          staff_id: "staff-1",
+          attendance_date: new Date("2026-01-11T00:00:00.000Z"),
+          status: "half_day",
+          remarks: "left early",
+        },
+      ]);
 
-    const result = await service.getRosterRange("branch-1", "2026-01-01", "2026-01-31");
+    const result = await service.getRosterRange("tenant-1", "branch-1", "2026-01-01", "2026-01-31");
 
     expect(result).toEqual([
       {
@@ -79,24 +81,25 @@ describe("StaffAttendanceService.getRosterRange", () => {
 });
 
 describe("StaffAttendanceService.markAttendanceBulk", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: StaffAttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
+    service = new StaffAttendanceService(db, audit, schoolCalendar, new QrTokenService());
   });
 
   it("upserts one row per entry, each keyed by its own date, in one audited batch", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([
-      { id: "staff-1", status: "active", firstName: "Asha", lastName: null },
-      { id: "staff-2", status: "active", firstName: "Bilal", lastName: null },
+    db.query.mockResolvedValueOnce([
+      { id: "staff-1", status: "active", first_name: "Asha", last_name: null },
+      { id: "staff-2", status: "active", first_name: "Bilal", last_name: null },
     ]);
-    prisma.__tx.staffAttendance.upsert.mockResolvedValue({});
+    client.query.mockResolvedValue({ rows: [] });
 
     await service.markAttendanceBulk("tenant-1", "actor-1", {
       branch_id: "branch-1",
@@ -107,16 +110,17 @@ describe("StaffAttendanceService.markAttendanceBulk", () => {
       ],
     });
 
-    expect(prisma.__tx.staffAttendance.upsert).toHaveBeenCalledTimes(3);
+    expect(client.query).toHaveBeenCalledTimes(3);
+    expect(client.query.mock.calls[0][0]).toContain("ON CONFLICT (tenant_id, staff_id, attendance_date)");
     expect(audit.record).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledWith(
-      prisma.__tx,
+      client,
       expect.objectContaining({ tenantId: "tenant-1", entityTable: "staff_attendance", action: "update" }),
     );
   });
 
   it("rejects an entry targeting a relieved staff member", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([{ id: "staff-1", status: "relieved", firstName: "Asha", lastName: null }]);
+    db.query.mockResolvedValueOnce([{ id: "staff-1", status: "relieved", first_name: "Asha", last_name: null }]);
 
     await expect(
       service.markAttendanceBulk("tenant-1", "actor-1", {
@@ -124,26 +128,39 @@ describe("StaffAttendanceService.markAttendanceBulk", () => {
         entries: [{ staff_id: "staff-1", attendance_date: "2026-01-10", status: "present" }],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.__tx.staffAttendance.upsert).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects an entry targeting a staff_id that isn't in this tenant", async () => {
+    db.query.mockResolvedValueOnce([]);
+
+    await expect(
+      service.markAttendanceBulk("tenant-1", "actor-1", {
+        branch_id: "branch-1",
+        entries: [{ staff_id: "outsider-staff", attendance_date: "2026-01-10", status: "present" }],
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(client.query).not.toHaveBeenCalled();
   });
 });
 
 describe("StaffAttendanceService.markAttendance", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let service: StaffAttendanceService;
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar, new QrTokenService());
+    service = new StaffAttendanceService(db, audit, schoolCalendar, new QrTokenService());
   });
 
   it("upserts one row per entry for the given date", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([{ id: "staff-1", status: "active", firstName: "Asha", lastName: null }]);
-    prisma.staffAttendance.upsert.mockResolvedValue({});
+    db.query.mockResolvedValueOnce([{ id: "staff-1", status: "active", first_name: "Asha", last_name: null }]);
+    client.query.mockResolvedValue({ rows: [] });
 
     await service.markAttendance("tenant-1", "actor-1", {
       branch_id: "branch-1",
@@ -151,12 +168,11 @@ describe("StaffAttendanceService.markAttendance", () => {
       entries: [{ staff_id: "staff-1", status: "present" }],
     });
 
-    expect(prisma.staffAttendance.upsert).toHaveBeenCalledTimes(1);
+    expect(client.query).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an entry targeting a terminated staff member", async () => {
-    prisma.staff.findMany.mockResolvedValueOnce([{ id: "staff-1", status: "terminated", firstName: "Asha", lastName: null }]);
-    prisma.staffAttendance.upsert.mockResolvedValue({});
+    db.query.mockResolvedValueOnce([{ id: "staff-1", status: "terminated", first_name: "Asha", last_name: null }]);
 
     await expect(
       service.markAttendance("tenant-1", "actor-1", {
@@ -165,12 +181,13 @@ describe("StaffAttendanceService.markAttendance", () => {
         entries: [{ staff_id: "staff-1", status: "present" }],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.staffAttendance.upsert).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 });
 
 describe("StaffAttendanceService.scanMark", () => {
-  let prisma: ReturnType<typeof makePrismaMock>;
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
   let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
   let qrToken: QrTokenService;
@@ -178,69 +195,69 @@ describe("StaffAttendanceService.scanMark", () => {
 
   const staff = {
     id: "staff-1",
-    tenantId: "tenant-1",
-    branchId: "branch-1",
-    firstName: "Asha",
-    lastName: "Rao",
+    tenant_id: "tenant-1",
+    branch_id: "branch-1",
+    first_name: "Asha",
+    last_name: "Rao",
     designation: "Teacher",
     status: "active",
-    photoPath: null,
-    qrCodeVersion: 1,
+    photo_path: null,
+    qr_code_version: 1,
   };
 
   beforeEach(() => {
-    prisma = makePrismaMock();
+    ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     schoolCalendar = makeSchoolCalendarMock();
     qrToken = new QrTokenService();
-    service = new StaffAttendanceService(prisma, audit, schoolCalendar, qrToken);
+    service = new StaffAttendanceService(db, audit, schoolCalendar, qrToken);
 
     (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValue("working");
   });
 
   it("marks a fresh scan as present and audits it", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(staff);
-    prisma.staffAttendance.findUnique.mockResolvedValueOnce(null);
-    prisma.__tx.staffAttendance.upsert.mockResolvedValueOnce({});
+    db.queryOne.mockResolvedValueOnce(staff).mockResolvedValueOnce(null);
+    client.query.mockResolvedValueOnce({ rows: [] });
 
-    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
     const result = await service.scanMark("tenant-1", "actor-1", token);
 
     expect(result).toEqual(expect.objectContaining({ status: "marked", staff_id: "staff-1" }));
-    expect(prisma.__tx.staffAttendance.upsert).toHaveBeenCalledTimes(1);
+    expect(client.query).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("is idempotent -- a second scan the same day never overwrites the existing record", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(staff);
-    prisma.staffAttendance.findUnique.mockResolvedValueOnce({ status: "half_day", deletedAt: null });
+    db.queryOne
+      .mockResolvedValueOnce(staff)
+      .mockResolvedValueOnce({ status: "half_day", deleted_at: null });
 
-    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
     const result = await service.scanMark("tenant-1", "actor-1", token);
 
     expect(result).toEqual(
       expect.objectContaining({ status: "already_marked", existing_status: "half_day", staff_id: "staff-1" }),
     );
-    expect(prisma.__tx.staffAttendance.upsert).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it("rejects on a declared holiday", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(staff);
+    db.queryOne.mockResolvedValueOnce(staff);
     (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValueOnce("holiday");
 
-    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects a relieved/terminated staff member", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ ...staff, status: "relieved" });
+    db.queryOne.mockResolvedValueOnce({ ...staff, status: "relieved" });
 
-    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qrCodeVersion);
+    const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects a stale token after the staff member's QR code has been reissued", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce({ ...staff, qrCodeVersion: 2 });
+    db.queryOne.mockResolvedValueOnce({ ...staff, qr_code_version: 2 });
 
     const staleToken = qrToken.generate("staff", "tenant-1", staff.id, 1);
     await expect(service.scanMark("tenant-1", "actor-1", staleToken)).rejects.toBeInstanceOf(UnauthorizedException);
@@ -249,11 +266,11 @@ describe("StaffAttendanceService.scanMark", () => {
   it("rejects a student-type QR code", async () => {
     const token = qrToken.generate("student", "tenant-1", "student-1", 1);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.staff.findFirst).not.toHaveBeenCalled();
+    expect(db.queryOne).not.toHaveBeenCalled();
   });
 
   it("rejects when the staff member doesn't exist in this tenant", async () => {
-    prisma.staff.findFirst.mockResolvedValueOnce(null);
+    db.queryOne.mockResolvedValueOnce(null);
 
     const token = qrToken.generate("staff", "tenant-1", "ghost-staff", 1);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(NotFoundException);

@@ -17,18 +17,23 @@ export class StaffAttendanceController {
 
   @Get("roster")
   @RequirePermission("staff_attendance.view")
-  roster(@Query("branch_id") branchId: string, @Query("attendance_date") attendanceDate: string) {
-    return this.staffAttendanceService.getRoster(branchId, attendanceDate);
+  roster(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("attendance_date") attendanceDate: string,
+  ) {
+    return this.staffAttendanceService.getRoster(user.tenant_id, branchId, attendanceDate);
   }
 
   @Get("roster-range")
   @RequirePermission("staff_attendance.view")
   rosterRange(
+    @CurrentUser() user: JwtPayload,
     @Query("branch_id") branchId: string,
     @Query("start_date") startDate: string,
     @Query("end_date") endDate: string,
   ) {
-    return this.staffAttendanceService.getRosterRange(branchId, startDate, endDate);
+    return this.staffAttendanceService.getRosterRange(user.tenant_id, branchId, startDate, endDate);
   }
 
   @Post()
@@ -51,8 +56,8 @@ export class StaffAttendanceController {
 
   @Get("staff/:staffId/history")
   @RequirePermission("staff_attendance.view")
-  history(@Param("staffId") staffId: string) {
-    return this.staffAttendanceService.getStaffHistory(staffId);
+  history(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
+    return this.staffAttendanceService.getStaffHistory(user.tenant_id, staffId);
   }
 
   @Get("report")
