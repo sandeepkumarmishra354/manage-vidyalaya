@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 import { chromium, request as apiRequest } from "@playwright/test";
 
+import { getSandboxChromiumExecutablePath } from "./chromium-executable.js";
 import { AUTH_DIR, PERSONAS, authFilePath, type PersonaName } from "./personas.js";
 
 // localStorage keys apps/web/src/lib/http.ts stores tokens under -- kept in
@@ -20,7 +21,8 @@ export default async function globalSetup() {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
   const apiContext = await apiRequest.newContext({ baseURL: API_URL });
-  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const executablePath = getSandboxChromiumExecutablePath();
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
   try {
     for (const [name, creds] of Object.entries(PERSONAS) as [PersonaName, (typeof PERSONAS)[PersonaName]][]) {
