@@ -63,13 +63,15 @@ export class AuthService {
   // `email` is only unique per (tenant_id, email) -- the same email can
   // legitimately exist in two different schools' tenants -- so a plain
   // cross-tenant email scan is ambiguous the moment more than one tenant
-  // exists. When the frontend can tell us which school's subdomain the
-  // login came from, we resolve that to a tenant first (still a tenant-less
-  // lookup, via queryUnscoped) and then scope the user lookup to it through
-  // the normal RLS-enforced path, which is unambiguous. When it can't
-  // (local dev, or a tenant with no subdomain assigned yet), we fall back
-  // to the old tenant-less scan via queryUnscoped, since that path never
-  // learns a tenantId to scope a normal query by.
+  // exists. `subdomain` is derived by the caller (AuthController, via
+  // common/subdomain.ts's deriveSubdomainFromRequest) from the request's
+  // Origin/Referer header, not supplied by the client body -- when present,
+  // we resolve it to a tenant first (still a tenant-less lookup, via
+  // queryUnscoped) and then scope the user lookup to it through the normal
+  // RLS-enforced path, which is unambiguous. When it's absent (local dev,
+  // or a tenant with no subdomain assigned yet), we fall back to the old
+  // tenant-less scan via queryUnscoped, since that path never learns a
+  // tenantId to scope a normal query by.
   async login(email: string, password: string, subdomain?: string): Promise<LoginResult> {
     let tenantId: string | undefined;
     if (subdomain) {

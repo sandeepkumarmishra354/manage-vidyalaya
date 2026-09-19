@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MinLength } from "class-validator";
+import { IsEmail, IsString, MinLength } from "class-validator";
 
 export class LoginDto {
   @IsEmail()
@@ -8,11 +8,9 @@ export class LoginDto {
   @MinLength(1)
   password!: string;
 
-  // The school's subdomain, derived client-side from window.location.hostname
-  // -- lets the backend resolve the exact tenant instead of scanning every
-  // tenant by email alone. Optional so local dev / a tenant with no
-  // subdomain assigned yet still logs in via the old fallback path.
-  @IsOptional()
-  @IsString()
-  subdomain?: string;
+  // The school's subdomain is deliberately NOT a field here -- trusting a
+  // client-supplied value would let anyone claim any tenant. AuthController
+  // derives it itself from the request's Origin/Referer header instead (see
+  // common/subdomain.ts), which a browser sets from the page's real URL and
+  // page JavaScript cannot override.
 }
