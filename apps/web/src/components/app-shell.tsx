@@ -14,6 +14,7 @@ import {
   LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MenuIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   ReceiptIndianRupeeIcon,
@@ -46,6 +47,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 const SIDEBAR_COLLAPSED_KEY = "vidyalaya.sidebar_collapsed";
 
@@ -184,6 +186,96 @@ function BranchLogo({ url }: { url: string | null | undefined }) {
   return <img src={url} alt="" className="size-full object-cover" onError={() => setFailedUrl(url)} />;
 }
 
+interface SidebarContentProps {
+  collapsed: boolean;
+  isModuleEnabled: (module: ModuleKey) => boolean;
+  hasPermission: (permission: string) => boolean;
+  /** Fired when a nav link is clicked -- used to close the mobile drawer after navigating. */
+  onNavigate?: () => void;
+}
+
+/**
+ * The sidebar's brand header, nav sections, and footer link -- shared
+ * between the permanent desktop/tablet `<aside>` (which can be
+ * icon-collapsed) and the mobile `Sheet` drawer (always shown expanded,
+ * closing itself on navigation via `onNavigate`).
+ */
+function SidebarContent({ collapsed, isModuleEnabled, hasPermission, onNavigate }: SidebarContentProps) {
+  return (
+    <>
+      <div className={cn("flex items-center gap-2.5 px-5 py-5", collapsed && "justify-center px-0")}>
+        <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl shadow-lg shadow-primary/30">
+          <GraduationCapIcon className="size-5 text-white" />
+        </div>
+        {!collapsed && <span className="text-lg font-semibold tracking-tight">Vidyalaya</span>}
+      </div>
+      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4">
+        {navSections.map((section) => {
+          const visibleItems = section.items.filter(
+            (item) =>
+              (!item.module || isModuleEnabled(item.module)) &&
+              (!item.permission || hasPermission(item.permission)) &&
+              (!item.anyPermission || item.anyPermission.some((p) => hasPermission(p))),
+          );
+          if (visibleItems.length === 0) return null;
+          const accent = ACCENT_STYLES[section.accent];
+          return (
+            <div key={section.label || "main"} className="flex flex-col gap-1">
+              {section.label && !collapsed && (
+                <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-foreground/45 uppercase">
+                  {section.label}
+                </p>
+              )}
+              {visibleItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  title={collapsed ? item.label : undefined}
+                  onClick={onNavigate}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      collapsed && "justify-center px-0",
+                      isActive
+                        ? cn(accent.activeBg, accent.activeText, "shadow-sm")
+                        : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <item.icon className={cn("size-4 shrink-0", isActive ? accent.icon : "")} />
+                      {!collapsed && item.label}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+      <a
+        href="https://www.vsen.ai/"
+        target="_blank"
+        rel="noreferrer"
+        title={collapsed ? "Powered by VSEN" : undefined}
+        className={cn(
+          "mx-3 mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70",
+          collapsed && "justify-center px-0",
+        )}
+      >
+        <img src="/vsen-logo.png" alt="" className="size-4 shrink-0 object-contain" />
+        {!collapsed && (
+          <span>
+            Powered by <span className="font-semibold">VSEN</span>
+          </span>
+        )}
+      </a>
+    </>
+  );
+}
+
 export function AppShell() {
   const session = useAppStore((s) => s.session);
   const tenant = useAppStore((s) => s.tenant);
@@ -201,6 +293,12 @@ export function AppShell() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
+
+  // The drawer is a separate open/close boolean from the desktop `collapsed`
+  // state -- they're different concepts (icon-only vs. hidden entirely) and
+  // only one of the two nav surfaces is ever visible at a given viewport
+  // width, so nothing keeps them in sync.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // The access token doesn't change without a reload of this component
   // tree, so computing this once (rather than re-decoding on every render)
@@ -222,175 +320,128 @@ export function AppShell() {
     .toUpperCase();
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      <aside
-        className={cn(
-          "relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200",
-          collapsed ? "w-16" : "w-64",
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-6 -right-3 z-10 size-6 rounded-full border bg-sidebar text-sidebar-foreground/70 shadow-sm hover:bg-sidebar-accent"
-          onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <PanelLeftOpenIcon className="size-3.5" /> : <PanelLeftCloseIcon className="size-3.5" />}
-        </Button>
-        <div className={cn("flex items-center gap-2.5 px-5 py-5", collapsed && "justify-center px-0")}>
-          <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl shadow-lg shadow-primary/30">
-            <GraduationCapIcon className="size-5 text-white" />
-          </div>
-          {!collapsed && <span className="text-lg font-semibold tracking-tight">Vidyalaya</span>}
-        </div>
-        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4">
-          {navSections.map((section) => {
-            const visibleItems = section.items.filter(
-              (item) =>
-                (!item.module || isModuleEnabled(item.module)) &&
-                (!item.permission || hasPermission(item.permission)) &&
-                (!item.anyPermission || item.anyPermission.some((p) => hasPermission(p))),
-            );
-            if (visibleItems.length === 0) return null;
-            const accent = ACCENT_STYLES[section.accent];
-            return (
-              <div key={section.label || "main"} className="flex flex-col gap-1">
-                {section.label && !collapsed && (
-                  <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-foreground/45 uppercase">
-                    {section.label}
-                  </p>
-                )}
-                {visibleItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        collapsed && "justify-center px-0",
-                        isActive
-                          ? cn(accent.activeBg, accent.activeText, "shadow-sm")
-                          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                      )
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <item.icon className={cn("size-4 shrink-0", isActive ? accent.icon : "")} />
-                        {!collapsed && item.label}
-                      </>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
-            );
-          })}
-        </nav>
-        <a
-          href="https://www.vsen.ai/"
-          target="_blank"
-          rel="noreferrer"
-          title={collapsed ? "Powered by VSEN" : undefined}
+    <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+      <div className="flex h-screen w-screen overflow-hidden">
+        <aside
           className={cn(
-            "mx-3 mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70",
-            collapsed && "justify-center px-0",
+            "relative hidden shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 lg:flex",
+            collapsed ? "w-16" : "w-64",
           )}
         >
-          <img src="/vsen-logo.png" alt="" className="size-4 shrink-0 object-contain" />
-          {!collapsed && (
-            <span>
-              Powered by <span className="font-semibold">VSEN</span>
-            </span>
-          )}
-        </a>
-      </aside>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-6 -right-3 z-10 size-6 rounded-full border bg-sidebar text-sidebar-foreground/70 shadow-sm hover:bg-sidebar-accent"
+            onClick={() => setCollapsed((c) => !c)}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpenIcon className="size-3.5" /> : <PanelLeftCloseIcon className="size-3.5" />}
+          </Button>
+          <SidebarContent collapsed={collapsed} isModuleEnabled={isModuleEnabled} hasPermission={hasPermission} />
+        </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex items-center justify-between border-b bg-card px-6 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
-              <BranchLogo url={currentBranch?.logo_url} />
-            </div>
-            <div className="flex min-w-0 flex-col justify-center leading-tight">
-              <span className="truncate text-sm font-semibold">{tenant?.name ?? "Vidyalaya"}</span>
-              {branches.length > 1 ? (
-                <Select value={selectedBranchId ?? undefined} onValueChange={selectBranch}>
-                  <SelectTrigger
-                    size="sm"
-                    className="h-auto w-fit gap-1 border-none bg-transparent p-0 text-xs text-muted-foreground shadow-none hover:text-foreground focus-visible:ring-0 data-[size=sm]:h-auto"
-                  >
-                    <SelectValue placeholder="Select branch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.id}>
-                        {branch.name} ({branch.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                currentBranch && <span className="truncate text-xs text-muted-foreground">{currentBranch.name}</span>
-              )}
-            </div>
-          </div>
+        <SheetContent
+          side="left"
+          className="w-72 gap-0 bg-sidebar p-0 text-sidebar-foreground [&>button]:text-sidebar-foreground/70"
+        >
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SidebarContent
+            collapsed={false}
+            isModuleEnabled={isModuleEnabled}
+            hasPermission={hasPermission}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
 
-          <div className="flex items-center gap-4">
-            {currentAcademicSession && (
-              <Badge variant="outline" className="gap-1 text-xs font-normal">
-                <CalendarClockIcon className="size-3" />
-                {currentAcademicSession.name}
-              </Badge>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="gap-2 px-2">
-                  <Avatar className="size-7">
-                    <AvatarFallback className="bg-primary/10 text-primary">{initials}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium">{session?.full_name}</span>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <header className="flex items-center justify-between gap-2 border-b bg-card px-3 py-3 sm:px-6">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" title="Open menu">
+                  <MenuIcon className="size-5" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{session?.email}</DropdownMenuLabel>
-                {(roles.length > 0 || sessionStartedAt) && (
-                  <div className="flex flex-col gap-1.5 px-2 py-1.5">
-                    {roles.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {roles.map((role) => (
-                          <Badge key={role} variant="secondary" className="text-[10px] capitalize">
-                            {role.replace(/_/g, " ")}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {sessionStartedAt && (
-                      <p className="text-xs text-muted-foreground">Active since {formatRelativeSince(sessionStartedAt)}</p>
-                    )}
-                  </div>
+              </SheetTrigger>
+              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+                <BranchLogo url={currentBranch?.logo_url} />
+              </div>
+              <div className="flex min-w-0 flex-col justify-center leading-tight">
+                <span className="truncate text-sm font-semibold">{tenant?.name ?? "Vidyalaya"}</span>
+                {branches.length > 1 ? (
+                  <Select value={selectedBranchId ?? undefined} onValueChange={selectBranch}>
+                    <SelectTrigger
+                      size="sm"
+                      className="h-auto w-fit gap-1 border-none bg-transparent p-0 text-xs text-muted-foreground shadow-none hover:text-foreground focus-visible:ring-0 data-[size=sm]:h-auto"
+                    >
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch.id} value={branch.id}>
+                          {branch.name} ({branch.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  currentBranch && <span className="truncate text-xs text-muted-foreground">{currentBranch.name}</span>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={async () => {
-                    await logout();
-                    navigate("/login");
-                  }}
-                >
-                  <LogOutIcon />
-                  Log out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
+              </div>
+            </div>
 
-        <main className="flex-1 overflow-y-auto bg-muted/40 p-6">
-          <Outlet />
-        </main>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+              {currentAcademicSession && (
+                <Badge variant="outline" className="hidden gap-1 text-xs font-normal sm:flex">
+                  <CalendarClockIcon className="size-3" />
+                  {currentAcademicSession.name}
+                </Badge>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="gap-2 px-2">
+                    <Avatar className="size-7">
+                      <AvatarFallback className="bg-primary/10 text-primary">{initials}</AvatarFallback>
+                    </Avatar>
+                    <span className="hidden text-sm font-medium sm:inline">{session?.full_name}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{session?.email}</DropdownMenuLabel>
+                  {(roles.length > 0 || sessionStartedAt) && (
+                    <div className="flex flex-col gap-1.5 px-2 py-1.5">
+                      {roles.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {roles.map((role) => (
+                            <Badge key={role} variant="secondary" className="text-[10px] capitalize">
+                              {role.replace(/_/g, " ")}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      {sessionStartedAt && (
+                        <p className="text-xs text-muted-foreground">Active since {formatRelativeSince(sessionStartedAt)}</p>
+                      )}
+                    </div>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={async () => {
+                      await logout();
+                      navigate("/login");
+                    }}
+                  >
+                    <LogOutIcon />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto bg-muted/40 p-3 sm:p-6">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

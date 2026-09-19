@@ -115,7 +115,7 @@ export function EditStudentDialog({
               {form.status === "alumni" && <TabsTrigger value="alumni">Alumni</TabsTrigger>}
             </TabsList>
 
-            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-firstName">First name</Label>
                 <Input id="edit-firstName" value={form.first_name} onChange={update("first_name")} required />
@@ -202,7 +202,7 @@ export function EditStudentDialog({
               </div>
             </TabsContent>
 
-            <TabsContent value="additional" className="grid grid-cols-2 gap-4">
+            <TabsContent value="additional" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label>Category</Label>
                 <MasterDataSelect
@@ -251,18 +251,18 @@ export function EditStudentDialog({
                 <Label htmlFor="edit-emergencyContactPhone">Emergency contact phone</Label>
                 <Input id="edit-emergencyContactPhone" value={form.emergency_contact_phone ?? ""} onChange={update("emergency_contact_phone")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="edit-medicalNotes">Medical notes (allergies, conditions)</Label>
                 <Textarea id="edit-medicalNotes" value={form.medical_notes ?? ""} onChange={update("medical_notes")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="edit-notes">Notes</Label>
                 <Textarea id="edit-notes" value={form.notes ?? ""} onChange={update("notes")} />
               </div>
             </TabsContent>
 
             {form.status === "alumni" && (
-              <TabsContent value="alumni" className="grid grid-cols-2 gap-4">
+              <TabsContent value="alumni" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="edit-graduationYear">Graduation year</Label>
                   <Input
@@ -284,7 +284,7 @@ export function EditStudentDialog({
                   <Label htmlFor="edit-alumniContactEmail">Contact email</Label>
                   <Input id="edit-alumniContactEmail" type="email" value={form.alumni_contact_email ?? ""} onChange={update("alumni_contact_email")} />
                 </div>
-                <div className="col-span-2 flex flex-col gap-1.5">
+                <div className="sm:col-span-2 flex flex-col gap-1.5">
                   <Label htmlFor="edit-alumniNotes">Notes</Label>
                   <Textarea id="edit-alumniNotes" value={form.alumni_notes ?? ""} onChange={update("alumni_notes")} />
                 </div>

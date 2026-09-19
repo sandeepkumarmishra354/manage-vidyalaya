@@ -122,7 +122,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
               <TabsTrigger value="signature">Signature</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-firstName">First name</Label>
                 <Input id="edit-firstName" value={form.first_name} onChange={update("first_name")} required />
@@ -157,7 +157,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
               </div>
             </TabsContent>
 
-            <TabsContent value="employment" className="grid grid-cols-2 gap-4">
+            <TabsContent value="employment" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-employeeCode">Employee code</Label>
                 <Input id="edit-employeeCode" value={form.employee_code} onChange={update("employee_code")} required />
@@ -199,7 +199,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
               </div>
             </TabsContent>
 
-            <TabsContent value="contact" className="grid grid-cols-2 gap-4">
+            <TabsContent value="contact" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-phone">Phone</Label>
                 <Input id="edit-phone" value={form.phone ?? ""} onChange={update("phone")} />
@@ -208,7 +208,7 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
                 <Label htmlFor="edit-personalEmail">Personal email</Label>
                 <Input id="edit-personalEmail" value={form.personal_email ?? ""} onChange={update("personal_email")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="edit-address">Address</Label>
                 <Input id="edit-address" value={form.address ?? ""} onChange={update("address")} />
               </div>
@@ -232,13 +232,13 @@ export function EditStaffDialog({ staff, onUpdated }: { staff: Staff; onUpdated:
                 <Label htmlFor="edit-emergencyContactPhone">Emergency contact phone</Label>
                 <Input id="edit-emergencyContactPhone" value={form.emergency_contact_phone ?? ""} onChange={update("emergency_contact_phone")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="edit-notes">Notes</Label>
                 <Textarea id="edit-notes" value={form.notes ?? ""} onChange={update("notes")} />
               </div>
             </TabsContent>
 
-            <TabsContent value="statutory" className="grid grid-cols-2 gap-4">
+            <TabsContent value="statutory" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-panNumber">PAN</Label>
                 <Input id="edit-panNumber" value={form.pan_number ?? ""} onChange={update("pan_number")} />

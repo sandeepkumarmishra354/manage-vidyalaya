@@ -114,7 +114,7 @@ export function SalaryStructureTab({
   if (!canManage) {
     return structure ? (
       <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-y-3 text-sm">
+        <div className="grid grid-cols-1 gap-y-3 text-sm sm:grid-cols-2">
           <div>
             <p className="text-muted-foreground">Basic</p>
             <p className="font-medium">{formatPaise(structure.basic_amount)}</p>

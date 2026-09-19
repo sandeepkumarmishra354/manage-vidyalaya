@@ -419,7 +419,7 @@ function FeesTab({
   }
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total due</p>
@@ -740,8 +740,8 @@ function EditGuardianDialog({ guardian, onUpdated }: { guardian: StudentGuardian
       <DialogContent>
         <DialogHeader><DialogTitle>Edit guardian</DialogTitle></DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 flex flex-col gap-1.5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
               <Label>Full name</Label>
               <Input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} required />
             </div>
@@ -765,11 +765,11 @@ function EditGuardianDialog({ guardian, onUpdated }: { guardian: StudentGuardian
               <Label>Alternate phone</Label>
               <Input value={form.alt_phone ?? ""} onChange={(e) => setForm((f) => ({ ...f, alt_phone: e.target.value }))} />
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
               <Label>Email</Label>
               <Input value={form.email ?? ""} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
               <Label>Address</Label>
               <Input value={form.address ?? ""} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
             </div>

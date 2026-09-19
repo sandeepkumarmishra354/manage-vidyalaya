@@ -71,7 +71,7 @@ function ApplyLeaveDialog({ onApplied }: { onApplied: () => void }) {
           <DialogTitle>Apply for leave</DialogTitle>
         </DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="leave-start">Start date</Label>
               <Input
@@ -186,7 +186,7 @@ export function MyLeavePage() {
           <CardTitle className="text-base">Your requests</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table className="hidden sm:table">
             <TableHeader>
               <TableRow>
                 <TableHead>Dates</TableHead>
@@ -232,6 +232,34 @@ export function MyLeavePage() {
               )}
             </TableBody>
           </Table>
+
+          <div className="flex flex-col divide-y sm:hidden">
+            {requests.map((r) => (
+              <div key={r.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    {formatDate(r.start_date)}
+                    {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
+                  </p>
+                  <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
+                </div>
+                {r.is_half_day && <Badge variant="info" className="w-fit">Half day</Badge>}
+                {r.reason && <p className="text-sm text-muted-foreground">{r.reason}</p>}
+                {r.decision_note && <p className="text-xs text-muted-foreground">Note: {r.decision_note}</p>}
+                {r.status === "pending" && (
+                  <Button variant="outline" size="sm" className="w-fit" onClick={() => handleCancel(r.id)}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            ))}
+            {requests.length === 0 && (
+              <p className="py-8 text-center text-muted-foreground">
+                <CalendarOffIcon className="mx-auto mb-2 size-6 text-muted-foreground/60" />
+                No leave requests yet.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

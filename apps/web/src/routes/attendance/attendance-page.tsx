@@ -275,7 +275,7 @@ export function AttendancePage() {
                 </div>
 
                 <div className="rounded-lg border" data-no-print>
-                  <Table>
+                  <Table className="hidden sm:table">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Student</TableHead>
@@ -326,6 +326,46 @@ export function AttendancePage() {
                       )}
                     </TableBody>
                   </Table>
+
+                  {/* Card list below sm -- a two-column table with a 160px
+                      Select per row is a poor touch target on a phone;
+                      stacking name-over-status per card keeps the same data
+                      reachable without sideways scrolling. */}
+                  <div className="divide-y sm:hidden">
+                    {roster.map((entry) => (
+                      <div key={entry.student_id} className="flex items-center justify-between gap-3 p-3">
+                        <PersonLink
+                          type="student"
+                          id={entry.student_id}
+                          name={`${entry.first_name} ${entry.last_name ?? ""}`}
+                        />
+                        {canMark ? (
+                          <Select
+                            value={entry.status ?? undefined}
+                            onValueChange={(v) => setStatus(entry.student_id, v as AttendanceStatus)}
+                          >
+                            <SelectTrigger className="w-32 shrink-0">
+                              <SelectValue placeholder="Not marked" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUS_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="shrink-0 text-sm text-muted-foreground">
+                            {STATUS_OPTIONS.find((opt) => opt.value === entry.status)?.label ?? "Not marked"}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {roster.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No students in this class/section.</p>
+                    )}
+                  </div>
                 </div>
 
                 {roster.length > 0 && canMark && (
@@ -446,7 +486,7 @@ export function AttendancePage() {
             </div>
 
             <div className="rounded-lg border">
-              <Table>
+              <Table className="hidden sm:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
@@ -493,6 +533,41 @@ export function AttendancePage() {
                   )}
                 </TableBody>
               </Table>
+
+              <div className="divide-y sm:hidden">
+                {staffRoster.map((r) => (
+                  <div key={r.staff_id} className="flex items-center justify-between gap-3 p-3">
+                    <div className="min-w-0">
+                      <PersonLink type="staff" id={r.staff_id} name={`${r.first_name} ${r.last_name ?? ""}`} />
+                      <p className="truncate text-xs text-muted-foreground">{r.designation}</p>
+                    </div>
+                    {canMarkStaff ? (
+                      <Select
+                        value={staffStatuses[r.staff_id] ?? "present"}
+                        onValueChange={(v) => setStaffStatuses((s) => ({ ...s, [r.staff_id]: v as AttendanceStatus }))}
+                      >
+                        <SelectTrigger className="w-32 shrink-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STAFF_STATUS_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s.replace("_", " ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="shrink-0 text-sm capitalize">
+                        {(staffStatuses[r.staff_id] ?? "present").replace("_", " ")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {staffRoster.length === 0 && (
+                  <p className="py-8 text-center text-muted-foreground">No active staff at this branch.</p>
+                )}
+              </div>
             </div>
           </TabsContent>
 

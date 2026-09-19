@@ -110,7 +110,7 @@ function PermissionMatrix({ role }: { role: Role }) {
           {isSaving ? "Saving..." : "Save permissions"}
         </Button>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3">
+      <CardContent className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 md:grid-cols-3">
         {[...grouped.entries()].map(([module, entries]) => (
           <div key={module} className="flex flex-col gap-1.5">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{module.replace("_", " ")}</p>
