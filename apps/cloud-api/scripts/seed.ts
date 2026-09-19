@@ -210,7 +210,7 @@ async function main() {
       await client.query(
         `INSERT INTO staff_categories (id, tenant_id, name, is_system, updated_at)
          VALUES ($1, $2, $3, true, $4)
-         ON CONFLICT (tenant_id, name) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, name, now],
       );
     }
@@ -219,7 +219,7 @@ async function main() {
       await client.query(
         `INSERT INTO fee_categories (id, tenant_id, key, name, is_system, updated_at)
          VALUES ($1, $2, $3, $4, true, $5)
-         ON CONFLICT (tenant_id, key) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, key) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, key, name, now],
       );
     }
@@ -228,7 +228,7 @@ async function main() {
       await client.query(
         `INSERT INTO master_data_items (id, tenant_id, type, name, is_system, updated_at)
          VALUES ($1, $2, $3, $4, true, $5)
-         ON CONFLICT (tenant_id, type, name) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, type, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, type, name, now],
       );
     }
