@@ -131,14 +131,74 @@ email flow exists) and login rate-limiting.
   (see item 3 above) already gets real random UUIDs throughout.
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
+- **A multi-branch, multi-role Playwright E2E suite** (`apps/e2e/`, run via
+  `pnpm test:e2e`) covers the whole app end to end, not just unit-tested
+  business logic -- 150+ tests across 6 personas (`super_admin`,
+  `branch_admin`, `accountant`, `front_desk`, and two `teacher` logins
+  wired into real class-teacher/subject-assignment rows, so
+  `ScopedAccessService`'s additive authorization paths are actually
+  exercised, not just flat permissions) and 2 branches (`Main Campus`,
+  the original demo branch kept pristine for human demos, and
+  `North Campus`, a second seeded branch that's this suite's sandbox for
+  everything that creates or mutates data). Coverage: cross-branch and
+  cross-tenant data isolation, every route's permission boundary, the
+  full academic lifecycle (admissions through promotion, timetable,
+  school calendar), the full money-flow lifecycle (fee invoices,
+  discounts, payroll runs, expenses), and one lifecycle test per
+  remaining module (library, transport, houses, documents, QR scan
+  attendance, dashboard, roles/users/audit log, master data). Runs in CI
+  on every push/PR (`.github/workflows/e2e.yml`) against a fresh Postgres
+  service container. See `apps/e2e/README.md` for the persona table and
+  how to run it locally.
+  - Writing this suite found and fixed three real bugs of the same root
+    cause (soft-deleting a row leaves its unique-index slot permanently
+    occupied, so recreating it later throws an unhandled 500): the
+    original timetable period-slot `sort_order` collision, a payroll-run
+    period-reuse bug, and 9 further tables found by auditing every
+    soft-delete call site the same way once the pattern was recognized
+    (`calendar_holidays`, `class_subjects`, `subject_elective_groups`,
+    `subject_elective_group_members`, `fee_categories`, `fee_discounts`,
+    `master_data_items`, `staff_categories`, `roles`,
+    `teacher_subject_assignments`) -- all fixed by replacing the plain
+    unique index with one scoped to `WHERE deleted_at IS NULL`. Worth
+    keeping in mind for any *new* soft-deletable table added later: give
+    its unique index the same `WHERE deleted_at IS NULL` clause from the
+    start, or reuse-the-existing-row-via-`ON CONFLICT` the way
+    `fee_discounts`' student-assignment path and `timetable_entries`
+    already do.
 
 ### 5. Security basics
 
-- Rate-limit `/auth/login` on cloud-api (a few attempts per IP/email per
-  minute) -- right now it's uncapped, which is a brute-force risk.
-  `@nestjs/throttler` is a one-file addition. **Fast-follow, not yet
-  done** -- becomes more urgent once real schools depend on this rather
-  than a single demo tenant (see item 3 above).
+- ~~Rate-limit `/auth/login`~~ **Done.** `@nestjs/throttler` is wired in
+  globally (`ThrottlerModule` + `APP_GUARD` in `app.module.ts`), with a
+  generous baseline (300 requests/60s per IP) across every endpoint as a
+  defense-in-depth floor against basic scripted abuse, plus two much
+  stricter overrides on the endpoints that actually matter:
+  - `POST /auth/login`: 10 attempts/60s, bucketed by **(source IP, target
+    email)** rather than IP alone (`auth/login-throttle-key.ts`) -- an
+    attacker guessing one account's password gets capped regardless of
+    which email they're trying, without also locking out every other
+    staff member logging into their own account from behind the same
+    school's shared NAT IP.
+  - `POST /users/:id/reset-password`: 10 attempts/60s per IP, on top of
+    its existing `users.manage` permission gate -- defense-in-depth
+    against a compromised/malicious admin session mass-resetting
+    passwords.
+  - `GET /health` is exempt (`@SkipThrottle()`) since it's hit
+    continuously by uptime monitors/load balancers/readiness probes.
+  - **`TRUST_PROXY=1`** must be set once deployed behind the Caddy/nginx
+    reverse proxy from item 1 above -- otherwise every request looks
+    like it comes from the proxy's own IP, collapsing every real client
+    into one shared rate-limit bucket. Never set it on a directly
+    internet-facing instance (lets a client spoof its IP and dodge the
+    limit). See the `TRUST_PROXY` comment in `src/main.ts` and
+    `.env.example`.
+  - The E2E suite (`apps/e2e/`) legitimately logs the same fixed persona
+    emails in far more than 10 times/minute from one IP across its
+    150+ tests -- it sets `THROTTLE_DISABLED=1` on cloud-api's own
+    `webServer` entry (`playwright.config.ts`) and in the CI workflow's
+    `.env`, wired so this can never accidentally end up set in
+    production. Never set it outside test environments.
 - Password reset flow. Right now there's login and nothing else -- a school
   admin *will* forget their password. At minimum: an admin-triggered reset
   (you reset it for them) is acceptable for your first client; a proper
@@ -149,16 +209,23 @@ email flow exists) and login rate-limiting.
   now covers every create/update/delete across every module (see
   `docs/architecture.md`'s "Audit log" section), with an admin-facing
   filterable viewer.
-- **Lock down CORS before going live.** cloud-api's CORS allowlist is
-  controlled by the `CORS_ALLOWED_ORIGINS` env var
-  (`apps/cloud-api/src/common/cors.ts`), a comma-separated list of exact
-  origins or single-level subdomain wildcards, e.g.
-  `CORS_ALLOWED_ORIGINS="https://app.yourdomain.tld,https://*.yourdomain.tld"`
-  -- the wildcard covers every school's subdomain in one entry, so you
-  don't need to add an entry per school onboarded. Leaving it unset
-  allows every origin (harmless in local dev; a genuine open door in
-  production) -- set it as part of the same deploy that first ships a
-  real browser-facing origin, not as a follow-up.
+- ~~Lock down CORS before going live~~ **Done** (the mechanism; setting
+  the env var for your actual production origin is still a deploy-time
+  step). cloud-api's CORS allowlist is controlled by the
+  `CORS_ALLOWED_ORIGINS` env var (`apps/cloud-api/src/common/cors.ts`), a
+  comma-separated list of exact origins or single-level subdomain
+  wildcards. For `managevidya.in`:
+  ```
+  CORS_ALLOWED_ORIGINS="https://managevidya.in,https://*.managevidya.in"
+  ```
+  -- the wildcard covers every school's subdomain
+  (`school1.managevidya.in`, `school2.managevidya.in`, ...) in one entry,
+  so no CORS change is needed when onboarding a new school; the bare
+  apex is listed separately in case the marketing/login-landing page is
+  ever served from there. Leaving it unset allows every origin (harmless
+  in local dev; a genuine open door in production) -- **set it as part
+  of the same deploy that first ships a real browser-facing origin**, not
+  as a follow-up.
 - Run the `security-review` workflow (or equivalent manual review) against
   the current diff before your first deploy, specifically checking: every
   raw SQL query is parameterized (`$1`/`$2`/...), never built by
@@ -251,18 +318,23 @@ email flow exists) and login rate-limiting.
   become production the moment real student data goes in, and by then
   it's much harder to migrate.
 - Don't leave cloud-api's CORS wide open past your first real deploy --
-  it's a one-line fix (see Security basics above) and easy to forget
-  precisely because an open CORS config doesn't break anything visibly.
+  setting `CORS_ALLOWED_ORIGINS` (see Security basics above) is a one-line
+  fix and easy to forget precisely because an open CORS config doesn't
+  break anything visibly. Set `TRUST_PROXY=1` in the same deploy, or the
+  rate limiter will bucket every real client behind your reverse proxy
+  together instead of by their actual IP.
 
 ## Suggested immediate next steps, in order
 
 1. Stand up cloud-api on a real VM with HTTPS + automated Postgres backups.
 2. Deploy `apps/web`'s static build to a real host and domain, with
-   `VITE_API_BASE_URL` pointed at cloud-api, then lock cloud-api's CORS
-   down to that domain.
+   `VITE_API_BASE_URL` pointed at cloud-api, then set
+   `CORS_ALLOWED_ORIGINS` (see Security basics above) and `TRUST_PROXY=1`
+   for that domain.
 3. Build the minimal manual tenant-provisioning path (random UUIDs, no more
    hardcoded demo tenant) and an admin-triggered password reset.
-4. Add login rate-limiting. (Audit logging itself is done -- see above.)
+4. ~~Add login rate-limiting.~~ **Done** -- see Security basics above.
+   (Audit logging itself is done too -- see above.)
 5. Get a privacy policy/ToS drafted (DPDP-aware) and a one-page service
    agreement.
 6. Pilot with one real school, watching closely, before taking on a second.

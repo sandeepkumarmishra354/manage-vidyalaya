@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
@@ -36,6 +37,10 @@ export class UsersController {
 
   @Post(":id/reset-password")
   @RequirePermission("users.manage")
+  // Already gated by auth + users.manage, but a compromised/malicious
+  // admin session shouldn't be able to mass-reset passwords rapidly --
+  // defense-in-depth on top of the flat permission check.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async resetPassword(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ResetPasswordDto) {
     await this.usersService.resetPassword(user.tenant_id, user.sub, id, dto.password);
     return { ok: true };

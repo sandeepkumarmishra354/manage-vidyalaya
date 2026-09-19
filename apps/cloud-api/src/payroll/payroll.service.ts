@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
 import { DbService } from "../db/db.service.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
 import { dayWeight, SchoolCalendarService } from "../school-calendar/school-calendar.service.js";
@@ -252,16 +253,23 @@ export class PayrollService {
         attendanceByStaff.set(record.staff_id, staffDays);
       }
 
-      await insertRow<PayrollRunRow>(client, "payroll_runs", tenantId, {
-        id: runId,
-        branch_id: dto.branch_id,
-        period_month: dto.period_month,
-        period_year: dto.period_year,
-        status: "draft",
-        generated_at: now,
-        generated_by: actorUserId,
-        updated_at: now,
-      });
+      try {
+        await insertRow<PayrollRunRow>(client, "payroll_runs", tenantId, {
+          id: runId,
+          branch_id: dto.branch_id,
+          period_month: dto.period_month,
+          period_year: dto.period_year,
+          status: "draft",
+          generated_at: now,
+          generated_by: actorUserId,
+          updated_at: now,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new ConflictException("a payroll run already exists for this branch and period");
+        }
+        throw error;
+      }
 
       const payslips = [];
 

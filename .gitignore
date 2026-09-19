@@ -26,3 +26,9 @@ Thumbs.db
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Playwright E2E (apps/e2e) -- saved auth tokens and run artifacts, never checked in
+apps/e2e/.auth/
+apps/e2e/test-results/
+apps/e2e/playwright-report/
+apps/e2e/blob-report/

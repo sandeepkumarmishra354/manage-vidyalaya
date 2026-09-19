@@ -23,6 +23,12 @@ const DEMO_BRANCH_ID = "00000000-0000-0000-0000-000000000002";
 const DEMO_ADMIN_EMAIL = "admin@demo.vidyalaya.in";
 const DEMO_ADMIN_PASSWORD = "vidyalaya-demo";
 
+// A second, real, presentable branch -- doubles as the sandbox the
+// Playwright E2E suite (apps/e2e/) creates/mutates test data in, so "Main
+// Campus" stays untouched for human demos. Fixed id for the same
+// re-run-safety reason as DEMO_BRANCH_ID.
+const NORTH_BRANCH_ID = "00000000-0000-0000-0000-000000000003";
+
 // Fixed ids, same reason as DEMO_TENANT_ID/DEMO_BRANCH_ID above: re-running
 // this script (e.g. after a schema reset) must upsert the same rows rather
 // than creating duplicates, and `roles` has a UNIQUE (tenant_id, name)
@@ -39,6 +45,55 @@ const DEFAULT_ROLES: { id: string; name: string; permissions: readonly string[] 
   { id: DEMO_ROLE_ACCOUNTANT_ID, name: "accountant", permissions: SYSTEM_ROLE_PERMISSIONS.accountant },
   { id: DEMO_ROLE_TEACHER_ID, name: "teacher", permissions: SYSTEM_ROLE_PERMISSIONS.teacher },
   { id: DEMO_ROLE_FRONT_DESK_ID, name: "front_desk", permissions: SYSTEM_ROLE_PERMISSIONS.front_desk },
+];
+
+// QA/E2E persona logins -- one per remaining default role, plus two teacher
+// logins (a class teacher and a subject-assigned teacher) so
+// ScopedAccessService's additive authorization paths (isClassTeacherOfSection,
+// isAssignedToSubject) have real staff/assignment data to exercise, not just
+// the flat `teacher` permission set. All share one well-known password.
+// Every persona gets a real `staff` row (linked via user_id) since
+// ScopedAccessService.getActingStaff resolves a logged-in user to their
+// staff record that way -- a login with no backing staff row wouldn't work
+// correctly as a teacher persona.
+const QA_PERSONA_PASSWORD = "vidyalaya-qa-2026";
+
+const QA_PERSONAS: { email: string; fullName: string; employeeCode: string; designation: string; roleId: string }[] = [
+  {
+    email: "qa.branchadmin@demo.vidyalaya.in",
+    fullName: "QA Branch Admin",
+    employeeCode: "QA-BA-01",
+    designation: "Branch Administrator",
+    roleId: DEMO_ROLE_BRANCH_ADMIN_ID,
+  },
+  {
+    email: "qa.accountant@demo.vidyalaya.in",
+    fullName: "QA Accountant",
+    employeeCode: "QA-AC-01",
+    designation: "Accountant",
+    roleId: DEMO_ROLE_ACCOUNTANT_ID,
+  },
+  {
+    email: "qa.frontdesk@demo.vidyalaya.in",
+    fullName: "QA Front Desk",
+    employeeCode: "QA-FD-01",
+    designation: "Front Desk Executive",
+    roleId: DEMO_ROLE_FRONT_DESK_ID,
+  },
+  {
+    email: "qa.classteacher@demo.vidyalaya.in",
+    fullName: "QA Class Teacher",
+    employeeCode: "QA-CT-01",
+    designation: "Teacher",
+    roleId: DEMO_ROLE_TEACHER_ID,
+  },
+  {
+    email: "qa.subjectteacher@demo.vidyalaya.in",
+    fullName: "QA Subject Teacher",
+    employeeCode: "QA-ST-01",
+    designation: "Teacher",
+    roleId: DEMO_ROLE_TEACHER_ID,
+  },
 ];
 
 // Default StaffCategory rows seeded per tenant -- a broad classification,
@@ -109,6 +164,13 @@ async function main() {
       [DEMO_BRANCH_ID, DEMO_TENANT_ID, now],
     );
 
+    await client.query(
+      `INSERT INTO branches (id, tenant_id, name, code, city, updated_at)
+       VALUES ($1, $2, 'North Campus', 'NORTH', 'Gurugram', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [NORTH_BRANCH_ID, DEMO_TENANT_ID, now],
+    );
+
     for (const defaultRole of DEFAULT_ROLES) {
       await client.query(
         `INSERT INTO roles (id, tenant_id, name, is_system, updated_at)
@@ -148,7 +210,7 @@ async function main() {
       await client.query(
         `INSERT INTO staff_categories (id, tenant_id, name, is_system, updated_at)
          VALUES ($1, $2, $3, true, $4)
-         ON CONFLICT (tenant_id, name) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, name, now],
       );
     }
@@ -157,7 +219,7 @@ async function main() {
       await client.query(
         `INSERT INTO fee_categories (id, tenant_id, key, name, is_system, updated_at)
          VALUES ($1, $2, $3, $4, true, $5)
-         ON CONFLICT (tenant_id, key) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, key) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, key, name, now],
       );
     }
@@ -166,7 +228,7 @@ async function main() {
       await client.query(
         `INSERT INTO master_data_items (id, tenant_id, type, name, is_system, updated_at)
          VALUES ($1, $2, $3, $4, true, $5)
-         ON CONFLICT (tenant_id, type, name) DO UPDATE SET deleted_at = NULL`,
+         ON CONFLICT (tenant_id, type, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, type, name, now],
       );
     }
@@ -189,6 +251,32 @@ async function main() {
        ON CONFLICT (user_id, role_id) DO NOTHING`,
       [randomUUID(), DEMO_TENANT_ID, user.id, DEMO_ROLE_SUPER_ADMIN_ID, now],
     );
+
+    const qaPasswordHash = await bcrypt.hash(QA_PERSONA_PASSWORD, 10);
+    for (const persona of QA_PERSONAS) {
+      const { rows: personaUserRows } = await client.query<{ id: string }>(
+        `INSERT INTO users (id, tenant_id, full_name, email, password_hash, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = $5
+         RETURNING id`,
+        [randomUUID(), DEMO_TENANT_ID, persona.fullName, persona.email, qaPasswordHash, now],
+      );
+      const personaUser = personaUserRows[0];
+
+      await client.query(
+        `INSERT INTO staff (id, tenant_id, branch_id, user_id, employee_code, first_name, designation, date_of_joining, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+         ON CONFLICT (tenant_id, employee_code) DO UPDATE SET user_id = $4, updated_at = $8`,
+        [randomUUID(), DEMO_TENANT_ID, NORTH_BRANCH_ID, personaUser.id, persona.employeeCode, persona.fullName, persona.designation, now],
+      );
+
+      await client.query(
+        `INSERT INTO user_roles (id, tenant_id, user_id, role_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id, role_id) DO NOTHING`,
+        [randomUUID(), DEMO_TENANT_ID, personaUser.id, persona.roleId, now],
+      );
+    }
 
     await client.query("COMMIT");
   } catch (err) {

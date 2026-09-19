@@ -25,7 +25,11 @@
 -- become redundant but harmless. Not worth a mechanical sweep to delete
 -- them from every call site for a change with no behavioral effect.
 
-CREATE FUNCTION set_updated_at() RETURNS trigger
+-- Schema-qualified rather than relying on search_path -- a freshly
+-- created role (e.g. CI's) doesn't necessarily have `public` on its
+-- search_path even when it owns the database, and an unqualified CREATE
+-- FUNCTION then fails with "no schema has been selected to create in".
+CREATE FUNCTION public.set_updated_at() RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -34,66 +38,66 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.academic_sessions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.admissions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.attendance_records FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.branches FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.calendar_holidays FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.class_subjects FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.classes FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.exam_marks FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.exams FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.expenses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_categories FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_discounts FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_invoice_discounts FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_invoices FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_structures FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.guardians FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.house_point_events FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.houses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.library_books FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.library_issues FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.master_data_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.module_settings FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payroll_runs FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payslip_line_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payslips FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.period_slots FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.promotion_batch_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.promotion_batches FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.role_permissions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.roles FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.salary_components FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.salary_structures FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.school_calendars FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.sections FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_attendance FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_categories FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_documents FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_leave_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_documents FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_elective_choices FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_enrollments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_fee_assignments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_fee_discounts FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_guardians FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_houses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_transport FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subject_elective_group_members FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subject_elective_groups FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subjects FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.teacher_subject_assignments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.tenants FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.timetable_entries FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.transport_routes FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.transport_stops FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.user_roles FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.academic_sessions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.admissions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.attendance_records FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.branches FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.calendar_holidays FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.class_subjects FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.classes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.exam_marks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.exams FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.expenses FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_discounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_invoice_discounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_invoices FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.fee_structures FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.guardians FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.house_point_events FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.houses FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.library_books FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.library_issues FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.master_data_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.module_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payroll_runs FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payslip_line_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.payslips FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.period_slots FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.promotion_batch_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.promotion_batches FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.role_permissions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.roles FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.salary_components FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.salary_structures FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.school_calendars FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.sections FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_attendance FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_documents FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.staff_leave_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_documents FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_elective_choices FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_enrollments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_fee_assignments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_fee_discounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_guardians FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_houses FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.student_transport FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subject_elective_group_members FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subject_elective_groups FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.subjects FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.teacher_subject_assignments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.tenants FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.timetable_entries FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.transport_routes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.transport_stops FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.user_roles FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- Down Migration
 
@@ -158,4 +162,4 @@ DROP TRIGGER set_updated_at ON public.transport_stops;
 DROP TRIGGER set_updated_at ON public.user_roles;
 DROP TRIGGER set_updated_at ON public.users;
 
-DROP FUNCTION set_updated_at();
+DROP FUNCTION public.set_updated_at();

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import type { PoolClient } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -371,5 +371,35 @@ describe("PayrollService.generatePayrollRun", () => {
 
     expect(result.payslips).toHaveLength(0);
     expect(client.query.mock.calls.some(([text]) => /INSERT INTO payslips /.test(text as string))).toBe(false);
+  });
+
+  // Regression test: payroll_runs' (branch_id, period_month, period_year)
+  // unique index used to have no `WHERE deleted_at IS NULL` filter, so
+  // deleting a draft run and regenerating for the same period hit the
+  // index and threw an unhandled 500 -- the same soft-delete-leaves-a-
+  // live-uniqueness-slot bug class as the timetable period-slot fix. The
+  // index itself is now scoped to live rows (migration), and this covers
+  // the remaining case of a genuine duplicate against a still-live run:
+  // the raw unique-violation error must surface as a clean 409, not crash.
+  it("translates a unique-constraint clash on insert into a 409, not an unhandled error", async () => {
+    schoolCalendar.getDayTypesInRange.mockResolvedValueOnce({ "2026-02-01": "working" });
+    db.query.mockResolvedValueOnce([]);
+
+    client.query.mockImplementation(async (text: string) => {
+      if (/INSERT INTO payroll_runs/.test(text)) {
+        const error = new Error("duplicate key value violates unique constraint") as Error & { code: string };
+        error.code = "23505";
+        throw error;
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      service.generatePayrollRun("tenant-1", "actor-1", {
+        branch_id: "branch-1",
+        period_year: 2026,
+        period_month: 2,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });
