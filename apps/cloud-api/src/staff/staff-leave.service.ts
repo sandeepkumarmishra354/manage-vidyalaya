@@ -26,6 +26,7 @@ export interface StaffLeaveRequestRow extends TenantRow {
   decided_at: Date | null;
   decision_note: string | null;
   created_at: Date;
+  is_half_day: boolean;
 }
 
 function toListItem(r: StaffLeaveRequestRow) {
@@ -41,6 +42,7 @@ function toListItem(r: StaffLeaveRequestRow) {
     decided_at: r.decided_at,
     decision_note: r.decision_note,
     created_at: r.created_at,
+    is_half_day: r.is_half_day,
   };
 }
 
@@ -72,6 +74,9 @@ export class StaffLeaveService {
     if (dto.end_date < dto.start_date) {
       throw new BadRequestException("end date must be on or after the start date");
     }
+    if (dto.is_half_day && dto.start_date !== dto.end_date) {
+      throw new BadRequestException("half-day leave must have the same start and end date");
+    }
     const now = new Date();
 
     return this.db.withTransaction(tenantId, async (client) => {
@@ -83,6 +88,7 @@ export class StaffLeaveService {
         reason: dto.reason ?? null,
         status: "pending",
         requested_by_user_id: actorUserId,
+        is_half_day: dto.is_half_day ?? false,
         created_at: now,
         updated_at: now,
         updated_by: actorUserId,
@@ -127,6 +133,9 @@ export class StaffLeaveService {
     if (dto.end_date < dto.start_date) {
       throw new BadRequestException("end date must be on or after the start date");
     }
+    if (dto.is_half_day && dto.start_date !== dto.end_date) {
+      throw new BadRequestException("half-day leave must have the same start and end date");
+    }
 
     return this.db.withTransaction(tenantId, async (client) => {
       const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, dto.staff_id);
@@ -148,12 +157,22 @@ export class StaffLeaveService {
         requested_by_user_id: actorUserId,
         decided_by_user_id: actorUserId,
         decided_at: now,
+        is_half_day: dto.is_half_day ?? false,
         created_at: now,
         updated_at: now,
         updated_by: actorUserId,
       });
 
-      await this.writeAttendanceForRange(client, tenantId, staff.branch_id, staff.id, dto.start_date, dto.end_date, actorUserId);
+      await this.writeAttendanceForRange(
+        client,
+        tenantId,
+        staff.branch_id,
+        staff.id,
+        dto.start_date,
+        dto.end_date,
+        actorUserId,
+        dto.is_half_day ?? false,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -233,6 +252,7 @@ export class StaffLeaveService {
           existing.start_date.toISOString().slice(0, 10),
           existing.end_date.toISOString().slice(0, 10),
           actorUserId,
+          existing.is_half_day,
         );
       }
 
@@ -250,11 +270,15 @@ export class StaffLeaveService {
     });
   }
 
-  // Writes a StaffAttendance row (status "leave") for every date in the
-  // inclusive range, reusing the same upsert-by-(tenant,staff,date) shape
-  // as StaffAttendanceService.markAttendanceBulk. Payroll's LOP calculation
-  // already treats "leave" as a fully paid, non-deducted day, so no payroll
-  // changes are needed here.
+  // Writes a StaffAttendance row for every date in the inclusive range,
+  // reusing the same upsert-by-(tenant,staff,date) shape as
+  // StaffAttendanceService.markAttendanceBulk. Status is "leave" (fully
+  // paid, not counted in payroll's LOP calculation) unless isHalfDay, in
+  // which case it's "half_day" -- payroll's existing LOP calculation
+  // already treats half_day as 0.5 days present / 0.5 days LOP (half pay
+  // deduction), so no payroll.service.ts changes are needed here. Half-day
+  // only ever applies to a single date (enforced by the caller), so the
+  // loop below simply executes once in that case.
   private async writeAttendanceForRange(
     client: PoolClient,
     tenantId: string,
@@ -263,18 +287,20 @@ export class StaffLeaveService {
     startDate: string,
     endDate: string,
     actorUserId: string,
+    isHalfDay: boolean,
   ) {
     const now = new Date();
     const end = new Date(endDate);
+    const status = isHalfDay ? "half_day" : "leave";
     for (const d = new Date(startDate); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const attendanceDate = new Date(d);
       await client.query(
         `INSERT INTO staff_attendance (id, tenant_id, branch_id, staff_id, attendance_date, status, marked_by, updated_at, updated_by)
-         VALUES ($1, $2, $3, $4, $5, 'leave', $6, $7, $6)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7)
          ON CONFLICT (tenant_id, staff_id, attendance_date)
-         DO UPDATE SET status = 'leave', marked_by = EXCLUDED.marked_by,
+         DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by,
            updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, version = staff_attendance.version + 1`,
-        [randomUUID(), tenantId, branchId, staffId, attendanceDate, actorUserId, now],
+        [randomUUID(), tenantId, branchId, staffId, attendanceDate, status, actorUserId, now],
       );
     }
   }

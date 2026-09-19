@@ -135,3 +135,75 @@ describe("DashboardService.getStats", () => {
     ]);
   });
 });
+
+describe("DashboardService.getNeedsAttention", () => {
+  let db: ReturnType<typeof makeDbMock>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    db = makeDbMock();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("omits every section the caller has no permission for", async () => {
+    const scopedAccess = makeScopedAccessMock();
+    const service = new DashboardService(db, scopedAccess);
+
+    const result = await service.getNeedsAttention("tenant-1", "user-1", "branch-1");
+
+    expect(result).toEqual({});
+  });
+
+  it("returns pending leave requests with staff names and a total count when the caller has staff_leave.manage", async () => {
+    db.query.mockImplementation(async (_tenantId: string, text: string) => {
+      if (/FROM staff_leave_requests/.test(text)) {
+        return [
+          {
+            id: "leave-1",
+            staff_id: "staff-1",
+            start_date: new Date("2026-03-20T00:00:00.000Z"),
+            end_date: new Date("2026-03-20T00:00:00.000Z"),
+            staff_first_name: "Asha",
+            staff_last_name: "Rao",
+          },
+        ];
+      }
+      return [];
+    });
+    db.queryOne.mockImplementation(async (_tenantId: string, text: string) => {
+      if (/FROM staff_leave_requests/.test(text)) return { count: "3" };
+      return { paid: "0", due: "0", count: "0" };
+    });
+    const scopedAccess = makeScopedAccessMock({ "staff_leave.manage": true });
+    const service = new DashboardService(db, scopedAccess);
+
+    const result = await service.getNeedsAttention("tenant-1", "user-1", "branch-1");
+
+    expect(result.pending_leave).toEqual({
+      items: [
+        {
+          id: "leave-1",
+          staff_id: "staff-1",
+          staff_name: "Asha Rao",
+          start_date: new Date("2026-03-20T00:00:00.000Z"),
+          end_date: new Date("2026-03-20T00:00:00.000Z"),
+        },
+      ],
+      total_count: 3,
+    });
+  });
+
+  it("omits draft promotion batches from the query filter list of deleted_at, since that table has no such column", async () => {
+    const scopedAccess = makeScopedAccessMock({ "academic_setup.promote": true });
+    const service = new DashboardService(db, scopedAccess);
+
+    await service.getNeedsAttention("tenant-1", "user-1", "branch-1");
+
+    const promotionCall = db.query.mock.calls.find(([, text]) => /FROM promotion_batches/.test(text as string));
+    expect(promotionCall![1]).not.toMatch(/deleted_at/);
+  });
+});

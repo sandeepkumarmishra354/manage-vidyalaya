@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   BanknoteIcon,
@@ -14,6 +14,8 @@ import {
   LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   ReceiptIndianRupeeIcon,
   ScanLineIcon,
   ScrollTextIcon,
@@ -30,8 +32,11 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import type { ModuleKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getAccessToken } from "@/lib/http";
+import { getTokenIssuedAt } from "@/lib/jwt";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +46,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const SIDEBAR_COLLAPSED_KEY = "vidyalaya.sidebar_collapsed";
+
+// "3h ago" / "just now" -- deliberately not a full date library, this is
+// the only spot in the app that needs a single relative-time string.
+function formatRelativeSince(date: Date): string {
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 interface NavItem {
   to: string;
@@ -169,6 +187,7 @@ function BranchLogo({ url }: { url: string | null | undefined }) {
 export function AppShell() {
   const session = useAppStore((s) => s.session);
   const tenant = useAppStore((s) => s.tenant);
+  const roles = useAppStore((s) => s.roles);
   const branches = useAppStore((s) => s.branches);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const selectBranch = useAppStore((s) => s.selectBranch);
@@ -176,6 +195,20 @@ export function AppShell() {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const logout = useAppStore((s) => s.logout);
   const navigate = useNavigate();
+
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
+
+  // The access token doesn't change without a reload of this component
+  // tree, so computing this once (rather than re-decoding on every render)
+  // is enough -- and re-deriving from the JWT's iat, rather than a client-
+  // observed timestamp, is what makes it survive a page reload correctly.
+  const sessionStartedAt = useMemo(() => {
+    const token = getAccessToken();
+    return token ? getTokenIssuedAt(token) : null;
+  }, []);
 
   const currentBranch = branches.find((b) => b.id === selectedBranchId) ?? null;
 
@@ -188,12 +221,26 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
-      <aside className="flex w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="brand-gradient flex size-9 items-center justify-center rounded-xl shadow-lg shadow-primary/30">
+      <aside
+        className={cn(
+          "relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200",
+          collapsed ? "w-16" : "w-64",
+        )}
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute top-6 -right-3 z-10 size-6 rounded-full border bg-sidebar text-sidebar-foreground/70 shadow-sm hover:bg-sidebar-accent"
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <PanelLeftOpenIcon className="size-3.5" /> : <PanelLeftCloseIcon className="size-3.5" />}
+        </Button>
+        <div className={cn("flex items-center gap-2.5 px-5 py-5", collapsed && "justify-center px-0")}>
+          <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl shadow-lg shadow-primary/30">
             <GraduationCapIcon className="size-5 text-white" />
           </div>
-          <span className="text-lg font-semibold tracking-tight">Vidyalaya</span>
+          {!collapsed && <span className="text-lg font-semibold tracking-tight">Vidyalaya</span>}
         </div>
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4">
           {navSections.map((section) => {
@@ -207,7 +254,7 @@ export function AppShell() {
             const accent = ACCENT_STYLES[section.accent];
             return (
               <div key={section.label || "main"} className="flex flex-col gap-1">
-                {section.label && (
+                {section.label && !collapsed && (
                   <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-foreground/45 uppercase">
                     {section.label}
                   </p>
@@ -217,9 +264,11 @@ export function AppShell() {
                     key={item.to}
                     to={item.to}
                     end={item.end}
+                    title={collapsed ? item.label : undefined}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        collapsed && "justify-center px-0",
                         isActive
                           ? cn(accent.activeBg, accent.activeText, "shadow-sm")
                           : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -228,8 +277,8 @@ export function AppShell() {
                   >
                     {({ isActive }) => (
                       <>
-                        <item.icon className={cn("size-4", isActive ? accent.icon : "")} />
-                        {item.label}
+                        <item.icon className={cn("size-4 shrink-0", isActive ? accent.icon : "")} />
+                        {!collapsed && item.label}
                       </>
                     )}
                   </NavLink>
@@ -242,12 +291,18 @@ export function AppShell() {
           href="https://www.vsen.ai/"
           target="_blank"
           rel="noreferrer"
-          className="mx-3 mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70"
+          title={collapsed ? "Powered by VSEN" : undefined}
+          className={cn(
+            "mx-3 mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70",
+            collapsed && "justify-center px-0",
+          )}
         >
           <img src="/vsen-logo.png" alt="" className="size-4 shrink-0 object-contain" />
-          <span>
-            Powered by <span className="font-semibold">VSEN</span>
-          </span>
+          {!collapsed && (
+            <span>
+              Powered by <span className="font-semibold">VSEN</span>
+            </span>
+          )}
         </a>
       </aside>
 
@@ -293,6 +348,22 @@ export function AppShell() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{session?.email}</DropdownMenuLabel>
+                {(roles.length > 0 || sessionStartedAt) && (
+                  <div className="flex flex-col gap-1.5 px-2 py-1.5">
+                    {roles.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {roles.map((role) => (
+                          <Badge key={role} variant="secondary" className="text-[10px] capitalize">
+                            {role.replace(/_/g, " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {sessionStartedAt && (
+                      <p className="text-xs text-muted-foreground">Active since {formatRelativeSince(sessionStartedAt)}</p>
+                    )}
+                  </div>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={async () => {

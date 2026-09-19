@@ -14,4 +14,9 @@ export class DashboardController {
   stats(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
     return this.dashboardService.getStats(user.tenant_id, user.sub, branchId);
   }
+
+  @Get("needs-attention")
+  needsAttention(@CurrentUser() user: JwtPayload, @Query("branch_id") branchId: string) {
+    return this.dashboardService.getNeedsAttention(user.tenant_id, user.sub, branchId);
+  }
 }
