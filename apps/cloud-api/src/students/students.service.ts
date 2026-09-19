@@ -114,7 +114,14 @@ export class StudentsService {
     tenantId: string,
     branchId: string,
     search?: string,
-    filters?: { status?: string; classId?: string; sectionId?: string; gender?: string },
+    filters?: {
+      status?: string;
+      classId?: string;
+      sectionId?: string;
+      gender?: string;
+      fromDate?: string;
+      toDate?: string;
+    },
   ) {
     const term = (search ?? "").trim();
     const conditions = ["s.tenant_id = $1", "s.branch_id = $2", "s.deleted_at IS NULL"];
@@ -135,6 +142,17 @@ export class StudentsService {
     if (filters?.gender) {
       values.push(filters.gender);
       conditions.push(`s.gender = $${values.length}`);
+    }
+    // Students has no dedicated admission-date column -- created_at (row
+    // creation) is the closest real proxy, used by the Reporting module's
+    // "added between" filter (deliberately not called "admitted between").
+    if (filters?.fromDate) {
+      values.push(filters.fromDate);
+      conditions.push(`s.created_at >= $${values.length}`);
+    }
+    if (filters?.toDate) {
+      values.push(filters.toDate);
+      conditions.push(`s.created_at < ($${values.length}::date + interval '1 day')`);
     }
     if (term) {
       values.push(`%${term}%`);
@@ -167,6 +185,7 @@ export class StudentsService {
       graduation_year: s.graduation_year,
       higher_education: s.higher_education,
       current_occupation: s.current_occupation,
+      created_at: s.created_at as Date,
     }));
   }
 

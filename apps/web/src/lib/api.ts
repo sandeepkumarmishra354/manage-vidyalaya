@@ -153,6 +153,7 @@ export interface StudentListItem {
   graduation_year?: number | null;
   higher_education?: string | null;
   current_occupation?: string | null;
+  created_at?: string;
 }
 
 export interface ListStudentsFilters {
@@ -161,6 +162,8 @@ export interface ListStudentsFilters {
   class_id?: string;
   section_id?: string;
   gender?: string;
+  from_date?: string;
+  to_date?: string;
 }
 
 export interface Guardian {
@@ -1156,12 +1159,15 @@ export interface StaffListItem {
   department?: string | null;
   status: StaffStatus;
   has_login: boolean;
+  date_of_joining?: string;
 }
 
 export interface ListStaffFilters {
   category_id?: string;
   department?: string;
   status?: StaffStatus;
+  from_date?: string;
+  to_date?: string;
 }
 
 export interface Staff {
@@ -1572,6 +1578,19 @@ export interface PayrollRunDetail {
   payslips: Payslip[];
 }
 
+export interface PayrollReportRow {
+  period_month: number;
+  period_year: number;
+  run_status: PayrollRunStatus;
+  staff_id: string;
+  first_name: string;
+  last_name: string | null;
+  gross_earnings: number;
+  total_deductions: number;
+  net_pay: number;
+  payslip_status: PayrollRunStatus;
+}
+
 export interface AdjustPayslipLineItemInput {
   payslip_id: string;
   component_name: string;
@@ -1907,6 +1926,8 @@ export const api = {
       class_id: filters?.class_id,
       section_id: filters?.section_id,
       gender: filters?.gender,
+      from_date: filters?.from_date,
+      to_date: filters?.to_date,
     }),
   listStudentsInClass: (classId: string) => http.get<StudentListItem[]>(`/students/in-class/${classId}`),
   getStudent: (id: string) => http.get<StudentDetail>(`/students/${id}`),
@@ -2166,6 +2187,8 @@ export const api = {
       category_id: filters?.category_id,
       department: filters?.department,
       status: filters?.status,
+      from_date: filters?.from_date,
+      to_date: filters?.to_date,
     }),
   getStaff: (id: string) => http.get<Staff>(`/staff/${id}`),
   createStaff: (input: NewStaffInput) => http.post<Staff>("/staff", input),
@@ -2287,6 +2310,12 @@ export const api = {
   generatePayrollRun: (input: GeneratePayrollRunInput) =>
     http.post<PayrollRunDetail>("/payroll-runs/generate", input),
   listPayrollRuns: (branchId: string) => http.get<PayrollRun[]>("/payroll-runs", { branch_id: branchId }),
+  getPayrollReport: (branchId: string, fromDate: string, toDate: string) =>
+    http.get<PayrollReportRow[]>("/payroll-runs/report", {
+      branch_id: branchId,
+      from_date: fromDate,
+      to_date: toDate,
+    }),
   getPayrollRun: (runId: string) => http.get<PayrollRunDetail>(`/payroll-runs/${runId}`),
   finalizePayrollRun: (runId: string) => http.post<void>(`/payroll-runs/${runId}/finalize`),
   deletePayrollRun: (runId: string) => http.delete<void>(`/payroll-runs/${runId}`),

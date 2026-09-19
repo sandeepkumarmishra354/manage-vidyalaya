@@ -395,6 +395,39 @@ export class PayrollService {
     );
   }
 
+  // Flattened payslip rows across every run whose period falls within the
+  // requested range, for the Reporting module -- payroll periods are
+  // month-granular, so the range is truncated to whole months rather than
+  // matching exact days (a run for "September 2026" is included if any day
+  // of that month falls inside [fromDate, toDate]).
+  async getReport(tenantId: string, branchId: string, fromDate: string, toDate: string) {
+    return this.db.query<{
+      period_month: number;
+      period_year: number;
+      run_status: string;
+      staff_id: string;
+      first_name: string;
+      last_name: string | null;
+      gross_earnings: number;
+      total_deductions: number;
+      net_pay: number;
+      payslip_status: string;
+    }>(
+      tenantId,
+      `SELECT pr.period_month, pr.period_year, pr.status AS run_status,
+              s.id AS staff_id, s.first_name, s.last_name,
+              p.gross_earnings, p.total_deductions, p.net_pay, p.status AS payslip_status
+       FROM payroll_runs pr
+       JOIN payslips p ON p.payroll_run_id = pr.id AND p.tenant_id = pr.tenant_id AND p.deleted_at IS NULL
+       JOIN staff s ON s.id = p.staff_id
+       WHERE pr.tenant_id = $1 AND pr.branch_id = $2 AND pr.deleted_at IS NULL
+         AND make_date(pr.period_year, pr.period_month, 1) >= date_trunc('month', $3::date)
+         AND make_date(pr.period_year, pr.period_month, 1) <= date_trunc('month', $4::date)
+       ORDER BY pr.period_year DESC, pr.period_month DESC, s.first_name ASC`,
+      [tenantId, branchId, fromDate, toDate],
+    );
+  }
+
   async getPayrollRun(tenantId: string, runId: string) {
     const run = await this.db.queryOne<PayrollRunRow>(
       tenantId,

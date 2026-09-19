@@ -31,6 +31,7 @@ import { PayrollRunDetailPage } from "@/routes/payroll/payroll-run-detail";
 import { RolesPage } from "@/routes/admin/roles-page";
 import { UsersPage } from "@/routes/admin/users-page";
 import { AuditLogPage } from "@/routes/admin/audit-log-page";
+import { ReportsPage } from "@/routes/reports/reports-page";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -306,6 +307,23 @@ export default function App() {
             <RequirePermission permission="audit.view">
               <AuditLogPage />
             </RequirePermission>
+          }
+        />
+        <Route
+          path="reports"
+          element={
+            <RequireAnyPermission
+              permissions={[
+                "students.view",
+                "staff.view",
+                "payroll.view",
+                "fees.view",
+                "attendance.view",
+                "staff_attendance.view",
+              ]}
+            >
+              <ReportsPage />
+            </RequireAnyPermission>
           }
         />
       </Route>

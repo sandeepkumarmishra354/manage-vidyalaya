@@ -108,7 +108,13 @@ export class StaffService {
     tenantId: string,
     branchId: string,
     search?: string,
-    filters?: { categoryId?: string; department?: string; status?: string },
+    filters?: {
+      categoryId?: string;
+      department?: string;
+      status?: string;
+      fromDate?: string;
+      toDate?: string;
+    },
   ) {
     const term = (search ?? "").trim();
     const conditions = ["tenant_id = $1", "branch_id = $2", "deleted_at IS NULL"];
@@ -125,6 +131,14 @@ export class StaffService {
     if (filters?.status) {
       values.push(filters.status);
       conditions.push(`status = $${values.length}`);
+    }
+    if (filters?.fromDate) {
+      values.push(filters.fromDate);
+      conditions.push(`date_of_joining >= $${values.length}`);
+    }
+    if (filters?.toDate) {
+      values.push(filters.toDate);
+      conditions.push(`date_of_joining < ($${values.length}::date + interval '1 day')`);
     }
     if (term) {
       values.push(`%${term}%`);
@@ -150,6 +164,7 @@ export class StaffService {
       department: s.department,
       status: s.status,
       has_login: s.user_id !== null,
+      date_of_joining: s.date_of_joining,
     }));
   }
 

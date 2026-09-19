@@ -28,8 +28,16 @@ export class StaffController {
     @Query("category_id") categoryId?: string,
     @Query("department") department?: string,
     @Query("status") status?: string,
+    @Query("from_date") fromDate?: string,
+    @Query("to_date") toDate?: string,
   ) {
-    return this.staffService.listStaff(user.tenant_id, branchId, search, { categoryId, department, status });
+    return this.staffService.listStaff(user.tenant_id, branchId, search, {
+      categoryId,
+      department,
+      status,
+      fromDate,
+      toDate,
+    });
   }
 
   // No @RequirePermission -- resolving a signature to render on a printed

@@ -9,6 +9,7 @@ import {
   CalendarOffIcon,
   ClipboardListIcon,
   DatabaseIcon,
+  FileBarChart2Icon,
   GraduationCapIcon,
   IdCardIcon,
   LayersIcon,
@@ -163,6 +164,19 @@ const navSections: NavSection[] = [
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
       { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },
+      {
+        to: "/reports",
+        label: "Reports",
+        icon: FileBarChart2Icon,
+        anyPermission: [
+          "students.view",
+          "staff.view",
+          "payroll.view",
+          "fees.view",
+          "attendance.view",
+          "staff_attendance.view",
+        ],
+      },
     ],
   },
 ];
