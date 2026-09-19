@@ -169,7 +169,7 @@ export function PayrollRunDetailPage() {
                 right={<p className="font-medium">{selectedPayslip.staff_name}</p>}
               />
               <PayslipLines payslip={selectedPayslip} />
-              <div className="mt-16 flex justify-end">
+              <div className="mt-8 flex justify-end">
                 <SignatureBlock
                   branch={branch}
                   signatureUrl={principalSignatureUrl}
@@ -190,7 +190,7 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
   const deductions = payslip.line_items.filter((li) => li.component_type === "deduction");
 
   return (
-    <div className="grid grid-cols-1 gap-8 text-sm sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-1.5 text-sm sm:grid-cols-2">
       <div>
         <p className="mb-2 font-semibold">Earnings</p>
         {earnings.map((li) => (

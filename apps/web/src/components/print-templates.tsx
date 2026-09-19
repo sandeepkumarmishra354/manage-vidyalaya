@@ -57,7 +57,8 @@ export function PrintFrame({
   return (
     <div
       className={cn(
-        "relative p-8",
+        "relative p-6",
+        template === "compact" && "p-4",
         PAPER_COLOR_CLASSES[paperColor],
         template === "bordered" && "border-8 border-double border-slate-700",
       )}

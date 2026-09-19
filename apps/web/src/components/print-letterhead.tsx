@@ -33,7 +33,7 @@ export function PrintLetterhead({
 
   if (template === "bordered") {
     return (
-      <div className="relative mb-6 flex flex-col items-center border-b-4 border-double border-slate-700 pb-4 text-center">
+      <div className="relative mb-4 flex flex-col items-center border-b-4 border-double border-slate-700 pb-3 text-center">
         {right && (
           <div className="absolute top-0 right-0 rounded border border-slate-400 px-2 py-1 text-[10px] text-slate-600">
             {right}
@@ -56,7 +56,7 @@ export function PrintLetterhead({
 
   if (template === "tricolor") {
     return (
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="mb-3 flex h-1.5 w-full overflow-hidden rounded-full">
           <div className="flex-1" style={{ backgroundColor: "#FF9933" }} />
           <div className="flex-1 border-y border-slate-200 bg-white" />
@@ -78,7 +78,7 @@ export function PrintLetterhead({
 
   if (template === "emblem") {
     return (
-      <div className="mb-6 overflow-hidden rounded-t-md border">
+      <div className="mb-4 overflow-hidden rounded-t-md border">
         <div className="flex items-center justify-between gap-3 px-4 py-3 text-white" style={{ backgroundColor: accent }}>
           <div className="flex items-center gap-3">
             {branch?.logo_url && (
@@ -127,7 +127,7 @@ export function PrintLetterhead({
 
   // classic (refined default)
   return (
-    <div className="mb-6 flex items-center justify-between border-b-2 pb-4" style={{ borderColor: accent }}>
+    <div className="mb-4 flex items-center justify-between border-b-2 pb-3" style={{ borderColor: accent }}>
       <div className="flex items-center gap-3">
         {branch?.logo_url && <img src={branch.logo_url} alt="" className="h-12 w-12 object-contain" />}
         <div>

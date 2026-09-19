@@ -173,6 +173,15 @@
 /* Print styles: only the element marked data-print-area is shown, full
    page width, no app chrome. Used by attendance/report-card/ID-card print
    views (see components/print-*). */
+/* Without this, the browser's own default print margin (often 0.4in-1in
+   per side depending on OS/printer) stacks on top of every print
+   document's own padding (PrintFrame, PrintLetterhead, etc.), which is
+   the main cause of documents printing with far more white space than
+   the in-app design intends. */
+@page {
+  margin: 12mm;
+}
+
 @media print {
   body * {
     visibility: hidden;
