@@ -90,7 +90,7 @@ test("payroll run: generate with LOP, finalize, reopen, delete, regenerate, mark
     const runId = page.url().split("/payroll/")[1];
 
     async function runDetail() {
-      const res = await api.get(`/payroll-runs/${runId}`);
+      const res = await api.get(`payroll-runs/${runId}`);
       return (await res.json()) as {
         run: { status: string };
         payslips: { staff_id: string; status: string; days_lop: number; gross_earnings: number; net_pay: number }[];
@@ -136,7 +136,7 @@ test("payroll run: generate with LOP, finalize, reopen, delete, regenerate, mark
     await runRow.getByRole("button").click();
     await expect(runRow).not.toBeVisible();
 
-    const deletedRes = await api.get(`/payroll-runs/${runId}`);
+    const deletedRes = await api.get(`payroll-runs/${runId}`);
     expect((await deletedRes.json()).run.deleted_at).not.toBeNull();
 
     // Direct regression check for the fixed bug: payroll_runs' unique
@@ -167,7 +167,7 @@ test("payroll run: generate with LOP, finalize, reopen, delete, regenerate, mark
     await newStaffRow.getByRole("button", { name: "Mark paid" }).click();
     await expect(newStaffRow.getByRole("button", { name: "Mark paid" })).not.toBeVisible();
 
-    const finalRes = await api.get(`/payroll-runs/${newRunId}`);
+    const finalRes = await api.get(`payroll-runs/${newRunId}`);
     const finalDetail = (await finalRes.json()) as {
       run: { status: string };
       payslips: { staff_id: string; status: string }[];

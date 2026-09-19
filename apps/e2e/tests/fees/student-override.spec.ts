@@ -42,7 +42,7 @@ test("including a student in a session-unscoped fee structure via override does 
   // dedicated non-current session at the end of this test to keep it from
   // silently invoicing every later test run's students forever.
   const structureName = `E2EOverrideStructure${suffix}`;
-  const structureRes = await api.post("/fee-structures", {
+  const structureRes = await api.post("fee-structures", {
     data: {
       branch_id: fixture.branchId,
       class_id: null,
@@ -88,7 +88,7 @@ test("including a student in a session-unscoped fee structure via override does 
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
 
-    const res = await api.get(`/fee-invoices/student/${studentId}/summary`);
+    const res = await api.get(`fee-invoices/student/${studentId}/summary`);
     const body = (await res.json()) as { total_due: number; invoices: { status: string }[] };
     expect(body.total_due).toBe(300_000);
     expect(body.invoices).toHaveLength(1);
@@ -98,12 +98,12 @@ test("including a student in a session-unscoped fee structure via override does 
     // deliberately non-current session (there's no delete endpoint for fee
     // structures -- financial records are kept, not removed) so it can
     // never match a future admission confirm's current-session lookup again.
-    const graveyardSessionRes = await api.post("/academic-sessions", {
+    const graveyardSessionRes = await api.post("academic-sessions", {
       data: { name: `E2E Graveyard ${suffix}`, start_date: "2030-04-01", end_date: "2031-03-31", is_current: false },
     });
     if (graveyardSessionRes.ok()) {
       const { id: graveyardSessionId } = (await graveyardSessionRes.json()) as { id: string };
-      await api.patch(`/fee-structures/${structureId}`, {
+      await api.patch(`fee-structures/${structureId}`, {
         data: {
           name: structureName,
           amount: 300_000,

@@ -23,7 +23,7 @@ test("houses: assign a student to a house, award points, and see the leaderboard
   });
 
   const houseName = `E2EHouse${suffix}`;
-  const houseRes = await api.post("/houses", { data: { branch_id: fixture.branchId, name: houseName, color: "#ff0000" } });
+  const houseRes = await api.post("houses", { data: { branch_id: fixture.branchId, name: houseName, color: "#ff0000" } });
   expect(houseRes.ok()).toBe(true);
   await api.dispose();
 

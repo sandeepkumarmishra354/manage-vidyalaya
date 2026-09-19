@@ -26,7 +26,7 @@ export default async function globalSetup() {
 
   try {
     for (const [name, creds] of Object.entries(PERSONAS) as [PersonaName, (typeof PERSONAS)[PersonaName]][]) {
-      const loginRes = await apiContext.post("/auth/login", {
+      const loginRes = await apiContext.post("auth/login", {
         data: { email: creds.email, password: creds.password },
       });
       if (!loginRes.ok()) {

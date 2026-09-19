@@ -42,7 +42,7 @@ test("assigning a flat discount to a student reduces their outstanding invoice",
   await generateInvoicesForStructure(api, structureId);
 
   async function summary() {
-    const res = await api.get(`/fee-invoices/student/${studentId}/summary`);
+    const res = await api.get(`fee-invoices/student/${studentId}/summary`);
     return (await res.json()) as { total_due: number; invoices: { discount_amount: number; amount_due: number }[] };
   }
 

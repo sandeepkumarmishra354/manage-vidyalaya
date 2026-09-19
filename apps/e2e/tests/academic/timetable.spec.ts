@@ -63,11 +63,11 @@ test.describe("timetable", () => {
     // A second section in the same class, sharing the fixture's subject
     // teacher -- the double-booking check is cross-section, so this needs
     // two real sections, not just two period slots.
-    const secondSectionRes = await api.post("/sections", { data: { class_id: fixture.classId, name: "B" } });
+    const secondSectionRes = await api.post("sections", { data: { class_id: fixture.classId, name: "B" } });
     expect(secondSectionRes.ok()).toBe(true);
     const { id: secondSectionId } = (await secondSectionRes.json()) as { id: string };
 
-    const slotRes = await api.post("/timetable/period-slots", {
+    const slotRes = await api.post("timetable/period-slots", {
       data: {
         branch_id: fixture.branchId,
         academic_session_id: fixture.sessionId,
@@ -87,12 +87,12 @@ test.describe("timetable", () => {
       staff_id: fixture.subjectTeacherStaffId,
     };
 
-    const firstSaveRes = await api.put(`/timetable/sections/${fixture.sectionId}`, {
+    const firstSaveRes = await api.put(`timetable/sections/${fixture.sectionId}`, {
       data: { branch_id: fixture.branchId, class_id: fixture.classId, academic_session_id: fixture.sessionId, entries: [entry] },
     });
     expect(firstSaveRes.ok()).toBe(true);
 
-    const conflictingSaveRes = await api.put(`/timetable/sections/${secondSectionId}`, {
+    const conflictingSaveRes = await api.put(`timetable/sections/${secondSectionId}`, {
       data: { branch_id: fixture.branchId, class_id: fixture.classId, academic_session_id: fixture.sessionId, entries: [entry] },
     });
     expect(conflictingSaveRes.status()).toBe(400);

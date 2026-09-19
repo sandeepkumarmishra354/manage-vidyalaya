@@ -14,7 +14,7 @@ test("dashboard: an unconfirmed admission surfaces in the Needs Attention widget
   const fixture = await setupAcademicFixture(api, suffix);
 
   async function pendingAdmissionsCount() {
-    const res = await api.get(`/dashboard/needs-attention?branch_id=${fixture.branchId}`);
+    const res = await api.get(`dashboard/needs-attention?branch_id=${fixture.branchId}`);
     const body = (await res.json()) as { pending_admissions?: { total_count: number } };
     return body.pending_admissions?.total_count ?? 0;
   }

@@ -8,4 +8,10 @@
 // once rather than risking one call site getting updated and another
 // missed (exactly what happened with the sandbox Chromium path).
 export const API_ORIGIN = process.env.E2E_API_URL ?? "http://localhost:3001";
-export const API_BASE_URL = `${API_ORIGIN}/api`;
+// Trailing slash is required, not cosmetic: Playwright's APIRequestContext
+// resolves a relative request path against baseURL using WHATWG URL
+// semantics, which drop a base's last path segment entirely unless it ends
+// in "/" -- without it, every request here would silently lose "/api" and
+// hit the un-prefixed route instead (every call site below is written
+// relative, with no leading slash, to pair with this).
+export const API_BASE_URL = `${API_ORIGIN}/api/`;

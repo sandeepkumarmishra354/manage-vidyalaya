@@ -69,6 +69,7 @@ export async function cleanupThrowawayTenant(tenantId: string): Promise<void> {
     DELETE FROM staff_categories WHERE tenant_id = '${tenantId}';
     DELETE FROM fee_categories WHERE tenant_id = '${tenantId}';
     DELETE FROM master_data_items WHERE tenant_id = '${tenantId}';
+    DELETE FROM academic_sessions WHERE tenant_id = '${tenantId}';
     DELETE FROM branches WHERE tenant_id = '${tenantId}';
     DELETE FROM tenants WHERE id = '${tenantId}';
   `;

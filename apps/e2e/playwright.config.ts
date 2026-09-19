@@ -35,7 +35,7 @@ export default defineConfig({
     {
       command: "pnpm --filter cloud-api start:dev",
       cwd: "../..",
-      url: `${API_BASE_URL}/health`,
+      url: `${API_BASE_URL}health`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: "pipe",
