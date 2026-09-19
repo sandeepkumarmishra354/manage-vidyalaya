@@ -8,8 +8,17 @@
 
 const DEFAULT_BASE_URL = "http://localhost:3001";
 
+// Leaving VITE_API_BASE_URL unset in a production build (rather than
+// baking in a value) means "same origin as this page" -- the setup for a
+// single-domain reverse-proxy deployment that routes /api/* to cloud-api
+// and everything else to this static build (see docs/production-
+// readiness.md's hosting section). An empty string isn't a usable base
+// for the URL constructor below, so it's treated the same as unset.
 function baseUrl(): string {
-  return (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE_URL;
+  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (configured) return configured;
+  if (typeof window !== "undefined") return window.location.origin;
+  return DEFAULT_BASE_URL;
 }
 
 const ACCESS_TOKEN_KEY = "vidyalaya.access_token";
@@ -79,7 +88,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch(`${baseUrl()}/auth/refresh`, {
+        const res = await fetch(buildUrl("/auth/refresh"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: refreshToken }),
@@ -103,7 +112,12 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 function buildUrl(path: string, query?: Record<string, string | number | boolean | null | undefined>): string {
-  const url = new URL(path, baseUrl());
+  // cloud-api serves every route under /api (see app.setGlobalPrefix in
+  // main.ts) so a reverse proxy in front of a production deployment can
+  // route "/api/*" to the backend and everything else to this SPA's
+  // static build -- centralized here so every api.ts call site keeps
+  // passing plain paths like "/auth/login" unchanged.
+  const url = new URL(`/api${path}`, baseUrl());
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== null && value !== undefined) {

@@ -1,6 +1,6 @@
 import { request as apiRequest, type APIRequestContext } from "@playwright/test";
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
+import { API_BASE_URL } from "./api-url.js";
 
 export interface LoginResult {
   accessToken: string;
@@ -15,7 +15,7 @@ export interface LoginResult {
 // persona can/can't see it, rather than clicking through the admission
 // wizard just to get there.
 export async function loginViaApi(email: string, password: string): Promise<LoginResult> {
-  const context = await apiRequest.newContext({ baseURL: API_URL });
+  const context = await apiRequest.newContext({ baseURL: API_BASE_URL });
   try {
     const res = await context.post("/auth/login", { data: { email, password } });
     if (!res.ok()) {
@@ -42,7 +42,7 @@ export async function loginViaApi(email: string, password: string): Promise<Logi
 // browser page that's testing the actual UI flow.
 export async function apiContextFor(accessToken: string): Promise<APIRequestContext> {
   return apiRequest.newContext({
-    baseURL: API_URL,
+    baseURL: API_BASE_URL,
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });
 }

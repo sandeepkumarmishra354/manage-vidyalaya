@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { API_BASE_URL } from "./fixtures/api-url.js";
 import { getSandboxChromiumExecutablePath } from "./fixtures/chromium-executable.js";
 
 const executablePath = getSandboxChromiumExecutablePath();
 
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:5173";
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 
 export default defineConfig({
   testDir: "./tests",
@@ -35,7 +35,7 @@ export default defineConfig({
     {
       command: "pnpm --filter cloud-api start:dev",
       cwd: "../..",
-      url: `${API_URL}/health`,
+      url: `${API_BASE_URL}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: "pipe",

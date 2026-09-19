@@ -43,9 +43,42 @@ project phase, not a footnote.
   connection, and browsers block a mixed-content HTTPS page from calling
   an `http://` API anyway. Use Caddy or nginx + Let's Encrypt in front of
   cloud-api. Never ship `http://` to a client.
-- A real domain for cloud-api (e.g. `api.vidyalaya.in`), not an IP address
-  -- needed for TLS. The web app itself needs its own domain too (e.g.
-  `app.vidyalaya.in`), since it's now just a static site a browser loads.
+- A real domain, with TLS -- either a dedicated one for cloud-api (e.g.
+  `api.vidyalaya.in`, with the web app on its own domain like
+  `app.vidyalaya.in`), or a single domain serving both, which is what the
+  `/api` prefix below exists for.
+- **Every cloud-api route lives under `/api`** (`app.setGlobalPrefix("api")`
+  in `src/main.ts`) specifically so one reverse proxy on one domain can
+  route by path alone: send `/api/*` to cloud-api and everything else to
+  the web app's static build. An nginx `location` block for this:
+  ```nginx
+  location /api/ {
+      proxy_pass http://127.0.0.1:3001;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  location / {
+      root /var/www/vidyalaya-web;
+      try_files $uri /index.html;
+  }
+  ```
+  (Caddy's equivalent is a `handle_path /api/*` block reverse-proxying to
+  `127.0.0.1:3001`, with everything else falling through to `file_server`.)
+  Don't strip the `/api` prefix when proxying -- cloud-api expects to see
+  it (`proxy_pass http://127.0.0.1:3001;`, not
+  `proxy_pass http://127.0.0.1:3001/;`, which nginx would otherwise use to
+  rewrite it away). With this single-domain setup, **leave
+  `VITE_API_BASE_URL` unset** in the web build -- unset means "same
+  origin as this page" (`apps/web/src/lib/http.ts`), which already
+  prepends `/api` to every request. Set `TRUST_PROXY=1` (see
+  Security basics below) since the proxy is now the only thing cloud-api
+  ever sees a connection from. **Set `PUBLIC_API_BASE_URL`** to your
+  actual public origin too (e.g. `https://managevidya.in`) -- it's what
+  `LocalStorageDriver` uses to build the presigned upload/download URLs
+  returned to the browser for documents/receipts/photos; left unset it
+  defaults to `http://localhost:3001`, which is unreachable from a real
+  browser.
 - Automated Postgres backups (`pg_dump` on a cron, shipped off-box to S3/
   Backblaze/etc., not just sitting on the same disk). Test the restore
   process before you need it for real -- an untested backup is not a backup.
