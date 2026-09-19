@@ -72,7 +72,10 @@ export async function getCurrentAcademicSessionId(api: APIRequestContext): Promi
 
 // Creates a student the fast way (skips confirmation -- an "applied"
 // admission already produces a real students row, which is all
-// branch-visibility tests need). Returns the new student's id.
+// branch-visibility tests need). Returns the new student's id -- NOT the
+// admission's own id, which POST /admissions's response also carries as
+// `id` (its `student_id` field is the one we want; see
+// StudentsService.createAdmission's return shape).
 export async function createTestStudent(
   api: APIRequestContext,
   opts: { branchId: string; academicSessionId: string; firstName: string },
@@ -89,8 +92,35 @@ export async function createTestStudent(
     }),
     "POST /admissions",
   );
-  const body = (await res.json()) as { id: string };
-  return body.id;
+  const body = (await res.json()) as { student_id: string };
+  return body.student_id;
+}
+
+// Creates, confirms, and enrolls a student into a specific class+section
+// (attendance/exams roster queries need a real enrolled student sitting
+// in that section, not just an "applied" admission).
+export async function createAndEnrollTestStudent(
+  api: APIRequestContext,
+  opts: { branchId: string; academicSessionId: string; classId: string; sectionId: string; firstName: string },
+): Promise<string> {
+  const studentId = await createTestStudent(api, {
+    branchId: opts.branchId,
+    academicSessionId: opts.academicSessionId,
+    firstName: opts.firstName,
+  });
+
+  const admissionRes = await expectOk(await api.get(`/admissions/student/${studentId}`), "GET /admissions/student/:id");
+  const { id: admissionId } = (await admissionRes.json()) as { id: string };
+  await expectOk(await api.post(`/admissions/${admissionId}/confirm`), "POST /admissions/:id/confirm");
+
+  await expectOk(
+    await api.patch(`/students/${studentId}`, {
+      data: { first_name: opts.firstName, current_class_id: opts.classId, current_section_id: opts.sectionId },
+    }),
+    "PATCH /students/:id",
+  );
+
+  return studentId;
 }
 
 export async function createTestStaff(
@@ -111,6 +141,14 @@ export async function createTestStaff(
   );
   const body = (await res.json()) as { id: string };
   return body.id;
+}
+
+export async function getStaffIdByEmployeeCode(api: APIRequestContext, branchId: string, employeeCode: string): Promise<string> {
+  const res = await expectOk(await api.get(`/staff?branch_id=${branchId}`), "GET /staff");
+  const staff = (await res.json()) as { id: string; employee_code: string }[];
+  const match = staff.find((s) => s.employee_code === employeeCode);
+  if (!match) throw new Error(`No staff with employee_code "${employeeCode}" found in branch ${branchId}`);
+  return match.id;
 }
 
 export async function createTestExpense(
