@@ -1,13 +1,17 @@
 import {
+  AlertTriangleIcon,
   BookOpenIcon,
   CalendarCheckIcon,
   CalendarDaysIcon,
+  ClockIcon,
   PartyPopperIcon,
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
   TrendingUpIcon,
   TrophyIcon,
+  UserPlusIcon,
   UsersIcon,
+  WalletIcon,
 } from "lucide-react";
 import {
   Area,
@@ -24,12 +28,14 @@ import {
   YAxis,
 } from "recharts";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import { useAppStore } from "@/stores/app-store";
-import { api } from "@/lib/api";
+import { api, type NeedsAttentionResponse, type NeedsAttentionSection as NeedsAttentionSectionType } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatPaise } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { IconTile } from "@/components/icon-tile";
 
 const FEE_STATUS_COLORS: Record<string, string> = {
@@ -85,6 +91,11 @@ export function DashboardPage() {
     queryFn: () => api.getDashboardStats(selectedBranchId!),
     enabled: !!selectedBranchId,
   });
+  const { data: needsAttention } = useQuery({
+    queryKey: ["needs-attention", selectedBranchId],
+    queryFn: () => api.getNeedsAttention(selectedBranchId!),
+    enabled: !!selectedBranchId,
+  });
   const { data: leaderboard = [] } = useQuery({
     queryKey: ["house-leaderboard", selectedBranchId],
     queryFn: () => api.getHouseLeaderboard(selectedBranchId!),
@@ -113,6 +124,8 @@ export function DashboardPage() {
         <h1 className="text-2xl font-semibold">Welcome back, {session?.full_name?.split(" ")[0]}</h1>
         <p className="text-muted-foreground">Here's what's happening at this branch today.</p>
       </div>
+
+      {needsAttention && <NeedsAttentionCard data={needsAttention} />}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -376,6 +389,154 @@ export function DashboardPage() {
               )}
             </CardContent>
           </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const NEEDS_ATTENTION_MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function NeedsAttentionCard({ data }: { data: NeedsAttentionResponse }) {
+  const allEmpty = Object.values(data).every((section) => !section || section.items.length === 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangleIcon className="size-4 text-warning" />
+          Needs Attention
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {allEmpty ? (
+          <p className="text-sm text-muted-foreground">Nothing needs your attention right now.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            {data.pending_leave && (
+              <AttentionSection
+                icon={ClockIcon}
+                label="Pending leave requests"
+                section={data.pending_leave}
+                linkTo="/admin/leave-requests"
+                renderRow={(item) => ({
+                  name: item.staff_name,
+                  meta:
+                    item.start_date === item.end_date
+                      ? formatDate(item.start_date)
+                      : `${formatDate(item.start_date)} – ${formatDate(item.end_date)}`,
+                })}
+              />
+            )}
+            {data.pending_admissions && (
+              <AttentionSection
+                icon={UserPlusIcon}
+                label="Pending admissions"
+                section={data.pending_admissions}
+                linkTo="/students"
+                renderRow={(item) => ({ name: item.student_name, meta: formatDate(item.applied_at) })}
+              />
+            )}
+            {data.overdue_books && (
+              <AttentionSection
+                icon={BookOpenIcon}
+                label="Overdue books"
+                section={data.overdue_books}
+                linkTo="/library"
+                renderRow={(item) => ({ name: `${item.student_name} — ${item.book_title}`, meta: formatDate(item.due_date) })}
+              />
+            )}
+            {data.overdue_fees && (
+              <AttentionSection
+                icon={ReceiptIndianRupeeIcon}
+                label="Overdue fees"
+                section={data.overdue_fees}
+                linkTo="/fees"
+                renderRow={(item) => ({
+                  name: item.student_name,
+                  meta: formatPaise(item.amount_due - item.amount_paid),
+                })}
+              />
+            )}
+            {data.unpublished_exams && (
+              <AttentionSection
+                icon={ScrollTextIcon}
+                label="Results to publish"
+                section={data.unpublished_exams}
+                linkTo="/exams"
+                renderRow={(item) => ({ name: item.name, meta: formatDate(item.exam_date) })}
+              />
+            )}
+            {data.draft_promotions && (
+              <AttentionSection
+                icon={TrendingUpIcon}
+                label="Draft promotions"
+                section={data.draft_promotions}
+                linkTo="/academic-setup"
+                renderRow={(item) => ({
+                  name: `${item.from_session_name} → ${item.to_session_name}`,
+                  meta: "Draft",
+                })}
+              />
+            )}
+            {data.draft_payroll_runs && (
+              <AttentionSection
+                icon={WalletIcon}
+                label="Unfinalized payroll runs"
+                section={data.draft_payroll_runs}
+                linkTo="/payroll"
+                renderRow={(item) => ({
+                  name: `${NEEDS_ATTENTION_MONTH_NAMES[item.period_month - 1]} ${item.period_year}`,
+                  meta: "Draft",
+                })}
+              />
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AttentionSection<T extends { id: string }>({
+  icon: Icon,
+  label,
+  section,
+  linkTo,
+  renderRow,
+}: {
+  icon: typeof UsersIcon;
+  label: string;
+  section: NeedsAttentionSectionType<T>;
+  linkTo: string;
+  renderRow: (item: T) => { name: string; meta: string };
+}) {
+  if (section.items.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <Icon className="size-4 text-muted-foreground" />
+        <span className="text-sm font-medium">{label}</span>
+        <Badge variant="warning">{section.total_count}</Badge>
+      </div>
+      <div className="flex flex-col gap-1">
+        {section.items.map((item) => {
+          const { name, meta } = renderRow(item);
+          return (
+            <Link key={item.id} to={linkTo} className="flex items-center justify-between gap-2 text-sm hover:underline">
+              <span className="truncate">{name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
+            </Link>
+          );
+        })}
+        {section.total_count > section.items.length && (
+          <Link to={linkTo} className="text-xs text-primary hover:underline">
+            +{section.total_count - section.items.length} more
+          </Link>
         )}
       </div>
     </div>

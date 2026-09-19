@@ -13,6 +13,8 @@ interface AppStore {
   disabledModules: Set<ModuleKey>;
   /** The current user's effective permission set (union across their roles). */
   permissions: Set<string>;
+  /** The current user's assigned role names, for display (e.g. the header's user menu). */
+  roles: string[];
 
   bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -36,6 +38,7 @@ function clearSessionState(set: (partial: Partial<AppStore>) => void) {
     branches: [],
     selectedBranchId: null,
     permissions: new Set(),
+    roles: [],
     disabledModules: new Set(),
   });
 }
@@ -48,6 +51,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isBootstrapping: true,
   disabledModules: new Set(),
   permissions: new Set(),
+  roles: [],
 
   bootstrap: async () => {
     // Fires whenever a request can't be recovered by refreshing the access
@@ -70,6 +74,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         branches: me.branches,
         selectedBranchId,
         permissions: new Set(me.permissions),
+        roles: me.roles,
         disabledModules,
         isBootstrapping: false,
       });
@@ -92,6 +97,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       branches: me.branches,
       selectedBranchId,
       permissions: new Set(me.permissions),
+      roles: me.roles,
       disabledModules,
     });
   },

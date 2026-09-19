@@ -30,6 +30,7 @@ function ApplyLeaveDialog({ onApplied }: { onApplied: () => void }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
+  const [isHalfDay, setIsHalfDay] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,10 +39,16 @@ function ApplyLeaveDialog({ onApplied }: { onApplied: () => void }) {
     setError(null);
     setIsSubmitting(true);
     try {
-      await api.applyStaffLeave({ start_date: startDate, end_date: endDate, reason: reason || null });
+      await api.applyStaffLeave({
+        start_date: startDate,
+        end_date: isHalfDay ? startDate : endDate,
+        reason: reason || null,
+        is_half_day: isHalfDay,
+      });
       setStartDate("");
       setEndDate("");
       setReason("");
+      setIsHalfDay(false);
       setOpen(false);
       onApplied();
     } catch (err) {
@@ -67,13 +74,42 @@ function ApplyLeaveDialog({ onApplied }: { onApplied: () => void }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="leave-start">Start date</Label>
-              <Input id="leave-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+              <Input
+                id="leave-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (isHalfDay) setEndDate(e.target.value);
+                }}
+                required
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="leave-end">End date</Label>
-              <Input id="leave-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+              <Input
+                id="leave-end"
+                type="date"
+                value={isHalfDay ? startDate : endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                disabled={isHalfDay}
+                required
+              />
             </div>
           </div>
+          <label htmlFor="leave-half-day" className="flex items-center gap-2 text-sm">
+            <input
+              id="leave-half-day"
+              type="checkbox"
+              className="size-4 rounded border-input"
+              checked={isHalfDay}
+              onChange={(e) => {
+                setIsHalfDay(e.target.checked);
+                if (e.target.checked) setEndDate(startDate);
+              }}
+            />
+            Half day (deducts half day's pay)
+          </label>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="leave-reason">Reason (optional)</Label>
             <Input id="leave-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. family function" />
@@ -166,6 +202,11 @@ export function MyLeavePage() {
                   <TableCell>
                     {formatDate(r.start_date)}
                     {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
+                    {r.is_half_day && (
+                      <Badge variant="info" className="ml-2">
+                        Half day
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{r.reason ?? "—"}</TableCell>
                   <TableCell>

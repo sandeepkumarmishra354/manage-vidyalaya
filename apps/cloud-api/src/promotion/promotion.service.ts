@@ -73,8 +73,8 @@ export class PromotionService {
       const fromClassIds = Object.keys(dto.class_mapping);
 
       await client.query(
-        `INSERT INTO promotion_batches (id, tenant_id, branch_id, from_session_id, to_session_id, class_mapping_json, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)`,
+        `INSERT INTO promotion_batches (id, tenant_id, branch_id, from_session_id, to_session_id, class_mapping_json, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $7)`,
         [batchId, tenantId, dto.branch_id, dto.from_session_id, dto.to_session_id, JSON.stringify(dto.class_mapping), now],
       );
 
@@ -87,9 +87,9 @@ export class PromotionService {
       for (const student of studentsResult.rows) {
         const toClassId = student.current_class_id ? (dto.class_mapping[student.current_class_id] ?? null) : null;
         await client.query(
-          `INSERT INTO promotion_batch_items (id, tenant_id, promotion_batch_id, student_id, from_class_id, from_section_id, to_class_id, to_section_id, decision)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, 'promote')`,
-          [randomUUID(), tenantId, batchId, student.id, student.current_class_id, student.current_section_id, toClassId],
+          `INSERT INTO promotion_batch_items (id, tenant_id, promotion_batch_id, student_id, from_class_id, from_section_id, to_class_id, to_section_id, decision, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, 'promote', $8, $8)`,
+          [randomUUID(), tenantId, batchId, student.id, student.current_class_id, student.current_section_id, toClassId, now],
         );
       }
 
@@ -161,9 +161,9 @@ export class PromotionService {
   async setPromotionDecision(tenantId: string, itemId: string, dto: SetPromotionDecisionDto) {
     return this.db.withTransaction(tenantId, async (client) => {
       const result = await client.query<PromotionBatchItemRow>(
-        `UPDATE promotion_batch_items SET decision = $1, to_class_id = $2, to_section_id = $3
-         WHERE id = $4 AND tenant_id = $5 RETURNING *`,
-        [dto.decision, dto.to_class_id ?? null, dto.to_section_id ?? null, itemId, tenantId],
+        `UPDATE promotion_batch_items SET decision = $1, to_class_id = $2, to_section_id = $3, updated_at = $4
+         WHERE id = $5 AND tenant_id = $6 RETURNING *`,
+        [dto.decision, dto.to_class_id ?? null, dto.to_section_id ?? null, new Date(), itemId, tenantId],
       );
       const updated = result.rows[0];
       if (!updated) {
@@ -246,7 +246,7 @@ export class PromotionService {
       }
 
       await client.query(
-        "UPDATE promotion_batches SET status = 'completed', executed_at = $1, executed_by = $2 WHERE id = $3 AND tenant_id = $4",
+        "UPDATE promotion_batches SET status = 'completed', executed_at = $1, executed_by = $2, updated_at = $1 WHERE id = $3 AND tenant_id = $4",
         [now, actorUserId, batchId, tenantId],
       );
 

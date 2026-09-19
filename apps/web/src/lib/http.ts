@@ -1,7 +1,10 @@
 // Thin HTTP client for cloud-api. Vidyalaya is online-only: every read and
-// write goes straight to the REST API over plain fetch() (cloud-api's
-// CORS currently allows any origin -- see docs/production-readiness.md
-// for tightening this before a real deploy).
+// write goes straight to the REST API over plain fetch() (see
+// docs/production-readiness.md for the CORS_ALLOWED_ORIGINS allowlist that
+// gates which browser origins -- including each school's subdomain -- may
+// call the API). Note: cloud-api resolves each login's tenant from the
+// request's own Origin header (see apps/cloud-api/src/common/subdomain.ts)
+// rather than anything this client sends -- there's nothing to do here.
 
 const DEFAULT_BASE_URL = "http://localhost:3001";
 

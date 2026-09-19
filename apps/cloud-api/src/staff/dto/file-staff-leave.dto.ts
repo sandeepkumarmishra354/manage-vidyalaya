@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 // HR/admin filing leave on behalf of a staff member -- same shape as
 // ApplyStaffLeaveDto plus the target staff_id, since the caller isn't
@@ -16,4 +16,9 @@ export class FileStaffLeaveDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  // Only valid when start_date === end_date -- enforced in StaffLeaveService.
+  @IsOptional()
+  @IsBoolean()
+  is_half_day?: boolean;
 }

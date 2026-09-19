@@ -21,10 +21,11 @@ export interface AuditEntry {
 @Injectable()
 export class AuditService {
   async record(client: PoolClient, entry: AuditEntry): Promise<void> {
+    const now = new Date();
     await client.query(
       `INSERT INTO audit_log
-         (id, tenant_id, branch_id, actor_user_id, entity_table, entity_id, action, summary, before_json, after_json, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         (id, tenant_id, branch_id, actor_user_id, entity_table, entity_id, action, summary, before_json, after_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
       [
         randomUUID(),
         entry.tenantId,
@@ -36,7 +37,7 @@ export class AuditService {
         entry.summary,
         entry.before === undefined ? null : JSON.stringify(entry.before),
         entry.after === undefined ? null : JSON.stringify(entry.after),
-        new Date(),
+        now,
       ],
     );
   }

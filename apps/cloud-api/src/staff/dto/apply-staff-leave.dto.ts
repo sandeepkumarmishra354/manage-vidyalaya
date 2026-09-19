@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class ApplyStaffLeaveDto {
   @IsString()
@@ -10,4 +10,9 @@ export class ApplyStaffLeaveDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  // Only valid when start_date === end_date -- enforced in StaffLeaveService.
+  @IsOptional()
+  @IsBoolean()
+  is_half_day?: boolean;
 }

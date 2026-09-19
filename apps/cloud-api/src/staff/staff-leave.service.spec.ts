@@ -93,6 +93,25 @@ describe("StaffLeaveService.apply", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(client.query).not.toHaveBeenCalled();
   });
+
+  it("rejects a half-day request spanning more than one date", async () => {
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "active" });
+
+    await expect(
+      service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-12", is_half_day: true }),
+    ).rejects.toThrow();
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("accepts a half-day request for a single date and records it on the row", async () => {
+    scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1", status: "active" });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", status: "pending", tenant_id: "tenant-1" }] });
+
+    await service.apply("tenant-1", "user-1", { start_date: "2026-04-10", end_date: "2026-04-10", is_half_day: true });
+
+    const [, params] = client.query.mock.calls[0];
+    expect(params).toContain(true);
+  });
 });
 
 describe("StaffLeaveService.cancel", () => {
@@ -293,5 +312,41 @@ describe("StaffLeaveService.decide", () => {
     client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", status: "approved" }] });
 
     await expect(service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" })).rejects.toThrow();
+  });
+
+  it("approving a half-day request writes a staff_attendance 'half_day' row instead of 'leave'", async () => {
+    client.query.mockImplementation(async (text: unknown) => {
+      if (typeof text === "string" && text.includes("FROM staff_leave_requests lr")) {
+        return {
+          rows: [
+            {
+              id: "req-1",
+              status: "pending",
+              tenant_id: "tenant-1",
+              branch_id: "branch-1",
+              staff_id: "staff-1",
+              start_date: new Date("2026-04-10T00:00:00.000Z"),
+              end_date: new Date("2026-04-10T00:00:00.000Z"),
+              is_half_day: true,
+              staff_first_name: "Asha",
+              staff_last_name: "Rao",
+            },
+          ],
+        };
+      }
+      if (typeof text === "string" && text.startsWith("UPDATE staff_leave_requests")) {
+        return { rows: [{ id: "req-1", status: "approved", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
+    });
+
+    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" });
+
+    const attendanceCalls = client.query.mock.calls.filter(
+      ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
+    );
+    expect(attendanceCalls).toHaveLength(1);
+    expect(attendanceCalls[0][1]).toContain("half_day");
+    expect(attendanceCalls[0][1]).not.toContain("leave");
   });
 });

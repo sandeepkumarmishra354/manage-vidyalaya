@@ -1329,6 +1329,7 @@ export interface StaffLeaveRequest {
   decided_at?: string | null;
   decision_note?: string | null;
   created_at: string;
+  is_half_day: boolean;
 }
 
 export interface StaffLeaveRequestListItem extends StaffLeaveRequest {
@@ -1339,6 +1340,7 @@ export interface ApplyStaffLeaveInput {
   start_date: string;
   end_date: string;
   reason?: string | null;
+  is_half_day?: boolean;
 }
 
 export interface FileStaffLeaveInput extends ApplyStaffLeaveInput {
@@ -1706,6 +1708,75 @@ export interface DashboardStats {
   upcoming_exams: UpcomingExam[];
 }
 
+// "Needs Attention": everything the caller might need to act on, one
+// category per section, each omitted entirely (not just hidden) when the
+// caller lacks that category's permission -- same convention as the fee
+// fields above.
+export interface NeedsAttentionSection<T> {
+  items: T[];
+  total_count: number;
+}
+
+export interface PendingLeaveAttentionItem {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  start_date: string;
+  end_date: string;
+}
+
+export interface PendingAdmissionAttentionItem {
+  id: string;
+  student_name: string;
+  applied_at: string;
+}
+
+export interface OverdueBookAttentionItem {
+  id: string;
+  student_id: string;
+  student_name: string;
+  book_title: string;
+  due_date: string;
+}
+
+export interface OverdueFeeAttentionItem {
+  id: string;
+  student_id: string;
+  student_name: string;
+  amount_due: number;
+  amount_paid: number;
+  due_date: string | null;
+}
+
+export interface UnpublishedExamAttentionItem {
+  id: string;
+  name: string;
+  exam_date: string;
+}
+
+export interface DraftPromotionAttentionItem {
+  id: string;
+  from_session_name: string;
+  to_session_name: string;
+  executed_at: string | null;
+}
+
+export interface DraftPayrollRunAttentionItem {
+  id: string;
+  period_month: number;
+  period_year: number;
+}
+
+export interface NeedsAttentionResponse {
+  pending_leave?: NeedsAttentionSection<PendingLeaveAttentionItem>;
+  pending_admissions?: NeedsAttentionSection<PendingAdmissionAttentionItem>;
+  overdue_books?: NeedsAttentionSection<OverdueBookAttentionItem>;
+  overdue_fees?: NeedsAttentionSection<OverdueFeeAttentionItem>;
+  unpublished_exams?: NeedsAttentionSection<UnpublishedExamAttentionItem>;
+  draft_promotions?: NeedsAttentionSection<DraftPromotionAttentionItem>;
+  draft_payroll_runs?: NeedsAttentionSection<DraftPayrollRunAttentionItem>;
+}
+
 // ============================================================================
 // Timetable
 // ============================================================================
@@ -2061,6 +2132,8 @@ export const api = {
     }),
 
   getDashboardStats: (branchId: string) => http.get<DashboardStats>("/dashboard/stats", { branch_id: branchId }),
+  getNeedsAttention: (branchId: string) =>
+    http.get<NeedsAttentionResponse>("/dashboard/needs-attention", { branch_id: branchId }),
 
   // RBAC: permissions, roles, users
   listPermissionCatalog: () => http.get<PermissionCatalogEntry[]>("/permissions/catalog"),

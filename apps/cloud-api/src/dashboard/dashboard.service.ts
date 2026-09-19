@@ -191,4 +191,267 @@ export class DashboardService {
         : {}),
     };
   }
+
+  // Everything an admin/HR user might need to act on, surfaced in one place
+  // instead of requiring a separate visit to each module. Same shape as
+  // getStats: permission checks up front, one Promise.all fan-out, and each
+  // section omitted entirely (not just hidden) when the caller lacks the
+  // relevant permission. Each category returns a capped list (LIMIT 5) plus
+  // a separate total_count so the payload stays bounded regardless of how
+  // much is actually pending.
+  async getNeedsAttention(tenantId: string, userId: string, branchId: string) {
+    const today = todayUtcMidnight();
+
+    const [
+      canManageLeave,
+      canConfirmAdmissions,
+      canManageLibraryIssues,
+      canViewFees,
+      canManageExams,
+      canPromote,
+      canFinalizePayroll,
+    ] = await Promise.all([
+      this.scopedAccess.hasPermission(tenantId, userId, "staff_leave.manage"),
+      this.scopedAccess.hasPermission(tenantId, userId, "admissions.confirm"),
+      this.scopedAccess.hasPermission(tenantId, userId, "library.manage_issues"),
+      this.scopedAccess.hasPermission(tenantId, userId, "fees.view"),
+      this.scopedAccess.hasPermission(tenantId, userId, "exams.manage_exams"),
+      this.scopedAccess.hasPermission(tenantId, userId, "academic_setup.promote"),
+      this.scopedAccess.hasPermission(tenantId, userId, "payroll.finalize"),
+    ]);
+
+    const empty = { items: [] as unknown[], total_count: 0 };
+
+    const [
+      pendingLeave,
+      pendingAdmissions,
+      overdueBooks,
+      overdueFees,
+      unpublishedExams,
+      draftPromotions,
+      draftPayrollRuns,
+    ] = await Promise.all([
+      canManageLeave
+        ? Promise.all([
+            this.db.query<{
+              id: string;
+              staff_id: string;
+              start_date: Date;
+              end_date: Date;
+              staff_first_name: string;
+              staff_last_name: string | null;
+            }>(
+              tenantId,
+              `SELECT lr.id, lr.staff_id, lr.start_date, lr.end_date, s.first_name AS staff_first_name, s.last_name AS staff_last_name
+               FROM staff_leave_requests lr
+               JOIN staff s ON s.id = lr.staff_id
+               WHERE lr.tenant_id = $1 AND lr.branch_id = $2 AND lr.status = 'pending' AND lr.deleted_at IS NULL
+               ORDER BY lr.created_at ASC
+               LIMIT 5`,
+              [tenantId, branchId],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM staff_leave_requests WHERE tenant_id = $1 AND branch_id = $2 AND status = 'pending' AND deleted_at IS NULL",
+              [tenantId, branchId],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows.map((r) => ({
+              id: r.id,
+              staff_id: r.staff_id,
+              staff_name: [r.staff_first_name, r.staff_last_name].filter(Boolean).join(" "),
+              start_date: r.start_date,
+              end_date: r.end_date,
+            })),
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      // students has no created_at column -- updated_at is the closest
+      // available proxy for "how long has this been pending" (it's set at
+      // insert time and only changes again if the row is later edited).
+      canConfirmAdmissions
+        ? Promise.all([
+            this.db.query<{ id: string; first_name: string; last_name: string | null; updated_at: Date }>(
+              tenantId,
+              `SELECT id, first_name, last_name, updated_at FROM students
+               WHERE tenant_id = $1 AND branch_id = $2 AND status = 'applied' AND deleted_at IS NULL
+               ORDER BY updated_at ASC
+               LIMIT 5`,
+              [tenantId, branchId],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM students WHERE tenant_id = $1 AND branch_id = $2 AND status = 'applied' AND deleted_at IS NULL",
+              [tenantId, branchId],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows.map((r) => ({
+              id: r.id,
+              student_name: [r.first_name, r.last_name].filter(Boolean).join(" "),
+              applied_at: r.updated_at,
+            })),
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      canManageLibraryIssues
+        ? Promise.all([
+            this.db.query<{
+              id: string;
+              student_id: string;
+              first_name: string;
+              last_name: string | null;
+              title: string;
+              due_date: Date;
+            }>(
+              tenantId,
+              `SELECT li.id, li.student_id, s.first_name, s.last_name, b.title, li.due_date
+               FROM library_issues li
+               JOIN library_books b ON b.id = li.book_id
+               JOIN students s ON s.id = li.student_id
+               WHERE li.tenant_id = $1 AND li.branch_id = $2 AND li.status = 'issued' AND li.due_date < $3 AND li.deleted_at IS NULL
+               ORDER BY li.due_date ASC
+               LIMIT 5`,
+              [tenantId, branchId, today],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM library_issues WHERE tenant_id = $1 AND branch_id = $2 AND status = 'issued' AND due_date < $3 AND deleted_at IS NULL",
+              [tenantId, branchId, today],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows.map((r) => ({
+              id: r.id,
+              student_id: r.student_id,
+              student_name: [r.first_name, r.last_name].filter(Boolean).join(" "),
+              book_title: r.title,
+              due_date: r.due_date,
+            })),
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      canViewFees
+        ? Promise.all([
+            this.db.query<{
+              id: string;
+              student_id: string;
+              first_name: string;
+              last_name: string | null;
+              amount_due: number;
+              amount_paid: number;
+              due_date: Date | null;
+            }>(
+              tenantId,
+              `SELECT fi.id, fi.student_id, s.first_name, s.last_name, fi.amount_due, fi.amount_paid, fi.due_date
+               FROM fee_invoices fi
+               JOIN students s ON s.id = fi.student_id
+               WHERE fi.tenant_id = $1 AND fi.branch_id = $2 AND fi.status = 'overdue' AND fi.deleted_at IS NULL
+               ORDER BY fi.due_date ASC
+               LIMIT 5`,
+              [tenantId, branchId],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM fee_invoices WHERE tenant_id = $1 AND branch_id = $2 AND status = 'overdue' AND deleted_at IS NULL",
+              [tenantId, branchId],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows.map((r) => ({
+              id: r.id,
+              student_id: r.student_id,
+              student_name: [r.first_name, r.last_name].filter(Boolean).join(" "),
+              amount_due: r.amount_due,
+              amount_paid: r.amount_paid,
+              due_date: r.due_date,
+            })),
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      canManageExams
+        ? Promise.all([
+            this.db.query<{ id: string; name: string; exam_date: Date }>(
+              tenantId,
+              `SELECT id, name, exam_date FROM exams
+               WHERE tenant_id = $1 AND branch_id = $2 AND exam_date < $3 AND results_published_at IS NULL AND deleted_at IS NULL
+               ORDER BY exam_date ASC
+               LIMIT 5`,
+              [tenantId, branchId, today],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM exams WHERE tenant_id = $1 AND branch_id = $2 AND exam_date < $3 AND results_published_at IS NULL AND deleted_at IS NULL",
+              [tenantId, branchId, today],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows,
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      // promotion_batches has no deleted_at column, unlike every other
+      // table queried here.
+      canPromote
+        ? Promise.all([
+            this.db.query<{
+              id: string;
+              executed_at: Date | null;
+              from_session_name: string;
+              to_session_name: string;
+            }>(
+              tenantId,
+              `SELECT pb.id, pb.executed_at, fs.name AS from_session_name, ts.name AS to_session_name
+               FROM promotion_batches pb
+               JOIN academic_sessions fs ON fs.id = pb.from_session_id
+               JOIN academic_sessions ts ON ts.id = pb.to_session_id
+               WHERE pb.tenant_id = $1 AND pb.branch_id = $2 AND pb.status = 'draft'
+               ORDER BY pb.created_at DESC
+               LIMIT 5`,
+              [tenantId, branchId],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM promotion_batches WHERE tenant_id = $1 AND branch_id = $2 AND status = 'draft'",
+              [tenantId, branchId],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows,
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+
+      canFinalizePayroll
+        ? Promise.all([
+            this.db.query<{ id: string; period_month: number; period_year: number }>(
+              tenantId,
+              `SELECT id, period_month, period_year FROM payroll_runs
+               WHERE tenant_id = $1 AND branch_id = $2 AND status = 'draft' AND deleted_at IS NULL
+               ORDER BY period_year DESC, period_month DESC
+               LIMIT 5`,
+              [tenantId, branchId],
+            ),
+            this.db.queryOne<{ count: string }>(
+              tenantId,
+              "SELECT COUNT(*)::text AS count FROM payroll_runs WHERE tenant_id = $1 AND branch_id = $2 AND status = 'draft' AND deleted_at IS NULL",
+              [tenantId, branchId],
+            ),
+          ]).then(([rows, countRow]) => ({
+            items: rows,
+            total_count: Number(countRow?.count ?? "0"),
+          }))
+        : Promise.resolve(empty),
+    ]);
+
+    return {
+      ...(canManageLeave ? { pending_leave: pendingLeave } : {}),
+      ...(canConfirmAdmissions ? { pending_admissions: pendingAdmissions } : {}),
+      ...(canManageLibraryIssues ? { overdue_books: overdueBooks } : {}),
+      ...(canViewFees ? { overdue_fees: overdueFees } : {}),
+      ...(canManageExams ? { unpublished_exams: unpublishedExams } : {}),
+      ...(canPromote ? { draft_promotions: draftPromotions } : {}),
+      ...(canFinalizePayroll ? { draft_payroll_runs: draftPayrollRuns } : {}),
+    };
+  }
 }

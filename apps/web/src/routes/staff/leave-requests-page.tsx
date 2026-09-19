@@ -132,6 +132,11 @@ export function LeaveRequestsPage() {
                   <TableCell>
                     {formatDate(r.start_date)}
                     {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
+                    {r.is_half_day && (
+                      <Badge variant="info" className="ml-2">
+                        Half day
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{r.reason ?? "—"}</TableCell>
                   <TableCell>
