@@ -163,7 +163,7 @@ function SchoolDetailsTab() {
               <Input id="school-pincode" value={form.pincode} onChange={update("pincode")} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="school-phone">Phone</Label>
               <Input id="school-phone" value={form.phone} onChange={update("phone")} />

@@ -190,7 +190,7 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
   const deductions = payslip.line_items.filter((li) => li.component_type === "deduction");
 
   return (
-    <div className="grid grid-cols-2 gap-8 text-sm">
+    <div className="grid grid-cols-1 gap-8 text-sm sm:grid-cols-2">
       <div>
         <p className="mb-2 font-semibold">Earnings</p>
         {earnings.map((li) => (
@@ -217,7 +217,7 @@ function PayslipLines({ payslip }: { payslip: Payslip }) {
           <span>{formatPaise(payslip.total_deductions)}</span>
         </div>
       </div>
-      <div className="col-span-2 flex justify-between border-t-2 pt-2 text-base font-bold">
+      <div className="sm:col-span-2 flex justify-between border-t-2 pt-2 text-base font-bold">
         <span>Net pay</span>
         <span>{formatPaise(payslip.net_pay)}</span>
       </div>

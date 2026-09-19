@@ -157,7 +157,7 @@ export function GuardianPicker({
         <p className="text-sm text-muted-foreground">Can't find them? Enter new guardian details below.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="guardianFullName">Full name</Label>
           <Input id="guardianFullName" value={value.fullName} onChange={update("fullName")} required />

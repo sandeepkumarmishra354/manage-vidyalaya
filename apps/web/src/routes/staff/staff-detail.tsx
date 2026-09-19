@@ -208,7 +208,7 @@ function AddLeaveDialog({ staff, onAdded }: { staff: Staff; onAdded: () => void 
           <p className="text-sm text-muted-foreground">
             Filed by HR, so it's recorded as approved immediately and reflected on the attendance calendar.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="add-leave-start">Start date</Label>
               <Input id="add-leave-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />

@@ -34,9 +34,9 @@ export function DetailSection({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {fields && (
-          <div className="grid grid-cols-2 gap-y-3 text-sm">
+          <div className="grid grid-cols-1 gap-y-3 text-sm sm:grid-cols-2">
             {fields.map((f) => (
-              <div key={f.label} className={cn(f.span && "col-span-2")}>
+              <div key={f.label} className={cn(f.span && "sm:col-span-2")}>
                 <p className="text-muted-foreground">{f.label}</p>
                 <p className="font-medium">{f.value}</p>
               </div>

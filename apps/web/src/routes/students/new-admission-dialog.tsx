@@ -162,7 +162,7 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
               <TabsTrigger value="additional">Additional Details</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="firstName">First name</Label>
                 <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
@@ -234,7 +234,7 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
               <GuardianPicker value={guardian} onChange={setGuardian} />
             </TabsContent>
 
-            <TabsContent value="additional" className="grid grid-cols-2 gap-4">
+            <TabsContent value="additional" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label>Category</Label>
                 <MasterDataSelect
@@ -283,12 +283,12 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="emergencyContactPhone">Emergency contact phone</Label>
                 <Input id="emergencyContactPhone" value={form.emergencyContactPhone} onChange={update("emergencyContactPhone")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="medicalNotes">Medical notes (allergies, conditions)</Label>
                 <Textarea id="medicalNotes" value={form.medicalNotes} onChange={update("medicalNotes")} />
               </div>
               {matchingFeeStructures.length > 0 && (
-                <div className="col-span-2 flex flex-col gap-1.5">
+                <div className="sm:col-span-2 flex flex-col gap-1.5">
                   <Label>Fee structures to charge this family for</Label>
                   <p className="text-xs text-muted-foreground">
                     Pre-checked based on the applying class -- uncheck any this family shouldn't be charged for. Fine

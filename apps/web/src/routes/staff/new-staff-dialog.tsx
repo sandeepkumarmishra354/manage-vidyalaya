@@ -137,7 +137,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
               <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="basic" className="grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="firstName">First name</Label>
                 <Input id="firstName" value={form.firstName} onChange={update("firstName")} required />
@@ -178,7 +178,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Label htmlFor="personalEmail">Personal email</Label>
                 <Input id="personalEmail" type="email" value={form.personalEmail} onChange={update("personalEmail")} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="address">Address</Label>
                 <Input id="address" value={form.address} onChange={update("address")} />
               </div>
@@ -196,7 +196,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
               </div>
             </TabsContent>
 
-            <TabsContent value="employment" className="grid grid-cols-2 gap-4">
+            <TabsContent value="employment" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="employeeCode">Employee code</Label>
                 <Input
@@ -252,7 +252,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
               </div>
             </TabsContent>
 
-            <TabsContent value="statutory" className="grid grid-cols-2 gap-4">
+            <TabsContent value="statutory" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="panNumber">PAN</Label>
                 <Input id="panNumber" value={form.panNumber} onChange={update("panNumber")} />
@@ -287,7 +287,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
               </div>
             </TabsContent>
 
-            <TabsContent value="emergency" className="grid grid-cols-2 gap-4">
+            <TabsContent value="emergency" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="emergencyContactName">Name</Label>
                 <Input id="emergencyContactName" value={form.emergencyContactName} onChange={update("emergencyContactName")} />

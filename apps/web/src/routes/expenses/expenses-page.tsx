@@ -89,7 +89,7 @@ function AddExpenseDialog({ branchId, onAdded }: { branchId: string; onAdded: ()
             <Label htmlFor="exp-description">Description</Label>
             <Input id="exp-description" value={description} onChange={(e) => setDescription(e.target.value)} required />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="exp-amount">Amount (₹)</Label>
               <Input id="exp-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
@@ -103,7 +103,7 @@ function AddExpenseDialog({ branchId, onAdded }: { branchId: string; onAdded: ()
             <Label>Category</Label>
             <MasterDataSelect type="expense_category" value={categoryId} onChange={setCategoryId} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="exp-payment-mode">Payment mode</Label>
               <Input id="exp-payment-mode" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} placeholder="e.g. Cash, UPI, Bank" />
