@@ -66,6 +66,7 @@ jobs:
           JWT_ACCESS_TOKEN_TTL="1h"
           JWT_REFRESH_TOKEN_TTL="30d"
           PORT=3001
+          THROTTLE_DISABLED=1
           EOF
 
       - name: Write web .env

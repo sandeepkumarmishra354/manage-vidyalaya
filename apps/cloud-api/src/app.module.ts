@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
 import { AcademicModule } from "./academic/academic.module.js";
 import { AppController } from "./app.controller.js";
@@ -37,6 +39,18 @@ import { UsersModule } from "./users/users.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // A generous, always-on baseline against basic scripted abuse/DoS --
+    // no real usage pattern in this app (bulk attendance marking,
+    // dashboard polling, etc.) comes close to it. Specific sensitive
+    // endpoints (login, password reset) layer a much stricter @Throttle
+    // on top via their own controllers. THROTTLE_DISABLED exists solely
+    // for the E2E suite, which legitimately logs in the same fixed
+    // persona emails from one IP far more than any real user would --
+    // see apps/e2e/playwright.config.ts.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: "default", ttl: 60_000, limit: 300 }],
+      skipIf: () => process.env.THROTTLE_DISABLED === "1",
+    }),
     DbModule,
     CommonModule,
     AuthModule,
@@ -70,5 +84,6 @@ import { UsersModule } from "./users/users.module.js";
     QrModule,
   ],
   controllers: [AppController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

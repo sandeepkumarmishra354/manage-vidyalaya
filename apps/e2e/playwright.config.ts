@@ -45,6 +45,16 @@ export default defineConfig({
       timeout: 60_000,
       stdout: "pipe",
       stderr: "pipe",
+      // The suite logs the same fixed persona emails in from one IP far
+      // more often per minute than any real user would (global-setup.ts
+      // plus every spec that calls loginViaApi for API-level test-data
+      // setup) -- @nestjs/throttler's login rate limit would otherwise
+      // reject the suite's own setup calls. See cloud-api's
+      // .env.example for why this must never be set in production.
+      env: {
+        ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+        THROTTLE_DISABLED: "1",
+      },
     },
     {
       command: "pnpm --filter web dev -- --port 5173",
