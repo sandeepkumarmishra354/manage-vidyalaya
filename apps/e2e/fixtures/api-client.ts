@@ -151,6 +151,102 @@ export async function getStaffIdByEmployeeCode(api: APIRequestContext, branchId:
   return match.id;
 }
 
+// Amount in whole rupees -- converted to paise (the DTO's actual unit)
+// here so call sites read naturally.
+// Scoped to a specific class (rather than left branch-wide) so it only
+// ever matches students in that exact class -- since each test run
+// creates its own brand-new class, this keeps fee structures from
+// different runs from cross-matching each other's students via
+// confirmAdmission's "generate invoices for every matching structure"
+// auto-generation (a leftover unscoped structure from an earlier run
+// would otherwise silently double-invoice a fresh run's student).
+export async function createTestFeeStructure(
+  api: APIRequestContext,
+  opts: {
+    branchId: string;
+    classId: string;
+    academicSessionId: string;
+    name: string;
+    amountRupees: number;
+    frequency?: string;
+  },
+): Promise<string> {
+  const res = await expectOk(
+    await api.post("/fee-structures", {
+      data: {
+        branch_id: opts.branchId,
+        class_id: opts.classId,
+        academic_session_id: opts.academicSessionId,
+        name: opts.name,
+        amount: opts.amountRupees * 100,
+        frequency: opts.frequency ?? "one_time",
+        fee_type: "tuition",
+      },
+    }),
+    "POST /fee-structures",
+  );
+  const { id } = (await res.json()) as { id: string };
+  return id;
+}
+
+export async function generateInvoicesForStructure(api: APIRequestContext, structureId: string): Promise<void> {
+  await expectOk(
+    await api.post(`/fee-structures/${structureId}/generate-invoices`, { data: {} }),
+    "POST /fee-structures/:id/generate-invoices",
+  );
+}
+
+// Basic-only salary structure (no extra earning/deduction components) --
+// enough to make a staff member payroll-eligible and exercise the LOP math
+// end to end. effective_from is set well in the past so it always applies
+// to whatever period a test generates a run for.
+export async function setTestSalaryStructure(
+  api: APIRequestContext,
+  opts: { branchId: string; staffId: string; basicAmountRupees: number },
+): Promise<void> {
+  await expectOk(
+    await api.post("/salary-structures", {
+      data: {
+        branch_id: opts.branchId,
+        staff_id: opts.staffId,
+        effective_from: "1900-01-01",
+        basic_amount: opts.basicAmountRupees * 100,
+        components: [],
+      },
+    }),
+    "POST /salary-structures",
+  );
+}
+
+// A "relieved" staff member is excluded from every active-staff query
+// (payroll's generate-run staff selection included) -- use this to keep a
+// test-created staff member from being permanently, silently included in
+// every later test run's payroll generation.
+export async function relieveTestStaff(api: APIRequestContext, staffId: string): Promise<void> {
+  await expectOk(
+    await api.post(`/staff/${staffId}/status`, {
+      data: { status: "relieved", date_of_leaving: new Date().toISOString().slice(0, 10) },
+    }),
+    "POST /staff/:id/status",
+  );
+}
+
+export async function markStaffAttendance(
+  api: APIRequestContext,
+  opts: { branchId: string; staffId: string; date: string; status: string },
+): Promise<void> {
+  await expectOk(
+    await api.post("/staff-attendance", {
+      data: {
+        branch_id: opts.branchId,
+        attendance_date: opts.date,
+        entries: [{ staff_id: opts.staffId, status: opts.status }],
+      },
+    }),
+    "POST /staff-attendance",
+  );
+}
+
 export async function createTestExpense(
   api: APIRequestContext,
   opts: { branchId: string; description: string },
