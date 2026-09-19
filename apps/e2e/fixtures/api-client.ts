@@ -46,3 +46,88 @@ export async function apiContextFor(accessToken: string): Promise<APIRequestCont
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });
 }
+
+async function expectOk(res: Awaited<ReturnType<APIRequestContext["get"]>>, label: string) {
+  if (!res.ok()) {
+    throw new Error(`${label} failed: ${res.status()} ${await res.text()}`);
+  }
+  return res;
+}
+
+export async function getBranchIdByName(api: APIRequestContext, name: string): Promise<string> {
+  const res = await expectOk(await api.get("/branches"), "GET /branches");
+  const branches = (await res.json()) as { id: string; name: string }[];
+  const branch = branches.find((b) => b.name === name);
+  if (!branch) throw new Error(`No branch named "${name}" found`);
+  return branch.id;
+}
+
+export async function getCurrentAcademicSessionId(api: APIRequestContext): Promise<string> {
+  const res = await expectOk(await api.get("/academic-sessions"), "GET /academic-sessions");
+  const sessions = (await res.json()) as { id: string; is_current: boolean }[];
+  const current = sessions.find((s) => s.is_current);
+  if (!current) throw new Error("No current academic session found");
+  return current.id;
+}
+
+// Creates a student the fast way (skips confirmation -- an "applied"
+// admission already produces a real students row, which is all
+// branch-visibility tests need). Returns the new student's id.
+export async function createTestStudent(
+  api: APIRequestContext,
+  opts: { branchId: string; academicSessionId: string; firstName: string },
+): Promise<string> {
+  const res = await expectOk(
+    await api.post("/admissions", {
+      data: {
+        branch_id: opts.branchId,
+        academic_session_id: opts.academicSessionId,
+        first_name: opts.firstName,
+        guardian_name: `${opts.firstName} Guardian`,
+        guardian_relation: "Father",
+      },
+    }),
+    "POST /admissions",
+  );
+  const body = (await res.json()) as { id: string };
+  return body.id;
+}
+
+export async function createTestStaff(
+  api: APIRequestContext,
+  opts: { branchId: string; firstName: string },
+): Promise<string> {
+  const res = await expectOk(
+    await api.post("/staff", {
+      data: {
+        branch_id: opts.branchId,
+        first_name: opts.firstName,
+        designation: "E2E Test Staff",
+        employment_type: "full_time",
+        date_of_joining: new Date().toISOString().slice(0, 10),
+      },
+    }),
+    "POST /staff",
+  );
+  const body = (await res.json()) as { id: string };
+  return body.id;
+}
+
+export async function createTestExpense(
+  api: APIRequestContext,
+  opts: { branchId: string; description: string },
+): Promise<string> {
+  const res = await expectOk(
+    await api.post("/expenses", {
+      data: {
+        branch_id: opts.branchId,
+        description: opts.description,
+        amount: 100_00,
+        expense_date: new Date().toISOString().slice(0, 10),
+      },
+    }),
+    "POST /expenses",
+  );
+  const body = (await res.json()) as { id: string };
+  return body.id;
+}

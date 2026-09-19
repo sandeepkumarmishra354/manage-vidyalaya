@@ -96,6 +96,7 @@ jobs:
         working-directory: apps/e2e
         env:
           CI: true
+          E2E_DATABASE_URL: "postgresql://vidyalaya:vidyalaya@localhost:5432/vidyalaya"
         run: pnpm exec playwright test
 
       - name: Upload Playwright report
