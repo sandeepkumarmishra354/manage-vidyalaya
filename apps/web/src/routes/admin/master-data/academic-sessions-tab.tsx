@@ -79,6 +79,7 @@ function EditSessionDialog({ session, onUpdated }: { session: AcademicSession; o
 export function AcademicSessionsTab() {
   const hasPermission = useAppStore((s) => s.hasPermission);
   const canManage = hasPermission("academic_setup.manage_sessions");
+  const refreshStoreAcademicSessions = useAppStore((s) => s.refreshAcademicSessions);
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -87,7 +88,8 @@ export function AcademicSessionsTab() {
 
   const refresh = useCallback(() => {
     api.listAcademicSessions().then(setSessions);
-  }, []);
+    refreshStoreAcademicSessions();
+  }, [refreshStoreAcademicSessions]);
 
   useEffect(() => {
     refresh();
