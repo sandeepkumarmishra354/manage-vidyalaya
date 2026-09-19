@@ -59,7 +59,10 @@ test("promoting a student updates their current class and creates a new-session 
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Execute promotion" }).click();
-  await expect(page.getByRole("button", { name: "Execute promotion" })).not.toBeVisible({ timeout: 15_000 });
+  // A bulk multi-row DB operation -- generous timeout since this ran
+  // flaky at 15s when the full suite runs sequentially ahead of it under
+  // load (passed reliably standalone).
+  await expect(page.getByRole("button", { name: "Execute promotion" })).not.toBeVisible({ timeout: 30_000 });
 
   // Verify server-side: the student's current_class_id moved to the new
   // session's class. listStudents' response is trimmed (class_name only,

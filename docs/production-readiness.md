@@ -131,6 +131,41 @@ email flow exists) and login rate-limiting.
   (see item 3 above) already gets real random UUIDs throughout.
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
+- **A multi-branch, multi-role Playwright E2E suite** (`apps/e2e/`, run via
+  `pnpm test:e2e`) covers the whole app end to end, not just unit-tested
+  business logic -- 150+ tests across 6 personas (`super_admin`,
+  `branch_admin`, `accountant`, `front_desk`, and two `teacher` logins
+  wired into real class-teacher/subject-assignment rows, so
+  `ScopedAccessService`'s additive authorization paths are actually
+  exercised, not just flat permissions) and 2 branches (`Main Campus`,
+  the original demo branch kept pristine for human demos, and
+  `North Campus`, a second seeded branch that's this suite's sandbox for
+  everything that creates or mutates data). Coverage: cross-branch and
+  cross-tenant data isolation, every route's permission boundary, the
+  full academic lifecycle (admissions through promotion, timetable,
+  school calendar), the full money-flow lifecycle (fee invoices,
+  discounts, payroll runs, expenses), and one lifecycle test per
+  remaining module (library, transport, houses, documents, QR scan
+  attendance, dashboard, roles/users/audit log, master data). Runs in CI
+  on every push/PR (`.github/workflows/e2e.yml`) against a fresh Postgres
+  service container. See `apps/e2e/README.md` for the persona table and
+  how to run it locally.
+  - Writing this suite found and fixed three real bugs of the same root
+    cause (soft-deleting a row leaves its unique-index slot permanently
+    occupied, so recreating it later throws an unhandled 500): the
+    original timetable period-slot `sort_order` collision, a payroll-run
+    period-reuse bug, and 9 further tables found by auditing every
+    soft-delete call site the same way once the pattern was recognized
+    (`calendar_holidays`, `class_subjects`, `subject_elective_groups`,
+    `subject_elective_group_members`, `fee_categories`, `fee_discounts`,
+    `master_data_items`, `staff_categories`, `roles`,
+    `teacher_subject_assignments`) -- all fixed by replacing the plain
+    unique index with one scoped to `WHERE deleted_at IS NULL`. Worth
+    keeping in mind for any *new* soft-deletable table added later: give
+    its unique index the same `WHERE deleted_at IS NULL` clause from the
+    start, or reuse-the-existing-row-via-`ON CONFLICT` the way
+    `fee_discounts`' student-assignment path and `timetable_entries`
+    already do.
 
 ### 5. Security basics
 

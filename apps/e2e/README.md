@@ -33,6 +33,6 @@ None of the five `qa.*` personas have a `branch_id` pinned on their login, so ea
 - `fixtures/personas.ts` -- the persona table above, plus `authFilePath(name)` resolving each persona's saved Playwright `storageState`.
 - `fixtures/global-setup.ts` -- logs in every persona once via a direct API call (faster/less flaky than driving the login form per test) and saves `storageState` JSON per persona under `.auth/` (gitignored -- contains real tokens).
 - `fixtures/api-client.ts` -- thin helpers for API-level test-data setup/teardown when a test's actual subject is something else (e.g. creating a student via API before testing that a *different* persona can/can't see it).
-- `tests/` -- organized by area (`isolation/`, `academic/`, `fees/`, `payroll/`, etc. as batches land).
+- `tests/` -- organized by area: `isolation/` (cross-branch, cross-tenant, and route-permission boundaries), `academic/` (admissions, attendance, exams, timetable, promotion, school calendar), `fees/` (invoice lifecycle, discounts, the student-fee-override regression), `payroll/` (full run lifecycle including the payroll-run-reuse regression), `expenses/`, `library/`, `transport/`, `houses/`, `documents/`, `attendance/` (QR scan), `dashboard/`, and `admin/` (roles, users, audit log, master data).
 
 A spec file picks its persona via `test.use({ storageState: authFilePath("branchAdmin") })`; a file that needs to switch personas mid-test (e.g. isolation/permission tests) uses `browser.newContext({ storageState: ... })` per persona instead.
