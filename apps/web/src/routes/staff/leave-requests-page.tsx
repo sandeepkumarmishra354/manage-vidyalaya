@@ -113,7 +113,7 @@ export function LeaveRequestsPage() {
 
       <Card>
         <CardContent>
-          <Table>
+          <Table className="hidden sm:table">
             <TableHeader>
               <TableRow>
                 <TableHead>Staff</TableHead>
@@ -164,6 +164,37 @@ export function LeaveRequestsPage() {
               )}
             </TableBody>
           </Table>
+
+          <div className="flex flex-col divide-y sm:hidden">
+            {requests.map((r) => (
+              <div key={r.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-2">
+                  <PersonLink type="staff" id={r.staff_id} name={r.staff_name} />
+                  <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {formatDate(r.start_date)}
+                  {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
+                </p>
+                {r.is_half_day && <Badge variant="info" className="w-fit">Half day</Badge>}
+                {r.reason && <p className="text-sm text-muted-foreground">{r.reason}</p>}
+                {r.status === "pending" && (
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => handleApprove(r.id)}>
+                      <CheckIcon className="size-3.5" />
+                      Approve
+                    </Button>
+                    <RejectDialog id={r.id} onDecided={refresh} />
+                  </div>
+                )}
+              </div>
+            ))}
+            {requests.length === 0 && (
+              <p className="py-8 text-center text-muted-foreground">
+                No {statusFilter === "pending" ? "pending " : ""}leave requests.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
