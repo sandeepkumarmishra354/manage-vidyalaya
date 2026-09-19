@@ -19,7 +19,7 @@ test("school calendar: a named holiday appears in the list and can be removed", 
   // matters for the session it's attached to, so a plain future date is
   // fine and doesn't need run-unique scoping.
   const holidayDate = "2031-03-17";
-  const holidayRes = await api.post("/school-calendar/holidays", {
+  const holidayRes = await api.post("school-calendar/holidays", {
     data: { branch_id: branchId, academic_session_id: sessionId, date: holidayDate, name: holidayName, type: "holiday" },
   });
   expect(holidayRes.ok()).toBe(true);

@@ -29,7 +29,7 @@ test("a subject-assigned teacher can enter marks for their own subject", async (
   });
 
   const examName = `E2EExam${suffix}`;
-  const examRes = await api.post("/exams", {
+  const examRes = await api.post("exams", {
     data: { branch_id: fixture.branchId, academic_session_id: fixture.sessionId, class_id: fixture.classId, name: examName },
   });
   expect(examRes.ok()).toBe(true);

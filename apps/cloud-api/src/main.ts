@@ -18,6 +18,11 @@ async function bootstrap() {
   // directly on the branch update payload -- disable Nest's auto body
   // parser and re-register it with a larger limit.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  // Every route lives under /api so a reverse proxy serving both this API
+  // and the web app's static build off one domain can route purely on
+  // path prefix ("/api/*" -> this app, everything else -> the SPA) -- see
+  // docs/production-readiness.md's hosting section.
+  app.setGlobalPrefix("api");
   app.use(json({ limit: "2mb" }));
   app.use(urlencoded({ extended: true, limit: "2mb" }));
   // Rate limiting (see ThrottlerModule in app.module.ts) buckets by

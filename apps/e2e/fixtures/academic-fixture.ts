@@ -3,17 +3,17 @@ import type { APIRequestContext } from "@playwright/test";
 import { getBranchIdByName, getCurrentAcademicSessionId, getStaffIdByEmployeeCode } from "./api-client.js";
 
 async function clearExistingClassTeacherAssignment(api: APIRequestContext, branchId: string, staffId: string): Promise<void> {
-  const classesRes = await api.get(`/classes?branch_id=${branchId}`);
+  const classesRes = await api.get(`classes?branch_id=${branchId}`);
   if (!classesRes.ok()) return;
   const classes = (await classesRes.json()) as { id: string }[];
 
   for (const cls of classes) {
-    const sectionsRes = await api.get(`/sections?class_id=${cls.id}`);
+    const sectionsRes = await api.get(`sections?class_id=${cls.id}`);
     if (!sectionsRes.ok()) continue;
     const sections = (await sectionsRes.json()) as { id: string; class_teacher_staff_id: string | null }[];
     for (const section of sections) {
       if (section.class_teacher_staff_id === staffId) {
-        await api.patch(`/sections/${section.id}/class-teacher`, { data: { staff_id: null } });
+        await api.patch(`sections/${section.id}/class-teacher`, { data: { staff_id: null } });
       }
     }
   }
@@ -43,21 +43,21 @@ export async function setupAcademicFixture(api: APIRequestContext, uniqueSuffix:
   const classTeacherStaffId = await getStaffIdByEmployeeCode(api, branchId, "QA-CT-01");
   const subjectTeacherStaffId = await getStaffIdByEmployeeCode(api, branchId, "QA-ST-01");
 
-  const classRes = await api.post("/classes", {
+  const classRes = await api.post("classes", {
     data: { branch_id: branchId, academic_session_id: sessionId, name: `E2E Class ${uniqueSuffix}` },
   });
   if (!classRes.ok()) throw new Error(`POST /classes failed: ${classRes.status()} ${await classRes.text()}`);
   const { id: classId } = (await classRes.json()) as { id: string };
 
-  const sectionRes = await api.post("/sections", { data: { class_id: classId, name: "A" } });
+  const sectionRes = await api.post("sections", { data: { class_id: classId, name: "A" } });
   if (!sectionRes.ok()) throw new Error(`POST /sections failed: ${sectionRes.status()} ${await sectionRes.text()}`);
   const { id: sectionId } = (await sectionRes.json()) as { id: string };
 
-  const subjectRes = await api.post("/subjects", { data: { branch_id: branchId, name: `E2E Subject ${uniqueSuffix}` } });
+  const subjectRes = await api.post("subjects", { data: { branch_id: branchId, name: `E2E Subject ${uniqueSuffix}` } });
   if (!subjectRes.ok()) throw new Error(`POST /subjects failed: ${subjectRes.status()} ${await subjectRes.text()}`);
   const { id: subjectId } = (await subjectRes.json()) as { id: string };
 
-  const linkRes = await api.post(`/classes/${classId}/subjects`, { data: { subject_id: subjectId } });
+  const linkRes = await api.post(`classes/${classId}/subjects`, { data: { subject_id: subjectId } });
   if (!linkRes.ok()) throw new Error(`POST /classes/:id/subjects failed: ${linkRes.status()} ${await linkRes.text()}`);
 
   // A staff member can be class teacher of only one section at a time
@@ -66,14 +66,14 @@ export async function setupAcademicFixture(api: APIRequestContext, uniqueSuffix:
   // this run just created, so this fixture stays safely re-runnable.
   await clearExistingClassTeacherAssignment(api, branchId, classTeacherStaffId);
 
-  const classTeacherRes = await api.patch(`/sections/${sectionId}/class-teacher`, {
+  const classTeacherRes = await api.patch(`sections/${sectionId}/class-teacher`, {
     data: { staff_id: classTeacherStaffId },
   });
   if (!classTeacherRes.ok()) {
     throw new Error(`PATCH class-teacher failed: ${classTeacherRes.status()} ${await classTeacherRes.text()}`);
   }
 
-  const assignmentRes = await api.post("/teacher-assignments", {
+  const assignmentRes = await api.post("teacher-assignments", {
     data: {
       branch_id: branchId,
       staff_id: subjectTeacherStaffId,

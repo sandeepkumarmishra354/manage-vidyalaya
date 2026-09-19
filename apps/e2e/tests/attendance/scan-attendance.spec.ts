@@ -24,7 +24,7 @@ test("scan attendance: a QR token marks present once, then reports already-marke
     firstName: studentName,
   });
 
-  const qrRes = await api.get(`/students/${studentId}/qr-code`);
+  const qrRes = await api.get(`students/${studentId}/qr-code`);
   expect(qrRes.ok()).toBe(true);
   const { token } = (await qrRes.json()) as { token: string };
   await api.dispose();

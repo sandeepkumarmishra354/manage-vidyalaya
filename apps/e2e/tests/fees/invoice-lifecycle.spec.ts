@@ -47,7 +47,7 @@ test("invoice lifecycle: generate, partial pay, full pay, reverse, edit, void", 
   await generateInvoicesForStructure(api, structureId);
 
   async function summary() {
-    const res = await api.get(`/fee-invoices/student/${studentId}/summary`);
+    const res = await api.get(`fee-invoices/student/${studentId}/summary`);
     const body = (await res.json()) as { total_due: number; total_paid: number };
     return { ...body, outstanding: body.total_due - body.total_paid };
   }
@@ -114,7 +114,7 @@ test("invoice lifecycle: generate, partial pay, full pay, reverse, edit, void", 
   await page.getByRole("button", { name: "Void invoice" }).click();
 
   await expect(async () => {
-    const res = await api.get(`/fee-invoices?branch_id=${fixture.branchId}`);
+    const res = await api.get(`fee-invoices?branch_id=${fixture.branchId}`);
     const invoices = (await res.json()) as { student_id: string; status: string }[];
     const invoice = invoices.find((i) => i.student_id === studentId);
     expect(invoice?.status).toBe("voided");

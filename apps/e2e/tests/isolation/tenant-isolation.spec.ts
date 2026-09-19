@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { apiContextFor, getBranchIdByName, loginViaApi } from "../../fixtures/api-client.js";
+import { apiContextFor, createTestStudent, getBranchIdByName, getCurrentAcademicSessionId, loginViaApi } from "../../fixtures/api-client.js";
 import { PERSONAS } from "../../fixtures/personas.js";
 import { cleanupThrowawayTenant, provisionThrowawayTenant, type ThrowawayTenant } from "../../fixtures/throwaway-tenant.js";
 
@@ -22,22 +22,28 @@ test.afterAll(async () => {
 });
 
 test("a throwaway tenant's admin cannot read the demo tenant's data by id", async () => {
+  const suffix = Date.now();
   const demoAuth = await loginViaApi(PERSONAS.superAdmin.email, PERSONAS.superAdmin.password);
   const demoApi = await apiContextFor(demoAuth.accessToken);
-  const demoBranchId = await getBranchIdByName(demoApi, "Main Campus");
+  const demoBranchId = await getBranchIdByName(demoApi, "North Campus");
+  const demoSessionId = await getCurrentAcademicSessionId(demoApi);
 
-  const studentsRes = await demoApi.get(`/students?branch_id=${demoBranchId}`);
-  expect(studentsRes.ok()).toBe(true);
-  const demoStudents = (await studentsRes.json()) as { id: string }[];
-  expect(demoStudents.length).toBeGreaterThan(0);
-  const realDemoStudentId = demoStudents[0].id;
+  // Create our own real row rather than assuming the demo tenant already
+  // has students -- a fresh seed (e.g. CI's from-scratch database) has
+  // none, and this test's job is cross-tenant isolation, not "the demo
+  // tenant happens to have data".
+  const realDemoStudentId = await createTestStudent(demoApi, {
+    branchId: demoBranchId,
+    academicSessionId: demoSessionId,
+    firstName: `E2ETenantIsolation${suffix}`,
+  });
   await demoApi.dispose();
 
   const throwawayAuth = await loginViaApi(throwaway.adminEmail, throwaway.adminPassword);
   expect(throwawayAuth.tenantId).not.toBe(demoAuth.tenantId);
   const throwawayApi = await apiContextFor(throwawayAuth.accessToken);
 
-  const crossTenantRes = await throwawayApi.get(`/students/${realDemoStudentId}`);
+  const crossTenantRes = await throwawayApi.get(`students/${realDemoStudentId}`);
   expect(crossTenantRes.status()).toBe(404);
   await throwawayApi.dispose();
 });
@@ -51,7 +57,7 @@ test("a throwaway tenant's admin cannot list the demo tenant's branches by id", 
   const throwawayAuth = await loginViaApi(throwaway.adminEmail, throwaway.adminPassword);
   const throwawayApi = await apiContextFor(throwawayAuth.accessToken);
 
-  const branchesRes = await throwawayApi.get("/branches");
+  const branchesRes = await throwawayApi.get("branches");
   expect(branchesRes.ok()).toBe(true);
   const throwawayBranches = (await branchesRes.json()) as { id: string }[];
   expect(throwawayBranches.some((b) => b.id === demoBranchId)).toBe(false);

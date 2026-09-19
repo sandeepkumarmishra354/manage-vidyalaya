@@ -93,6 +93,10 @@ jobs:
           pnpm typecheck
           pnpm build
 
+      - name: Install Playwright browser
+        working-directory: apps/e2e
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Run Playwright E2E suite
         working-directory: apps/e2e
         env:

@@ -45,7 +45,7 @@ export class LocalStorageDriver implements StorageDriver {
     }
     const expiresAt = Date.now() + TTL_SECONDS * 1000;
     return {
-      url: `${this.baseUrl}/storage/objects/${key}?exp=${expiresAt}&sig=${this.sign("PUT", key, expiresAt)}`,
+      url: `${this.baseUrl}/api/storage/objects/${key}?exp=${expiresAt}&sig=${this.sign("PUT", key, expiresAt)}`,
       method: "PUT",
       expires_at: new Date(expiresAt).toISOString(),
     };
@@ -54,7 +54,7 @@ export class LocalStorageDriver implements StorageDriver {
   createDownloadUrl(key: string): PresignedDownload {
     const expiresAt = Date.now() + TTL_SECONDS * 1000;
     return {
-      url: `${this.baseUrl}/storage/objects/${key}?exp=${expiresAt}&sig=${this.sign("GET", key, expiresAt)}`,
+      url: `${this.baseUrl}/api/storage/objects/${key}?exp=${expiresAt}&sig=${this.sign("GET", key, expiresAt)}`,
       expires_at: new Date(expiresAt).toISOString(),
     };
   }

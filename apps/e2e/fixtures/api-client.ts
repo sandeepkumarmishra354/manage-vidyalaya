@@ -1,6 +1,6 @@
 import { request as apiRequest, type APIRequestContext } from "@playwright/test";
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
+import { API_BASE_URL } from "./api-url.js";
 
 export interface LoginResult {
   accessToken: string;
@@ -15,9 +15,9 @@ export interface LoginResult {
 // persona can/can't see it, rather than clicking through the admission
 // wizard just to get there.
 export async function loginViaApi(email: string, password: string): Promise<LoginResult> {
-  const context = await apiRequest.newContext({ baseURL: API_URL });
+  const context = await apiRequest.newContext({ baseURL: API_BASE_URL });
   try {
-    const res = await context.post("/auth/login", { data: { email, password } });
+    const res = await context.post("auth/login", { data: { email, password } });
     if (!res.ok()) {
       throw new Error(`API login failed for ${email}: ${res.status()} ${await res.text()}`);
     }
@@ -42,7 +42,7 @@ export async function loginViaApi(email: string, password: string): Promise<Logi
 // browser page that's testing the actual UI flow.
 export async function apiContextFor(accessToken: string): Promise<APIRequestContext> {
   return apiRequest.newContext({
-    baseURL: API_URL,
+    baseURL: API_BASE_URL,
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });
 }
@@ -55,7 +55,7 @@ async function expectOk(res: Awaited<ReturnType<APIRequestContext["get"]>>, labe
 }
 
 export async function getBranchIdByName(api: APIRequestContext, name: string): Promise<string> {
-  const res = await expectOk(await api.get("/branches"), "GET /branches");
+  const res = await expectOk(await api.get("branches"), "GET /branches");
   const branches = (await res.json()) as { id: string; name: string }[];
   const branch = branches.find((b) => b.name === name);
   if (!branch) throw new Error(`No branch named "${name}" found`);
@@ -63,7 +63,7 @@ export async function getBranchIdByName(api: APIRequestContext, name: string): P
 }
 
 export async function getCurrentAcademicSessionId(api: APIRequestContext): Promise<string> {
-  const res = await expectOk(await api.get("/academic-sessions"), "GET /academic-sessions");
+  const res = await expectOk(await api.get("academic-sessions"), "GET /academic-sessions");
   const sessions = (await res.json()) as { id: string; is_current: boolean }[];
   const current = sessions.find((s) => s.is_current);
   if (!current) throw new Error("No current academic session found");
@@ -81,7 +81,7 @@ export async function createTestStudent(
   opts: { branchId: string; academicSessionId: string; firstName: string },
 ): Promise<string> {
   const res = await expectOk(
-    await api.post("/admissions", {
+    await api.post("admissions", {
       data: {
         branch_id: opts.branchId,
         academic_session_id: opts.academicSessionId,
@@ -109,12 +109,12 @@ export async function createAndEnrollTestStudent(
     firstName: opts.firstName,
   });
 
-  const admissionRes = await expectOk(await api.get(`/admissions/student/${studentId}`), "GET /admissions/student/:id");
+  const admissionRes = await expectOk(await api.get(`admissions/student/${studentId}`), "GET /admissions/student/:id");
   const { id: admissionId } = (await admissionRes.json()) as { id: string };
-  await expectOk(await api.post(`/admissions/${admissionId}/confirm`), "POST /admissions/:id/confirm");
+  await expectOk(await api.post(`admissions/${admissionId}/confirm`), "POST /admissions/:id/confirm");
 
   await expectOk(
-    await api.patch(`/students/${studentId}`, {
+    await api.patch(`students/${studentId}`, {
       data: { first_name: opts.firstName, current_class_id: opts.classId, current_section_id: opts.sectionId },
     }),
     "PATCH /students/:id",
@@ -128,7 +128,7 @@ export async function createTestStaff(
   opts: { branchId: string; firstName: string },
 ): Promise<string> {
   const res = await expectOk(
-    await api.post("/staff", {
+    await api.post("staff", {
       data: {
         branch_id: opts.branchId,
         first_name: opts.firstName,
@@ -144,7 +144,7 @@ export async function createTestStaff(
 }
 
 export async function getStaffIdByEmployeeCode(api: APIRequestContext, branchId: string, employeeCode: string): Promise<string> {
-  const res = await expectOk(await api.get(`/staff?branch_id=${branchId}`), "GET /staff");
+  const res = await expectOk(await api.get(`staff?branch_id=${branchId}`), "GET /staff");
   const staff = (await res.json()) as { id: string; employee_code: string }[];
   const match = staff.find((s) => s.employee_code === employeeCode);
   if (!match) throw new Error(`No staff with employee_code "${employeeCode}" found in branch ${branchId}`);
@@ -172,7 +172,7 @@ export async function createTestFeeStructure(
   },
 ): Promise<string> {
   const res = await expectOk(
-    await api.post("/fee-structures", {
+    await api.post("fee-structures", {
       data: {
         branch_id: opts.branchId,
         class_id: opts.classId,
@@ -191,7 +191,7 @@ export async function createTestFeeStructure(
 
 export async function generateInvoicesForStructure(api: APIRequestContext, structureId: string): Promise<void> {
   await expectOk(
-    await api.post(`/fee-structures/${structureId}/generate-invoices`, { data: {} }),
+    await api.post(`fee-structures/${structureId}/generate-invoices`, { data: {} }),
     "POST /fee-structures/:id/generate-invoices",
   );
 }
@@ -205,7 +205,7 @@ export async function setTestSalaryStructure(
   opts: { branchId: string; staffId: string; basicAmountRupees: number },
 ): Promise<void> {
   await expectOk(
-    await api.post("/salary-structures", {
+    await api.post("salary-structures", {
       data: {
         branch_id: opts.branchId,
         staff_id: opts.staffId,
@@ -224,7 +224,7 @@ export async function setTestSalaryStructure(
 // every later test run's payroll generation.
 export async function relieveTestStaff(api: APIRequestContext, staffId: string): Promise<void> {
   await expectOk(
-    await api.post(`/staff/${staffId}/status`, {
+    await api.post(`staff/${staffId}/status`, {
       data: { status: "relieved", date_of_leaving: new Date().toISOString().slice(0, 10) },
     }),
     "POST /staff/:id/status",
@@ -236,7 +236,7 @@ export async function markStaffAttendance(
   opts: { branchId: string; staffId: string; date: string; status: string },
 ): Promise<void> {
   await expectOk(
-    await api.post("/staff-attendance", {
+    await api.post("staff-attendance", {
       data: {
         branch_id: opts.branchId,
         attendance_date: opts.date,
@@ -252,7 +252,7 @@ export async function createTestExpense(
   opts: { branchId: string; description: string },
 ): Promise<string> {
   const res = await expectOk(
-    await api.post("/expenses", {
+    await api.post("expenses", {
       data: {
         branch_id: opts.branchId,
         description: opts.description,

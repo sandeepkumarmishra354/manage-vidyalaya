@@ -29,6 +29,30 @@ const DEMO_ADMIN_PASSWORD = "vidyalaya-demo";
 // re-run-safety reason as DEMO_BRANCH_ID.
 const NORTH_BRANCH_ID = "00000000-0000-0000-0000-000000000003";
 
+// A current academic session -- without one, almost nothing academic works
+// (admissions, attendance, exams, timetable, session-scoped fee structures
+// all key off "the current session"). Missing here until an E2E run against
+// a genuinely fresh database caught it: this repo's own local demo DB had
+// one created by hand, long before seed.ts existed in its current form, so
+// this gap was invisible locally -- and it means create-tenant.ts (which
+// mirrors this script's structure) has the same gap for every real school
+// onboarded today. Fixed id, same re-run-safety reason as the ids above.
+const DEMO_ACADEMIC_SESSION_ID = "00000000-0000-0000-0000-000000000004";
+
+// Indian academic year convention: April-to-March. "2026-09-19" -> the
+// session that started this April and runs through next March ("2026-27");
+// a seed run in, say, February would instead be mid-way through the
+// session that started the previous April.
+function currentAcademicYearBounds(now: Date): { name: string; startDate: Date; endDate: Date } {
+  const aprilIndex = 3; // Date's 0-based month index for April
+  const startYear = now.getUTCMonth() >= aprilIndex ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  return {
+    name: `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`,
+    startDate: new Date(Date.UTC(startYear, aprilIndex, 1)),
+    endDate: new Date(Date.UTC(startYear + 1, aprilIndex, 0)), // day 0 of April = March 31
+  };
+}
+
 // Fixed ids, same reason as DEMO_TENANT_ID/DEMO_BRANCH_ID above: re-running
 // this script (e.g. after a schema reset) must upsert the same rows rather
 // than creating duplicates, and `roles` has a UNIQUE (tenant_id, name)
@@ -170,6 +194,23 @@ async function main() {
        ON CONFLICT (id) DO NOTHING`,
       [NORTH_BRANCH_ID, DEMO_TENANT_ID, now],
     );
+
+    // Only ever demote+insert when this tenant has no current session yet --
+    // an idempotent re-seed must not stomp on a real admin's later choice
+    // of a different current session (e.g. after promoting to a new year).
+    const { rows: existingCurrent } = await client.query<{ id: string }>(
+      "SELECT id FROM academic_sessions WHERE tenant_id = $1 AND is_current = true AND deleted_at IS NULL",
+      [DEMO_TENANT_ID],
+    );
+    if (existingCurrent.length === 0) {
+      const currentSession = currentAcademicYearBounds(now);
+      await client.query(
+        `INSERT INTO academic_sessions (id, tenant_id, name, start_date, end_date, is_current, updated_at)
+         VALUES ($1, $2, $3, $4, $5, true, $6)
+         ON CONFLICT (id) DO NOTHING`,
+        [DEMO_ACADEMIC_SESSION_ID, DEMO_TENANT_ID, currentSession.name, currentSession.startDate, currentSession.endDate, now],
+      );
+    }
 
     for (const defaultRole of DEFAULT_ROLES) {
       await client.query(

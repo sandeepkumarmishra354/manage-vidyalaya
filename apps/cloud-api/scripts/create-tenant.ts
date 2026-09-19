@@ -109,6 +109,19 @@ const DEFAULT_MASTER_DATA_ITEMS: { type: string; name: string }[] = [
 
 const SYSTEM_ROLE_NAMES = ["super_admin", "branch_admin", "accountant", "teacher", "front_desk"] as const;
 
+// Indian academic year convention: April-to-March, copied from seed.ts (see
+// that file's copy for why almost nothing academic works without a current
+// session, and why this needed adding here too).
+function currentAcademicYearBounds(now: Date): { name: string; startDate: Date; endDate: Date } {
+  const aprilIndex = 3; // Date's 0-based month index for April
+  const startYear = now.getUTCMonth() >= aprilIndex ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  return {
+    name: `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`,
+    startDate: new Date(Date.UTC(startYear, aprilIndex, 1)),
+    endDate: new Date(Date.UTC(startYear + 1, aprilIndex, 0)), // day 0 of April = March 31
+  };
+}
+
 function generatePassword(): string {
   return randomBytes(9).toString("base64url");
 }
@@ -149,6 +162,13 @@ async function main() {
       `INSERT INTO branches (id, tenant_id, name, code, updated_at)
        VALUES ($1, $2, $3, $4, $5)`,
       [branchId, tenantId, args.branchName, args.branchCode, now],
+    );
+
+    const currentSession = currentAcademicYearBounds(now);
+    await client.query(
+      `INSERT INTO academic_sessions (id, tenant_id, name, start_date, end_date, is_current, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, $6)`,
+      [randomUUID(), tenantId, currentSession.name, currentSession.startDate, currentSession.endDate, now],
     );
 
     const roleIds = new Map<string, string>();

@@ -1,14 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// This environment pre-installs Chromium at /opt/pw-browsers and disables
-// Playwright's own browser download (PLAYWRIGHT_BROWSERS_PATH /
-// PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) -- pointing executablePath at it
-// directly avoids any mismatch between the installed @playwright/test
-// version's expected browser revision and what's actually on disk.
-const CHROMIUM_EXECUTABLE = "/opt/pw-browsers/chromium";
+import { API_BASE_URL } from "./fixtures/api-url.js";
+import { getSandboxChromiumExecutablePath } from "./fixtures/chromium-executable.js";
+
+const executablePath = getSandboxChromiumExecutablePath();
 
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:5173";
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 
 export default defineConfig({
   testDir: "./tests",
@@ -22,9 +19,7 @@ export default defineConfig({
     baseURL: WEB_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    launchOptions: {
-      executablePath: CHROMIUM_EXECUTABLE,
-    },
+    launchOptions: executablePath ? { executablePath } : {},
   },
   projects: [
     {
@@ -40,7 +35,7 @@ export default defineConfig({
     {
       command: "pnpm --filter cloud-api start:dev",
       cwd: "../..",
-      url: `${API_URL}/health`,
+      url: `${API_BASE_URL}health`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: "pipe",

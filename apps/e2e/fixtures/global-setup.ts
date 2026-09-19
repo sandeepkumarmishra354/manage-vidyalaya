@@ -2,6 +2,8 @@ import fs from "node:fs";
 
 import { chromium, request as apiRequest } from "@playwright/test";
 
+import { API_BASE_URL } from "./api-url.js";
+import { getSandboxChromiumExecutablePath } from "./chromium-executable.js";
 import { AUTH_DIR, PERSONAS, authFilePath, type PersonaName } from "./personas.js";
 
 // localStorage keys apps/web/src/lib/http.ts stores tokens under -- kept in
@@ -10,7 +12,6 @@ const ACCESS_TOKEN_KEY = "vidyalaya.access_token";
 const REFRESH_TOKEN_KEY = "vidyalaya.refresh_token";
 
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:5173";
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 
 // Logs in every persona once via a direct API call (faster and less flaky
 // than driving the login form per persona) and saves a Playwright
@@ -19,12 +20,13 @@ const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 export default async function globalSetup() {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
-  const apiContext = await apiRequest.newContext({ baseURL: API_URL });
-  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const apiContext = await apiRequest.newContext({ baseURL: API_BASE_URL });
+  const executablePath = getSandboxChromiumExecutablePath();
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
   try {
     for (const [name, creds] of Object.entries(PERSONAS) as [PersonaName, (typeof PERSONAS)[PersonaName]][]) {
-      const loginRes = await apiContext.post("/auth/login", {
+      const loginRes = await apiContext.post("auth/login", {
         data: { email: creds.email, password: creds.password },
       });
       if (!loginRes.ok()) {
