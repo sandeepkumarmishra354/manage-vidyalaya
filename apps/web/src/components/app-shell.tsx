@@ -189,6 +189,7 @@ export function AppShell() {
   const tenant = useAppStore((s) => s.tenant);
   const roles = useAppStore((s) => s.roles);
   const branches = useAppStore((s) => s.branches);
+  const academicSessions = useAppStore((s) => s.academicSessions);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const selectBranch = useAppStore((s) => s.selectBranch);
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
@@ -211,6 +212,7 @@ export function AppShell() {
   }, []);
 
   const currentBranch = branches.find((b) => b.id === selectedBranchId) ?? null;
+  const currentAcademicSession = academicSessions.find((s) => s.is_current) ?? null;
 
   const initials = session?.full_name
     .split(" ")
@@ -337,6 +339,12 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-4">
+            {currentAcademicSession && (
+              <Badge variant="outline" className="gap-1 text-xs font-normal">
+                <CalendarClockIcon className="size-3" />
+                {currentAcademicSession.name}
+              </Badge>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2 px-2">

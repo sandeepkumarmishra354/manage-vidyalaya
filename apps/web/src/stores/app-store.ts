@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { api, type Branch, type CurrentUser, type ModuleKey, type Tenant } from "@/lib/api";
+import { api, type AcademicSession, type Branch, type CurrentUser, type ModuleKey, type Tenant } from "@/lib/api";
 import { clearTokens, getAccessToken, setTokens, setUnauthorizedHandler } from "@/lib/http";
 
 interface AppStore {
@@ -8,6 +8,8 @@ interface AppStore {
   tenant: Tenant | null;
   branches: Branch[];
   selectedBranchId: string | null;
+  /** All academic sessions for the tenant, for the header's current-session badge. */
+  academicSessions: AcademicSession[];
   isBootstrapping: boolean;
   /** Modules disabled for the currently selected branch (enabled unless listed here). */
   disabledModules: Set<ModuleKey>;
@@ -21,6 +23,7 @@ interface AppStore {
   logout: () => void;
   selectBranch: (branchId: string) => void;
   refreshBranches: () => Promise<void>;
+  refreshAcademicSessions: () => Promise<void>;
   isModuleEnabled: (key: ModuleKey) => boolean;
   hasPermission: (key: string) => boolean;
 }
@@ -37,6 +40,7 @@ function clearSessionState(set: (partial: Partial<AppStore>) => void) {
     tenant: null,
     branches: [],
     selectedBranchId: null,
+    academicSessions: [],
     permissions: new Set(),
     roles: [],
     disabledModules: new Set(),
@@ -48,6 +52,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   tenant: null,
   branches: [],
   selectedBranchId: null,
+  academicSessions: [],
   isBootstrapping: true,
   disabledModules: new Set(),
   permissions: new Set(),
@@ -65,7 +70,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     try {
-      const me = await api.me();
+      const [me, academicSessions] = await Promise.all([api.me(), api.listAcademicSessions()]);
       const selectedBranchId = me.branches[0]?.id ?? null;
       const disabledModules = await loadDisabledModules(selectedBranchId);
       set({
@@ -73,6 +78,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         tenant: me.tenant,
         branches: me.branches,
         selectedBranchId,
+        academicSessions,
         permissions: new Set(me.permissions),
         roles: me.roles,
         disabledModules,
@@ -88,7 +94,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const result = await api.login(email, password);
     setTokens(result.access_token, result.refresh_token);
 
-    const me = await api.me();
+    const [me, academicSessions] = await Promise.all([api.me(), api.listAcademicSessions()]);
     const selectedBranchId = me.branches[0]?.id ?? null;
     const disabledModules = await loadDisabledModules(selectedBranchId);
     set({
@@ -96,6 +102,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       tenant: me.tenant,
       branches: me.branches,
       selectedBranchId,
+      academicSessions,
       permissions: new Set(me.permissions),
       roles: me.roles,
       disabledModules,
@@ -117,6 +124,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   refreshBranches: async () => {
     const branches = await api.listBranches();
     set({ branches });
+  },
+
+  refreshAcademicSessions: async () => {
+    const academicSessions = await api.listAcademicSessions();
+    set({ academicSessions });
   },
 
   isModuleEnabled: (key) => !get().disabledModules.has(key),
