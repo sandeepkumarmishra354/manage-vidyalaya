@@ -399,6 +399,7 @@ export class FeesService {
           fee_discount_id: a.feeDiscountId,
           amount: a.amount,
           created_at: now,
+          updated_at: now,
         });
       }
     }
@@ -1238,6 +1239,7 @@ export class FeesService {
           fee_discount_id: a.feeDiscountId,
           amount: a.amount,
           created_at: now,
+          updated_at: now,
         });
       }
     }
