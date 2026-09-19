@@ -111,4 +111,61 @@ describe("AuthService.login", () => {
 
     expect(db.queryUnscoped).toHaveBeenCalledWith(expect.stringContaining("FROM users"), ["teacher@example.com"]);
   });
+
+  describe("with a subdomain", () => {
+    function mockTenantAndUserFound(overrides: Partial<{ status: string }> = {}) {
+      db.queryUnscoped.mockResolvedValueOnce([{ id: "tenant-1" }]);
+      db.queryOne.mockResolvedValueOnce({
+        id: "user-1",
+        tenant_id: "tenant-1",
+        branch_id: "branch-1",
+        full_name: "Teacher",
+        email: "teacher@example.com",
+        password_hash: passwordHash,
+      });
+      db.queryOne.mockResolvedValueOnce(overrides.status ? { status: overrides.status } : null);
+    }
+
+    it("resolves the tenant from the subdomain and scopes the user lookup to it", async () => {
+      mockTenantAndUserFound();
+
+      const result = await service.login("teacher@example.com", PASSWORD, "greenwood");
+
+      expect(result.access_token).toBe("signed-token");
+      expect(db.queryUnscoped).toHaveBeenCalledWith(expect.stringContaining("FROM tenants"), ["greenwood"]);
+      expect(db.queryOne).toHaveBeenNthCalledWith(
+        1,
+        "tenant-1",
+        expect.stringContaining("tenant_id = $1 AND email = $2"),
+        ["tenant-1", "teacher@example.com"],
+      );
+    });
+
+    it("rejects an unknown subdomain the same way as a bad password, without ever looking up a user", async () => {
+      db.queryUnscoped.mockResolvedValueOnce([]);
+
+      await expect(service.login("teacher@example.com", PASSWORD, "no-such-school")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(db.queryOne).not.toHaveBeenCalled();
+    });
+
+    it("still rejects a relieved staff member resolved via a subdomain", async () => {
+      mockTenantAndUserFound({ status: "relieved" });
+
+      await expect(service.login("teacher@example.com", PASSWORD, "greenwood")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it("never falls back to the cross-tenant scan once a subdomain resolves to a tenant", async () => {
+      mockTenantAndUserFound();
+
+      await service.login("teacher@example.com", PASSWORD, "greenwood");
+
+      // The only queryUnscoped call is the subdomain->tenant lookup itself --
+      // the user lookup went through the normal RLS-scoped queryOne path.
+      expect(db.queryUnscoped).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -76,27 +76,59 @@ into a much smaller problem: build, upload, done.
 
 ### 3. Real tenant onboarding (replace the demo seed)
 
-Today, `apps/cloud-api/scripts/seed.ts` hardcodes one demo tenant. Before a real client:
+`apps/cloud-api/scripts/seed.ts` hardcodes one fixed-UUID demo tenant --
+that stays as-is for local dev, and is never what you run for a real
+school. Each real school gets its own subdomain (e.g.
+`greenwood.yourdomain.tld`) which the backend uses to resolve the correct
+tenant at login (see `AuthService.login` -- this is what makes two
+schools safely sharing the same admin email a non-issue). Onboarding one
+school is a repeatable, five-step runbook:
 
-- Build a minimal provisioning path: even a manual one is fine at first
-  (you, the vendor, run a script that creates their tenant + first admin
-  user + branch), but it must generate **real random UUIDs**, not the fixed
-  demo ones. A tiny internal admin CLI or protected endpoint is enough for
-  the first several schools -- a self-serve signup UI is a later-phase nice
-  to have, not a Phase 1 requirement.
-- Password reset flow. Right now there's login and nothing else -- a school
-  admin *will* forget their password. At minimum: an admin-triggered reset
-  (you reset it for them) is acceptable for your first client; a proper
-  "forgot password" email flow is Phase 2.
+1. **DNS.** Create one CNAME record per school:
+   `<subdomain>.yourdomain.tld` -> the same target every time (wherever
+   the web app's static build is hosted, see item 2 above). One frontend
+   deployment and one cloud-api backend serve every school -- there is no
+   per-school build or deploy, only per-school DNS records.
+2. **SSL.** Either a wildcard cert for `*.yourdomain.tld`, or let the
+   static host auto-provision one per custom domain as it's added
+   (Vercel/Netlify/Cloudflare Pages all do this) -- use whichever your
+   chosen host makes easiest.
+3. **Provision the tenant.** Run, from `apps/cloud-api`:
+   ```
+   pnpm create-tenant \
+     --school-name="Greenwood International School" \
+     --subdomain=greenwood \
+     --branch-name="Main Campus" \
+     --branch-code=MAIN \
+     --admin-name="Jane Doe" \
+     --admin-email=admin@greenwood.example
+   ```
+   (`apps/cloud-api/scripts/create-tenant.ts` -- mirrors `seed.ts`'s
+   transaction/default-data-seeding pattern, but with real random UUIDs
+   and a subdomain-uniqueness check instead of fixed demo ids. Omit
+   `--admin-password` to have one generated and printed once.) It prints
+   the tenant id and admin credentials on success.
+4. **Verify.** Visit `https://<subdomain>.yourdomain.tld`, log in with
+   the printed admin credentials, and confirm the dashboard loads with
+   the right school name.
+5. **Hand off.** Give the admin credentials to the school and have them
+   change the password after first login.
+
+Two gaps remain, deliberately out of scope for this runbook and flagged
+as fast-follows once you're depending on this for real schools rather
+than a single demo tenant (both already noted in Security basics below):
+password-reset flow (today there's login and nothing else -- an
+admin-triggered reset is the stopgap until a proper "forgot password"
+email flow exists) and login rate-limiting.
 
 ### 4. Data safety & correctness
 
 - Since there's no local database, data safety is entirely cloud-api's
   Postgres backup story (see above) -- a lost/stolen laptop carries no data
-  with it, only a cached JWT. One deliberate simplification remains: the
-  *seeded demo* tenant/branch/roles still use fixed ids rather than ones
-  from a real provisioning flow (`apps/cloud-api/scripts/seed.ts`) -- revisit
-  once real school signup exists (see item 3 above).
+  with it, only a cached JWT. The *seeded demo* tenant/branch/roles
+  (`apps/cloud-api/scripts/seed.ts`) still use fixed ids, by design -- it's
+  local-dev/demo-only. Every real school provisioned via `create-tenant.ts`
+  (see item 3 above) already gets real random UUIDs throughout.
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
 
@@ -104,20 +136,29 @@ Today, `apps/cloud-api/scripts/seed.ts` hardcodes one demo tenant. Before a real
 
 - Rate-limit `/auth/login` on cloud-api (a few attempts per IP/email per
   minute) -- right now it's uncapped, which is a brute-force risk.
-  `@nestjs/throttler` is a one-file addition.
+  `@nestjs/throttler` is a one-file addition. **Fast-follow, not yet
+  done** -- becomes more urgent once real schools depend on this rather
+  than a single demo tenant (see item 3 above).
+- Password reset flow. Right now there's login and nothing else -- a school
+  admin *will* forget their password. At minimum: an admin-triggered reset
+  (you reset it for them) is acceptable for your first client; a proper
+  "forgot password" email flow is Phase 2. **Fast-follow, not yet done.**
 - Enforce a minimum password policy server-side (length at least; a
   password strength meter client-side is a nice-to-have).
 - ~~Add basic audit logging~~ **Done.** A generic, append-only `audit_log`
   now covers every create/update/delete across every module (see
   `docs/architecture.md`'s "Audit log" section), with an admin-facing
   filterable viewer.
-- **Lock down CORS before going live.** `app.enableCors()` on cloud-api
-  currently allows every origin -- harmless while the frontend was a Tauri
-  webview (which doesn't send `Origin` the way browsers do), but now that
-  `apps/web` is a real browser app this is a genuine open door: restrict
-  cloud-api's CORS to your deployed web app's actual origin
-  (`app.vidyalaya.in` or whatever domain you land on) as part of the same
-  deploy that ships the web build, not as a follow-up.
+- **Lock down CORS before going live.** cloud-api's CORS allowlist is
+  controlled by the `CORS_ALLOWED_ORIGINS` env var
+  (`apps/cloud-api/src/common/cors.ts`), a comma-separated list of exact
+  origins or single-level subdomain wildcards, e.g.
+  `CORS_ALLOWED_ORIGINS="https://app.yourdomain.tld,https://*.yourdomain.tld"`
+  -- the wildcard covers every school's subdomain in one entry, so you
+  don't need to add an entry per school onboarded. Leaving it unset
+  allows every origin (harmless in local dev; a genuine open door in
+  production) -- set it as part of the same deploy that first ships a
+  real browser-facing origin, not as a follow-up.
 - Run the `security-review` workflow (or equivalent manual review) against
   the current diff before your first deploy, specifically checking: every
   raw SQL query is parameterized (`$1`/`$2`/...), never built by

@@ -1,12 +1,43 @@
 // Thin HTTP client for cloud-api. Vidyalaya is online-only: every read and
-// write goes straight to the REST API over plain fetch() (cloud-api's
-// CORS currently allows any origin -- see docs/production-readiness.md
-// for tightening this before a real deploy).
+// write goes straight to the REST API over plain fetch() (see
+// docs/production-readiness.md for the CORS_ALLOWED_ORIGINS allowlist that
+// gates which browser origins -- including each school's subdomain -- may
+// call the API).
 
 const DEFAULT_BASE_URL = "http://localhost:3001";
 
 function baseUrl(): string {
   return (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE_URL;
+}
+
+// Derives the school's subdomain from the current browser hostname, e.g.
+// "greenwood" from "greenwood.vidyalaya.in" -- sent at login so the backend
+// can resolve the exact tenant instead of scanning every tenant by email
+// alone (see AuthService.login). One frontend build serves every school;
+// only this per-request value differs by host. Returns undefined for
+// localhost, a bare IP, a two-label host (e.g. the apex "vidyalaya.in"
+// itself, which has no subdomain to extract), or a known non-tenant host
+// label -- a shared, not-school-specific frontend (e.g. a marketing/login
+// landing page at "app.vidyalaya.in" for schools not yet on their own
+// subdomain) must NOT be treated as a real tenant subdomain, or its users
+// would get an unconditional "Invalid email or password" instead of the
+// intended tenant-less fallback. AuthService.login falls back to its
+// original tenant-less lookup whenever this is omitted.
+const NON_TENANT_HOST_LABELS = new Set(["app", "www", "api", "admin"]);
+
+export function detectSubdomain(): string | undefined {
+  try {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+      return undefined;
+    }
+    const labels = hostname.split(".");
+    if (labels.length < 3) return undefined;
+    const candidate = labels[0].toLowerCase();
+    return NON_TENANT_HOST_LABELS.has(candidate) ? undefined : candidate;
+  } catch {
+    return undefined;
+  }
 }
 
 const ACCESS_TOKEN_KEY = "vidyalaya.access_token";

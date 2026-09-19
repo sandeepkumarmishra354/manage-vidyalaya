@@ -1,4 +1,4 @@
-import { http } from "@/lib/http";
+import { detectSubdomain, http } from "@/lib/http";
 
 export interface Branch {
   id: string;
@@ -1793,7 +1793,11 @@ export interface StaffTimetableEntry {
 
 export const api = {
   login: (email: string, password: string) =>
-    http.post<LoginResponse>("/auth/login", { email, password }, { skipAuth: true }),
+    http.post<LoginResponse>(
+      "/auth/login",
+      { email, password, subdomain: detectSubdomain() },
+      { skipAuth: true },
+    ),
   me: () => http.get<MeResponse>("/auth/me"),
 
   listBranches: () => http.get<Branch[]>("/branches"),
