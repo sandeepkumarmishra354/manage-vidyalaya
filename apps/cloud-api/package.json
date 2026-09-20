@@ -22,6 +22,7 @@
     "seed": "tsx scripts/seed.ts",
     "create-tenant": "tsx scripts/create-tenant.ts",
     "backfill:staff-categories": "tsx scripts/backfill-staff-categories.ts",
+    "retention:run": "tsx scripts/run-retention.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",

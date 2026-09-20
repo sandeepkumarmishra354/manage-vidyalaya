@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
+  ArchiveIcon,
   BanknoteIcon,
   BookOpenIcon,
   BusIcon,
@@ -164,6 +165,7 @@ const navSections: NavSection[] = [
       { to: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheckIcon, permission: "roles.manage" },
       { to: "/admin/users", label: "Users", icon: UserCogIcon, permission: "users.manage" },
       { to: "/admin/audit-log", label: "Audit Log", icon: ClipboardListIcon, permission: "audit.view" },
+      { to: "/admin/data-retention", label: "Data Retention", icon: ArchiveIcon, permission: "data_retention.manage" },
       {
         to: "/reports",
         label: "Reports",

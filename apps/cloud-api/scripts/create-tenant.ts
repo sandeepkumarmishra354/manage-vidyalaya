@@ -17,6 +17,7 @@ import pg from "pg";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
 import { FEE_TYPES } from "../src/fees/fee-type.js";
+import { DEFAULT_RETENTION_POLICIES } from "../src/retention/retention-categories.js";
 
 const { Pool } = pg;
 
@@ -211,6 +212,17 @@ async function main() {
         `INSERT INTO master_data_items (id, tenant_id, type, name, is_system, updated_at)
          VALUES ($1, $2, $3, $4, true, $5)`,
         [randomUUID(), tenantId, type, name, now],
+      );
+    }
+
+    // financial_records/academic_records are seeded is_active=false --
+    // see retention-categories.ts's own comment on why they stay dormant
+    // until the school's own advisor confirms real statutory numbers.
+    for (const policy of DEFAULT_RETENTION_POLICIES) {
+      await client.query(
+        `INSERT INTO retention_policies (id, tenant_id, category, retention_years, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [randomUUID(), tenantId, policy.category, policy.retention_years, policy.is_active, now],
       );
     }
 

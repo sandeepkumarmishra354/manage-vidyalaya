@@ -1645,6 +1645,24 @@ export interface SetPromotionDecisionInput {
 }
 
 // ============================================================================
+// Data retention (DPDP)
+// ============================================================================
+
+export type RetentionCategory = "student_identity" | "staff_identity" | "financial_records" | "academic_records";
+
+export interface RetentionPolicy {
+  id: string;
+  category: RetentionCategory;
+  retention_years: number;
+  is_active: boolean;
+}
+
+export interface RetentionPreviewRow {
+  category: RetentionCategory;
+  eligible_count: number;
+}
+
+// ============================================================================
 // Audit log
 // ============================================================================
 
@@ -2338,6 +2356,12 @@ export const api = {
   setPromotionDecision: (input: SetPromotionDecisionInput) =>
     http.patch<void>(`/promotion/batch-items/${input.batch_item_id}`, input),
   executePromotionBatch: (batchId: string) => http.post<void>(`/promotion/batches/${batchId}/execute`),
+
+  // Data retention (DPDP)
+  listRetentionPolicies: () => http.get<RetentionPolicy[]>("/retention-policies"),
+  updateRetentionPolicy: (category: RetentionCategory, retentionYears: number) =>
+    http.patch<RetentionPolicy>(`/retention-policies/${category}`, { retention_years: retentionYears }),
+  previewRetention: () => http.get<RetentionPreviewRow[]>("/retention-policies/preview"),
 
   // Audit log
   listAuditLog: (filter: AuditLogFilter) =>

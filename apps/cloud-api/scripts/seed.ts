@@ -14,6 +14,7 @@ import pg from "pg";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
 import { FEE_TYPES } from "../src/fees/fee-type.js";
+import { DEFAULT_RETENTION_POLICIES } from "../src/retention/retention-categories.js";
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -271,6 +272,19 @@ async function main() {
          VALUES ($1, $2, $3, $4, true, $5)
          ON CONFLICT (tenant_id, type, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, type, name, now],
+      );
+    }
+
+    // Only ever inserts on first run / undeletes a soft-deleted row --
+    // never overwrites retention_years/is_active on conflict, so a later
+    // admin edit (or a deliberate is_active flip once statutory numbers
+    // are confirmed) survives a re-seed.
+    for (const policy of DEFAULT_RETENTION_POLICIES) {
+      await client.query(
+        `INSERT INTO retention_policies (id, tenant_id, category, retention_years, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, category) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
+        [randomUUID(), DEMO_TENANT_ID, policy.category, policy.retention_years, policy.is_active, now],
       );
     }
 

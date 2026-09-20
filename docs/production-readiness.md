@@ -284,6 +284,45 @@ email flow exists) and login rate-limiting.
   what "support" means, what happens to their data if they stop paying,
   and your liability limits. A one-page agreement beats a handshake.
 
+### 7. Data retention & erasure (DPDP)
+
+DPDP requires erasing personal data once its purpose is served and no
+other law requires keeping it. This app has a first, narrow slice of that
+today -- **not** full compliance, and the legal groundwork in section 6
+above still has to happen separately.
+
+- **What exists**: a per-tenant `retention_policies` table (4 categories:
+  `student_identity`, `staff_identity`, `financial_records`,
+  `academic_records`), editable from **Admin -> Data Retention** in the
+  app (permission `data_retention.manage`), plus
+  `apps/cloud-api/scripts/run-retention.ts`, a standalone script that
+  anonymizes departed students'/staff's name, contact, address,
+  government-ID, and photo/document fields once they're past their
+  tenant's configured retention window (`students.status IN ('withdrawn',
+  'alumni')` / `staff.status IN ('relieved', 'terminated', 'inactive')`,
+  gated on `date_of_leaving`). It's idempotent (marks each row
+  `anonymized_at`) and dry-run by default:
+  ```
+  pnpm --filter cloud-api retention:run              # preview, every tenant
+  pnpm --filter cloud-api retention:run --execute     # actually sweep
+  ```
+  This is **not** wired to a cron job -- run it by hand (or from your own
+  scheduler) on whatever cadence you decide, after reading its dry-run
+  output first every time.
+- **What's deliberately out of scope**: `financial_records` (payroll, fee
+  payments) and `academic_records` (exam marks) are seeded
+  `is_active: false` and never swept by the script. Their correct
+  retention periods depend on the Income Tax Act, Companies Act, and your
+  state education board's rules -- confirm real numbers with your own CA/
+  compliance advisor, update the `retention_years` value for that category
+  from the admin page, and only then flip `is_active` to `true` directly
+  in the database (there's no UI toggle for this on purpose -- see the
+  script's own comments for why).
+- **Known gap**: a relieved staff member's `users` login row is untouched
+  by the sweep -- deciding whether/when to deactivate that login is an
+  access-control question, not purely a data-erasure one, and needs its
+  own follow-up.
+
 ---
 
 ## Phase 2 -- Once you have a few paying schools

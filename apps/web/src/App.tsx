@@ -32,6 +32,7 @@ import { RolesPage } from "@/routes/admin/roles-page";
 import { UsersPage } from "@/routes/admin/users-page";
 import { AuditLogPage } from "@/routes/admin/audit-log-page";
 import { ReportsPage } from "@/routes/reports/reports-page";
+import { RetentionPolicyPage } from "@/routes/admin/retention-policy-page";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useAppStore((s) => s.session);
@@ -324,6 +325,14 @@ export default function App() {
             >
               <ReportsPage />
             </RequireAnyPermission>
+          }
+        />
+        <Route
+          path="admin/data-retention"
+          element={
+            <RequirePermission permission="data_retention.manage">
+              <RetentionPolicyPage />
+            </RequirePermission>
           }
         />
       </Route>
