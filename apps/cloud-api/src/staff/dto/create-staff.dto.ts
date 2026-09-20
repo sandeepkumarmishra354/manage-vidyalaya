@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class CreateStaffDto {
   @IsString()
@@ -117,4 +117,12 @@ export class CreateStaffDto {
   @IsOptional()
   @IsString()
   notes?: string | null;
+
+  // DPDP: optional at the DTO level (this class is also extended by
+  // UpdateStaffDto for edits, which must not require re-consenting on
+  // every save) -- StaffService.createStaff is the only caller that
+  // rejects the request when this isn't true. updateStaff never reads it.
+  @IsOptional()
+  @IsBoolean()
+  consent_given?: boolean;
 }

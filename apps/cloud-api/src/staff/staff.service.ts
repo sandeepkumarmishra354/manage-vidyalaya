@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
+import { CONSENT_VERSION } from "../common/consent.js";
 import { DbService } from "../db/db.service.js";
 import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, softDeleteRow, updateRow } from "../db/tenant-repo.js";
@@ -58,6 +59,9 @@ export interface StaffRow extends TenantRow {
   experience_letter_issue_date: Date | null;
   conduct_remark: string | null;
   qr_code_version: number;
+  consent_given: boolean;
+  consent_given_at: Date | null;
+  consent_version: string | null;
 }
 
 interface BranchRow extends TenantRow {
@@ -188,6 +192,10 @@ export class StaffService {
   // keep going, so each attempt is its own fresh withTransaction, same
   // shape as StudentsService.confirmAdmission's admission-number retry loop.
   async createStaff(tenantId: string, actorUserId: string, dto: CreateStaffDto) {
+    if (!dto.consent_given) {
+      throw new BadRequestException("Consent is required to add a staff member");
+    }
+
     const now = new Date();
     const suppliedCode = dto.employee_code?.trim();
     if (suppliedCode) {
@@ -264,6 +272,9 @@ export class StaffService {
         emergency_contact_name: dto.emergency_contact_name ?? null,
         emergency_contact_phone: dto.emergency_contact_phone ?? null,
         notes: dto.notes ?? null,
+        consent_given: true,
+        consent_given_at: now,
+        consent_version: CONSENT_VERSION,
         updated_at: now,
       });
 

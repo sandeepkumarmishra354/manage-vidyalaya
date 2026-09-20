@@ -60,6 +60,7 @@ const baseCreateStaffDto = {
   designation: "Teacher",
   employment_type: "full_time",
   date_of_joining: "2020-01-01",
+  consent_given: true,
 };
 
 describe("StaffService.setClassTeacher", () => {
@@ -210,6 +211,14 @@ describe("StaffService.createStaff", () => {
     await expect(service.createStaff("tenant-1", "actor-1", baseCreateStaffDto)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it("rejects without consent_given, before touching the database", async () => {
+    await expect(
+      service.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, consent_given: false }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.queryOne).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
   });
 });
 

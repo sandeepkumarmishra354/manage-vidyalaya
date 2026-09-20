@@ -302,6 +302,8 @@ export interface NewAdmissionInput {
   // for -- omit for "everything matches" (today's behavior); an explicit
   // list (even empty) excludes anything left unchecked.
   fee_structure_ids?: string[];
+  // DPDP: must be true or the API rejects the request.
+  consent_given: boolean;
 }
 
 export interface Admission {
@@ -1242,6 +1244,11 @@ export interface NewStaffInput {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   notes?: string | null;
+  // DPDP: must be true on create or the API rejects the request. Optional
+  // here (not on NewAdmissionInput) because UpdateStaffInput extends this
+  // same interface for edits, which must never require re-consenting on
+  // every save.
+  consent_given?: boolean;
 }
 
 export interface UpdateStaffInput extends NewStaffInput {
