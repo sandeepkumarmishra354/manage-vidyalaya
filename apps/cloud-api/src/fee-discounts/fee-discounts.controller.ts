@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@n
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignDiscountDto } from "./dto/assign-discount.dto.js";
@@ -11,7 +12,7 @@ import { UpdateFeeDiscountDto } from "./dto/update-fee-discount.dto.js";
 import { FeeDiscountsService } from "./fee-discounts.service.js";
 
 @Controller("fee-discounts")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class FeeDiscountsController {
   constructor(private readonly feeDiscountsService: FeeDiscountsService) {}
 
@@ -65,7 +66,7 @@ export class FeeDiscountsController {
 }
 
 @Controller("students")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StudentFeeDiscountsQueryController {
   constructor(private readonly feeDiscountsService: FeeDiscountsService) {}
 

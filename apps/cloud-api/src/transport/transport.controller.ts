@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@ne
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignTransportDto } from "./dto/assign-transport.dto.js";
@@ -13,7 +14,7 @@ import { UpdateStopDto } from "./dto/update-stop.dto.js";
 import { TransportService } from "./transport.service.js";
 
 @Controller("transport/routes")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportRoutesController {
   constructor(private readonly transportService: TransportService) {}
 
@@ -43,7 +44,7 @@ export class TransportRoutesController {
 }
 
 @Controller("transport/stops")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportStopsController {
   constructor(private readonly transportService: TransportService) {}
 
@@ -67,7 +68,7 @@ export class TransportStopsController {
 }
 
 @Controller("transport/assignments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportAssignmentsController {
   constructor(private readonly transportService: TransportService) {}
 

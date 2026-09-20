@@ -61,6 +61,45 @@ describe("AuthService.login", () => {
     expect(result.access_token).toBe("signed-token");
   });
 
+  it("embeds the user's branch_id in both the access and refresh token payloads", async () => {
+    mockUserFound();
+    const jwt = makeJwtMock();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any);
+
+    await scopedService.login("teacher@example.com", PASSWORD);
+
+    expect(jwt.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ branch_id: "branch-1", type: "access" }),
+      expect.anything(),
+    );
+    expect(jwt.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ branch_id: "branch-1", type: "refresh" }),
+      expect.anything(),
+    );
+  });
+
+  it("embeds branch_id: null for an unscoped user (e.g. super_admin)", async () => {
+    db.queryUnscoped.mockResolvedValueOnce([
+      {
+        id: "user-1",
+        tenant_id: "tenant-1",
+        branch_id: null,
+        full_name: "Admin",
+        email: "admin@example.com",
+        password_hash: passwordHash,
+      },
+    ]);
+    db.queryOne.mockResolvedValueOnce(null);
+    const jwt = makeJwtMock();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any);
+
+    await scopedService.login("admin@example.com", PASSWORD);
+
+    expect(jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ branch_id: null }), expect.anything());
+  });
+
   it("logs in a staff member whose linked Staff.status is active", async () => {
     mockUserFound({ status: "active" });
 

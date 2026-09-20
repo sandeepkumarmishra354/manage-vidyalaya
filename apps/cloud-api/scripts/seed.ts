@@ -319,12 +319,16 @@ async function main() {
 
     const qaPasswordHash = await bcrypt.hash(QA_PERSONA_PASSWORD, 10);
     for (const persona of QA_PERSONAS) {
+      // branch_id matches the persona's own staff row below -- every QA
+      // persona except super_admin is branch-scoped, so BranchScopeGuard
+      // can actually restrict them (a null branch_id now means "verify
+      // this user really holds tenant-wide access," not "assume it").
       const { rows: personaUserRows } = await client.query<{ id: string }>(
-        `INSERT INTO users (id, tenant_id, full_name, email, password_hash, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = $5
+        `INSERT INTO users (id, tenant_id, branch_id, full_name, email, password_hash, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = $6, branch_id = $3
          RETURNING id`,
-        [randomUUID(), DEMO_TENANT_ID, persona.fullName, persona.email, qaPasswordHash, now],
+        [randomUUID(), DEMO_TENANT_ID, NORTH_BRANCH_ID, persona.fullName, persona.email, qaPasswordHash, now],
       );
       const personaUser = personaUserRows[0];
 
