@@ -4,6 +4,7 @@ import { IsString } from "class-validator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
@@ -17,7 +18,7 @@ class MarkPaidDto {
 }
 
 @Controller("salary-structures")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SalaryStructuresController {
   constructor(private readonly payrollService: PayrollService) {}
 
@@ -41,7 +42,7 @@ export class SalaryStructuresController {
 }
 
 @Controller("payroll-runs")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class PayrollRunsController {
   constructor(private readonly payrollService: PayrollService) {}
 
@@ -95,7 +96,7 @@ export class PayrollRunsController {
 }
 
 @Controller("payslips")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class PayslipsController {
   constructor(private readonly payrollService: PayrollService) {}
 

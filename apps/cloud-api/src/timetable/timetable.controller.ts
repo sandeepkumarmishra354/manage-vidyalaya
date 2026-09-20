@@ -3,6 +3,7 @@ import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { ScopedAccessService } from "../common/scoped-access.service.js";
@@ -12,7 +13,7 @@ import { UpdatePeriodSlotDto } from "./dto/update-period-slot.dto.js";
 import { TimetableService } from "./timetable.service.js";
 
 @Controller("timetable/period-slots")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class PeriodSlotsController {
   constructor(private readonly timetableService: TimetableService) {}
 
@@ -50,7 +51,7 @@ export class PeriodSlotsController {
 // same pattern as AttendanceController, checked explicitly via
 // TimetableService.assertCanView.
 @Controller("timetable/sections")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SectionTimetableController {
   constructor(
     private readonly timetableService: TimetableService,
@@ -79,7 +80,7 @@ export class SectionTimetableController {
 }
 
 @Controller("timetable/staff")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffTimetableController {
   constructor(
     private readonly timetableService: TimetableService,
@@ -106,7 +107,7 @@ export class StaffTimetableController {
 }
 
 @Controller("timetable")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class MyTimetableController {
   constructor(
     private readonly timetableService: TimetableService,

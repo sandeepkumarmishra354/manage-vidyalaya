@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AddGuardianDto } from "./dto/add-guardian.dto.js";
@@ -15,7 +16,7 @@ import { UpdateStudentDto } from "./dto/update-student.dto.js";
 import { StudentsService } from "./students.service.js";
 
 @Controller("students")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
 
@@ -179,7 +180,7 @@ export class StudentsController {
 }
 
 @Controller("guardians")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class GuardiansController {
   constructor(private readonly studentsService: StudentsService) {}
 
@@ -203,7 +204,7 @@ export class GuardiansController {
 }
 
 @Controller("admissions")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AdmissionsController {
   constructor(private readonly studentsService: StudentsService) {}
 
