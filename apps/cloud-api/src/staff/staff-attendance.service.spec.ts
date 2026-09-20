@@ -220,7 +220,7 @@ describe("StaffAttendanceService.scanMark", () => {
     client.query.mockResolvedValueOnce({ rows: [] });
 
     const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
-    const result = await service.scanMark("tenant-1", "actor-1", token);
+    const result = await service.scanMark("tenant-1", "actor-1", token, null);
 
     expect(result).toEqual(expect.objectContaining({ status: "marked", staff_id: "staff-1" }));
     expect(client.query).toHaveBeenCalledTimes(1);
@@ -233,7 +233,7 @@ describe("StaffAttendanceService.scanMark", () => {
       .mockResolvedValueOnce({ status: "half_day", deleted_at: null });
 
     const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
-    const result = await service.scanMark("tenant-1", "actor-1", token);
+    const result = await service.scanMark("tenant-1", "actor-1", token, null);
 
     expect(result).toEqual(
       expect.objectContaining({ status: "already_marked", existing_status: "half_day", staff_id: "staff-1" }),
@@ -246,26 +246,26 @@ describe("StaffAttendanceService.scanMark", () => {
     (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValueOnce("holiday");
 
     const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
-    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.scanMark("tenant-1", "actor-1", token, null)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects a relieved/terminated staff member", async () => {
     db.queryOne.mockResolvedValueOnce({ ...staff, status: "relieved" });
 
     const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
-    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.scanMark("tenant-1", "actor-1", token, null)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects a stale token after the staff member's QR code has been reissued", async () => {
     db.queryOne.mockResolvedValueOnce({ ...staff, qr_code_version: 2 });
 
     const staleToken = qrToken.generate("staff", "tenant-1", staff.id, 1);
-    await expect(service.scanMark("tenant-1", "actor-1", staleToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.scanMark("tenant-1", "actor-1", staleToken, null)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("rejects a student-type QR code", async () => {
     const token = qrToken.generate("student", "tenant-1", "student-1", 1);
-    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.scanMark("tenant-1", "actor-1", token, null)).rejects.toBeInstanceOf(BadRequestException);
     expect(db.queryOne).not.toHaveBeenCalled();
   });
 
@@ -273,6 +273,88 @@ describe("StaffAttendanceService.scanMark", () => {
     db.queryOne.mockResolvedValueOnce(null);
 
     const token = qrToken.generate("staff", "tenant-1", "ghost-staff", 1);
-    await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.scanMark("tenant-1", "actor-1", token, null)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+// Phase 2: branch isolation. `staff` and `staff_attendance` both carry their
+// own branch_id, so scanMark's staff lookup and getStaffHistory's records
+// query fold a branch_id condition into their SQL when the caller is
+// branch-scoped, reading as "not found"/empty for anything outside it. An
+// unscoped caller is unaffected.
+describe("StaffAttendanceService branch isolation", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let audit: ReturnType<typeof makeAuditMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
+  let qrToken: QrTokenService;
+  let service: StaffAttendanceService;
+
+  const staff = {
+    id: "staff-1",
+    tenant_id: "tenant-1",
+    branch_id: "branch-1",
+    first_name: "Asha",
+    last_name: "Rao",
+    designation: "Teacher",
+    status: "active",
+    photo_path: null,
+    qr_code_version: 1,
+  };
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    audit = makeAuditMock();
+    schoolCalendar = makeSchoolCalendarMock();
+    qrToken = new QrTokenService();
+    service = new StaffAttendanceService(db, audit, schoolCalendar, qrToken);
+    (schoolCalendar.getDayType as ReturnType<typeof vi.fn>).mockResolvedValue("working");
+  });
+
+  describe("scanMark", () => {
+    it("folds a branch_id condition into the staff lookup when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // simulates a different-branch staff row being filtered out
+
+      const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
+      await expect(service.scanMark("tenant-1", "actor-1", token, "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("branch_id = $3");
+      expect(params).toEqual([staff.id, "tenant-1", "branch-1"]);
+    });
+
+    it("adds no branch_id condition for an unscoped caller", async () => {
+      db.queryOne.mockResolvedValueOnce(staff);
+
+      const token = qrToken.generate("staff", "tenant-1", staff.id, staff.qr_code_version);
+      await service.scanMark("tenant-1", "actor-1", token, null);
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+      expect(params).toEqual([staff.id, "tenant-1"]);
+    });
+  });
+
+  describe("getStaffHistory", () => {
+    it("folds a branch_id condition into the query when branch-scoped", async () => {
+      db.query.mockResolvedValueOnce([]);
+
+      await service.getStaffHistory("tenant-1", "staff-1", "branch-1");
+
+      const [, sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain("branch_id = $3");
+      expect(params).toEqual(["tenant-1", "staff-1", "branch-1"]);
+    });
+
+    it("adds no branch_id condition for an unscoped caller", async () => {
+      db.query.mockResolvedValueOnce([]);
+
+      await service.getStaffHistory("tenant-1", "staff-1", null);
+
+      const [, sql, params] = db.query.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+      expect(params).toEqual(["tenant-1", "staff-1"]);
+    });
   });
 });

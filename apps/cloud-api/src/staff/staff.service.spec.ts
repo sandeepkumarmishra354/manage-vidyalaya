@@ -75,31 +75,44 @@ describe("StaffService.setClassTeacher", () => {
     service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
   });
 
-  it("rejects assigning a staff member who is already class teacher of a different section", async () => {
-    client.query.mockResolvedValueOnce({ rows: [{ id: "section-other", class_name: "Class 8", name: "B" }] });
+  it("404s when the staff member to assign doesn't exist (or is outside the caller's branch)", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant: staff
 
     await expect(
-      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }, null),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(client.query).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects assigning a staff member who is already class teacher of a different section", async () => {
+    client.query
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] }) // findOneForTenant: staff
+      .mockResolvedValueOnce({ rows: [{ id: "section-other", class_name: "Class 8", name: "B" }] }); // conflict check
+
+    await expect(
+      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }, null),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(client.query).toHaveBeenCalledTimes(2);
+  });
+
   it("allows assigning a staff member with no conflicting section", async () => {
     client.query
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] }) // findOneForTenant: staff
       .mockResolvedValueOnce({ rows: [] }) // conflict check
       .mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" }] }); // updateRow
 
-    const result = await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
+    const result = await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }, null);
 
     expect(result).toEqual({ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" });
     expect(audit.record).toHaveBeenCalled();
   });
 
-  it("does not conflict-check when clearing the class teacher (staff_id null)", async () => {
+  it("does not verify staff or conflict-check when clearing the class teacher (staff_id null)", async () => {
     client.query.mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: null, tenant_id: "tenant-1" }] });
 
-    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: null });
+    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: null }, null);
 
     expect(client.query).toHaveBeenCalledTimes(1);
     expect(client.query.mock.calls[0][0]).toContain("UPDATE sections");
@@ -107,15 +120,28 @@ describe("StaffService.setClassTeacher", () => {
 
   it("excludes the section being updated from the conflict check, scoped to the tenant", async () => {
     client.query
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] }) // findOneForTenant: staff
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: "section-a", class_teacher_staff_id: "staff-1", tenant_id: "tenant-1" }] });
 
-    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" });
+    await service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-1" }, null);
 
-    const [sql, params] = client.query.mock.calls[0];
+    const [sql, params] = client.query.mock.calls[1];
     expect(sql).toContain("s.tenant_id = $1");
     expect(sql).toContain("s.id != $3");
     expect(params).toEqual(["tenant-1", "staff-1", "section-a"]);
+  });
+
+  it("rejects assigning a staff member from a different branch (reads as not found)", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant: staff, filtered out by branch_id
+
+    await expect(
+      service.setClassTeacher("tenant-1", "actor-1", "section-a", { staff_id: "staff-other-branch" }, "branch-1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    const [sql, params] = client.query.mock.calls[0];
+    expect(sql).toContain("branch_id = $3");
+    expect(params).toEqual(["staff-other-branch", "tenant-1", "branch-1"]);
   });
 });
 
@@ -133,7 +159,7 @@ describe("StaffService.updateStaff", () => {
   });
 
   it("clears any other principal in the same branch when is_principal is set", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", { ...baseUpdateStaffDto, is_principal: true });
+    await service.updateStaff("tenant-1", "actor-1", "staff-1", { ...baseUpdateStaffDto, is_principal: true }, null);
 
     expect(client.query).toHaveBeenCalledTimes(2);
     const [sql, params] = client.query.mock.calls[0];
@@ -142,17 +168,23 @@ describe("StaffService.updateStaff", () => {
   });
 
   it("does not touch other staff's principal flag when is_principal is omitted", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", baseUpdateStaffDto);
+    await service.updateStaff("tenant-1", "actor-1", "staff-1", baseUpdateStaffDto, null);
 
     expect(client.query).toHaveBeenCalledTimes(1);
     expect(client.query.mock.calls[0][0]).toContain("UPDATE staff");
   });
 
   it("writes the provided signature_url", async () => {
-    await service.updateStaff("tenant-1", "actor-1", "staff-1", {
-      ...baseUpdateStaffDto,
-      signature_url: "data:image/png;base64,abc",
-    });
+    await service.updateStaff(
+      "tenant-1",
+      "actor-1",
+      "staff-1",
+      {
+        ...baseUpdateStaffDto,
+        signature_url: "data:image/png;base64,abc",
+      },
+      null,
+    );
 
     const [, params] = client.query.mock.calls[0];
     expect(params).toContain("data:image/png;base64,abc");
@@ -236,10 +268,16 @@ describe("StaffService.issueExperienceLetter", () => {
     client.query.mockResolvedValueOnce({ rows: [] });
 
     await expect(
-      service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
-        reason_for_leaving: "Resigned",
-        date_of_leaving: "2026-04-01",
-      }),
+      service.issueExperienceLetter(
+        "tenant-a",
+        "user-1",
+        "staff-1",
+        {
+          reason_for_leaving: "Resigned",
+          date_of_leaving: "2026-04-01",
+        },
+        null,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -258,10 +296,16 @@ describe("StaffService.issueExperienceLetter", () => {
       })
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
 
-    await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
-      reason_for_leaving: "Resigned",
-      date_of_leaving: "2026-04-01",
-    });
+    await service.issueExperienceLetter(
+      "tenant-a",
+      "user-1",
+      "staff-1",
+      {
+        reason_for_leaving: "Resigned",
+        date_of_leaving: "2026-04-01",
+      },
+      null,
+    );
 
     const [, params] = client.query.mock.calls[1];
     expect(params).toContain("relieved");
@@ -283,10 +327,16 @@ describe("StaffService.issueExperienceLetter", () => {
       })
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
 
-    await service.issueExperienceLetter("tenant-a", "user-1", "staff-1", {
-      reason_for_leaving: "Resigned again",
-      date_of_leaving: "2026-05-01",
-    });
+    await service.issueExperienceLetter(
+      "tenant-a",
+      "user-1",
+      "staff-1",
+      {
+        reason_for_leaving: "Resigned again",
+        date_of_leaving: "2026-05-01",
+      },
+      null,
+    );
 
     const [, params] = client.query.mock.calls[1];
     expect(params).toContain("EXP-BRAN-20260101-AAAA");
@@ -357,7 +407,7 @@ describe("StaffService photo upload", () => {
       expires_at: "2026-01-01T00:00:00.000Z",
     });
 
-    const result = await service.getPhotoUploadUrl("tenant-1", "staff-1", "photo.JPG", "image/jpeg");
+    const result = await service.getPhotoUploadUrl("tenant-1", "staff-1", "photo.JPG", "image/jpeg", null);
 
     expect(result.storage_key).toMatch(/^photo-staff-.+\.jpg$/);
     expect(storage.createUploadUrl).toHaveBeenCalledWith(result.storage_key, "image/jpeg");
@@ -368,7 +418,7 @@ describe("StaffService photo upload", () => {
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: "old-key" }] })
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
 
-    await service.setPhoto("tenant-1", "actor-1", "staff-1", "new-key");
+    await service.setPhoto("tenant-1", "actor-1", "staff-1", "new-key", null);
 
     expect(client.query.mock.calls[1][1]).toContain("new-key");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
@@ -378,7 +428,7 @@ describe("StaffService photo upload", () => {
   it("getPhotoUrl returns null when no photo is set, without calling storage", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "staff-1", tenant_id: "tenant-1", photo_path: null });
 
-    const result = await service.getPhotoUrl("tenant-1", "staff-1");
+    const result = await service.getPhotoUrl("tenant-1", "staff-1", null);
 
     expect(result).toEqual({ url: null });
     expect(storage.createDownloadUrl).not.toHaveBeenCalled();
@@ -389,7 +439,7 @@ describe("StaffService photo upload", () => {
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: "old-key" }] })
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
 
-    await service.deletePhoto("tenant-1", "actor-1", "staff-1");
+    await service.deletePhoto("tenant-1", "actor-1", "staff-1", null);
 
     expect(client.query.mock.calls[1][0]).toContain("UPDATE staff");
     expect(storage.deleteObject).toHaveBeenCalledWith("old-key");
@@ -400,7 +450,7 @@ describe("StaffService photo upload", () => {
       rows: [{ id: "staff-1", tenant_id: "tenant-1", branch_id: "branch-1", photo_path: null }],
     });
 
-    await service.deletePhoto("tenant-1", "actor-1", "staff-1");
+    await service.deletePhoto("tenant-1", "actor-1", "staff-1", null);
 
     expect(client.query).toHaveBeenCalledTimes(1);
     expect(storage.deleteObject).not.toHaveBeenCalled();
@@ -413,10 +463,111 @@ describe("StaffService photo upload", () => {
       expires_at: "2026-01-01T00:00:00.000Z",
     });
 
-    const result = await service.getPhotoUrlsBulk("tenant-1", ["staff-1", "staff-2"]);
+    const result = await service.getPhotoUrlsBulk("tenant-1", ["staff-1", "staff-2"], null);
 
     const [, sql] = db.query.mock.calls[0];
     expect(sql).toContain("photo_path IS NOT NULL");
     expect(result).toEqual([{ staff_id: "staff-1", url: "https://download", expires_at: "2026-01-01T00:00:00.000Z" }]);
+  });
+});
+
+// Phase 2: branch isolation for single-record by-id access. `staff` carries
+// its own branch_id, so every by-id lookup/update below folds a branch_id
+// condition into its SQL when the caller is branch-scoped, and reads as
+// "not found" for a row outside it -- never leaking that it exists in
+// another branch. An unscoped caller (branchId: null) is unaffected.
+describe("StaffService branch isolation", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: StaffService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
+  });
+
+  describe("getStaff", () => {
+    it("folds a branch_id condition into the query when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+
+      await service.getStaff("tenant-a", "staff-1", "branch-1");
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("branch_id = $3");
+      expect(params).toEqual(["staff-1", "tenant-a", "branch-1"]);
+    });
+
+    it("404s (not leaking existence) for a different-branch staff member", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // simulates a real DB filtering out a different-branch row
+
+      await expect(service.getStaff("tenant-a", "staff-1", "branch-1")).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds for the caller's own-branch staff member", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
+
+      const result = await service.getStaff("tenant-a", "staff-1", "branch-1");
+
+      expect(result.id).toBe("staff-1");
+    });
+
+    it("adds no branch_id condition for an unscoped caller (branchId: null)", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-2" });
+
+      await service.getStaff("tenant-a", "staff-1", null);
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+      expect(params).toEqual(["staff-1", "tenant-a"]);
+    });
+  });
+
+  describe("setStaffStatus", () => {
+    it("folds a branch_id condition into the UPDATE when branch-scoped", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
+
+      await service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, "branch-1");
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).toContain("branch_id = $");
+      expect(params).toContain("branch-1");
+    });
+
+    it("throws NotFoundException for a different-branch staff member", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, "branch-1"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds without a branch_id condition for an unscoped caller", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
+
+      await service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, null);
+
+      const [sql] = client.query.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+    });
+  });
+
+  describe("deleteTeacherAssignment", () => {
+    it("folds a branch_id condition into the soft-delete UPDATE when branch-scoped", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "assignment-1", tenant_id: "tenant-a" }] });
+
+      await service.deleteTeacherAssignment("tenant-a", "actor-1", "assignment-1", "branch-1");
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).toContain("branch_id = $");
+      expect(params).toContain("branch-1");
+    });
+
+    it("404s for an assignment outside the caller's branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.deleteTeacherAssignment("tenant-a", "actor-1", "assignment-1", "branch-1"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 });

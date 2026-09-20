@@ -61,7 +61,7 @@ export class FeeDiscountsController {
   @Get("suggest-siblings/:studentId")
   @RequirePermission("fees.view")
   suggestSiblings(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.feeDiscountsService.suggestSiblingsForDiscount(user.tenant_id, studentId);
+    return this.feeDiscountsService.suggestSiblingsForDiscount(user.tenant_id, studentId, user.branch_id);
   }
 }
 

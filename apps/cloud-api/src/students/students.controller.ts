@@ -60,6 +60,7 @@ export class StudentsController {
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean),
+      user.branch_id,
     );
   }
 
@@ -72,37 +73,38 @@ export class StudentsController {
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean),
+      user.branch_id,
     );
   }
 
   @Get(":id")
   @RequirePermission("students.view")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getStudent(user.tenant_id, id);
+    return this.studentsService.getStudent(user.tenant_id, id, user.branch_id);
   }
 
   @Patch(":id")
   @RequirePermission("students.edit")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStudentDto) {
-    return this.studentsService.updateStudent(user.tenant_id, user.sub, id, dto);
+    return this.studentsService.updateStudent(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("students.delete")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.deleteStudent(user.tenant_id, user.sub, id);
+    return this.studentsService.deleteStudent(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Get(":id/siblings")
   @RequirePermission("students.view")
   siblings(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getSiblings(user.tenant_id, id);
+    return this.studentsService.getSiblings(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/guardians")
   @RequirePermission("students.edit")
   addGuardian(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AddGuardianDto) {
-    return this.studentsService.addGuardianToStudent(user.tenant_id, user.sub, id, dto);
+    return this.studentsService.addGuardianToStudent(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":id/electives")
@@ -112,19 +114,19 @@ export class StudentsController {
     @Param("id") id: string,
     @Query("academic_session_id") academicSessionId?: string,
   ) {
-    return this.studentsService.listElectiveChoices(user.tenant_id, id, academicSessionId);
+    return this.studentsService.listElectiveChoices(user.tenant_id, id, user.branch_id, academicSessionId);
   }
 
   @Post(":id/electives")
   @RequirePermission("students.edit")
   elect(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ElectSubjectDto) {
-    return this.studentsService.electSubject(user.tenant_id, user.sub, id, dto);
+    return this.studentsService.electSubject(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":id/transfer-certificate")
   @RequirePermission("students.view")
   getTransferCertificate(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getTransferCertificate(user.tenant_id, id);
+    return this.studentsService.getTransferCertificate(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/transfer-certificate")
@@ -134,19 +136,19 @@ export class StudentsController {
     @Param("id") id: string,
     @Body() dto: IssueTransferCertificateDto,
   ) {
-    return this.studentsService.issueTransferCertificate(user.tenant_id, user.sub, id, dto);
+    return this.studentsService.issueTransferCertificate(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":id/qr-code")
   @RequirePermission("students.view")
   getQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getQrCode(user.tenant_id, id);
+    return this.studentsService.getQrCode(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/qr-code/reissue")
   @RequirePermission("students.edit")
   reissueQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.reissueQrCode(user.tenant_id, user.sub, id);
+    return this.studentsService.reissueQrCode(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Get(":id/photo/upload-url")
@@ -157,25 +159,25 @@ export class StudentsController {
     @Query("file_name") fileName: string,
     @Query("content_type") contentType: string,
   ) {
-    return this.studentsService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType);
+    return this.studentsService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType, user.branch_id);
   }
 
   @Patch(":id/photo")
   @RequirePermission("students.edit")
   setPhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPhotoDto) {
-    return this.studentsService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key);
+    return this.studentsService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key, user.branch_id);
   }
 
   @Get(":id/photo-url")
   @RequirePermission("students.view")
   getPhotoUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getPhotoUrl(user.tenant_id, id);
+    return this.studentsService.getPhotoUrl(user.tenant_id, id, user.branch_id);
   }
 
   @Delete(":id/photo")
   @RequirePermission("students.edit")
   deletePhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.deletePhoto(user.tenant_id, user.sub, id);
+    return this.studentsService.deletePhoto(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
@@ -193,7 +195,7 @@ export class GuardiansController {
   @Get(":id")
   @RequirePermission("students.view")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.getGuardian(user.tenant_id, id);
+    return this.studentsService.getGuardian(user.tenant_id, id, user.branch_id);
   }
 
   @Patch(":id")
@@ -216,12 +218,12 @@ export class AdmissionsController {
 
   @Get("student/:studentId")
   forStudent(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.studentsService.getAdmissionForStudent(user.tenant_id, studentId);
+    return this.studentsService.getAdmissionForStudent(user.tenant_id, studentId, user.branch_id);
   }
 
   @Post(":id/confirm")
   @RequirePermission("admissions.confirm")
   confirm(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.studentsService.confirmAdmission(user.tenant_id, user.sub, id);
+    return this.studentsService.confirmAdmission(user.tenant_id, user.sub, id, user.branch_id);
   }
 }

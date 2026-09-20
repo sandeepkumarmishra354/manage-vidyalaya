@@ -52,13 +52,13 @@ export class StaffAttendanceController {
   @Post("scan")
   @RequirePermission("staff_attendance.mark")
   scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanStaffAttendanceDto) {
-    return this.staffAttendanceService.scanMark(user.tenant_id, user.sub, dto.token);
+    return this.staffAttendanceService.scanMark(user.tenant_id, user.sub, dto.token, user.branch_id);
   }
 
   @Get("staff/:staffId/history")
   @RequirePermission("staff_attendance.view")
   history(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
-    return this.staffAttendanceService.getStaffHistory(user.tenant_id, staffId);
+    return this.staffAttendanceService.getStaffHistory(user.tenant_id, staffId, user.branch_id);
   }
 
   @Get("report")
