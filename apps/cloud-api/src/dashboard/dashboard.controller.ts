@@ -2,11 +2,12 @@ import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { DashboardService } from "./dashboard.service.js";
 
 @Controller("dashboard")
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, BranchScopeGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 

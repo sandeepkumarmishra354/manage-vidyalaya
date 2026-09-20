@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@ne
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignHouseDto } from "./dto/assign-house.dto.js";
@@ -12,7 +13,7 @@ import { UpdateHouseDto } from "./dto/update-house.dto.js";
 import { HousesService } from "./houses.service.js";
 
 @Controller("houses")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class HousesController {
   constructor(private readonly housesService: HousesService) {}
 

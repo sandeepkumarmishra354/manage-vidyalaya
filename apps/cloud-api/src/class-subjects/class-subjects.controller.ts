@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/c
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { ClassSubjectsService } from "./class-subjects.service.js";
@@ -11,7 +12,7 @@ import { CreateClassSubjectDto } from "./dto/create-class-subject.dto.js";
 import { CreateElectiveGroupDto } from "./dto/create-elective-group.dto.js";
 
 @Controller("classes/:classId/subjects")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ClassSubjectsController {
   constructor(private readonly classSubjectsService: ClassSubjectsService) {}
 
@@ -29,7 +30,7 @@ export class ClassSubjectsController {
 }
 
 @Controller("class-subjects")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ClassSubjectItemController {
   constructor(private readonly classSubjectsService: ClassSubjectsService) {}
 
@@ -41,7 +42,7 @@ export class ClassSubjectItemController {
 }
 
 @Controller("classes/:classId/elective-groups")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ClassElectiveGroupsController {
   constructor(private readonly classSubjectsService: ClassSubjectsService) {}
 
@@ -59,7 +60,7 @@ export class ClassElectiveGroupsController {
 }
 
 @Controller("elective-groups")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ElectiveGroupsController {
   constructor(private readonly classSubjectsService: ClassSubjectsService) {}
 

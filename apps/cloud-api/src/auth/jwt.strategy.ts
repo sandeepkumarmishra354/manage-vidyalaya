@@ -6,6 +6,11 @@ import { ExtractJwt, Strategy } from "passport-jwt";
 export interface JwtPayload {
   sub: string;
   tenant_id: string;
+  // The user's home branch, when they're branch-scoped (e.g. a per-branch
+  // admin or staff member) -- null for a user with cross-branch access
+  // (e.g. super_admin). Always the server's own derived value, re-fetched
+  // fresh on every login/refresh -- never trust a client-submitted branch.
+  branch_id: string | null;
   roles: string[];
   type: "access" | "refresh";
 }

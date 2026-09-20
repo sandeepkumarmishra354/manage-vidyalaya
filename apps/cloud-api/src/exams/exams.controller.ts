@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@ne
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateExamDto } from "./dto/create-exam.dto.js";
@@ -13,7 +14,7 @@ import { UpdateSubjectDto } from "./dto/update-subject.dto.js";
 import { ExamsService } from "./exams.service.js";
 
 @Controller("subjects")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SubjectsController {
   constructor(private readonly examsService: ExamsService) {}
 
@@ -37,7 +38,7 @@ export class SubjectsController {
 }
 
 @Controller("exams")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ExamsController {
   constructor(private readonly examsService: ExamsService) {}
 
