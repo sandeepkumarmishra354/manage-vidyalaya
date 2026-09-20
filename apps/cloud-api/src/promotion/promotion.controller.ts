@@ -35,18 +35,18 @@ export class PromotionController {
   @Get("batches/:id")
   @RequirePermission("academic_setup.promote")
   getBatch(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.promotionService.getPromotionBatch(user.tenant_id, id);
+    return this.promotionService.getPromotionBatch(user.tenant_id, id, user.branch_id);
   }
 
   @Patch("batch-items/:id")
   @RequirePermission("academic_setup.promote")
   setDecision(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPromotionDecisionDto) {
-    return this.promotionService.setPromotionDecision(user.tenant_id, id, dto);
+    return this.promotionService.setPromotionDecision(user.tenant_id, id, dto, user.branch_id);
   }
 
   @Post("batches/:id/execute")
   @RequirePermission("academic_setup.promote")
   execute(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.promotionService.executePromotionBatch(user.tenant_id, user.sub, id);
+    return this.promotionService.executePromotionBatch(user.tenant_id, user.sub, id, user.branch_id);
   }
 }

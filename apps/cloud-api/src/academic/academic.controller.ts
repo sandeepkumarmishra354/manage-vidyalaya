@@ -87,13 +87,13 @@ export class ClassesController {
   @Patch(":id")
   @RequirePermission("academic_setup.manage_classes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateClassDto) {
-    return this.academicService.updateClass(user.tenant_id, user.sub, id, dto);
+    return this.academicService.updateClass(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("academic_setup.manage_classes")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.academicService.deleteClass(user.tenant_id, user.sub, id);
+    return this.academicService.deleteClass(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 

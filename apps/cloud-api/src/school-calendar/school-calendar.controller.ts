@@ -63,12 +63,12 @@ export class CalendarHolidaysController {
   @Patch(":id")
   @RequirePermission("academic_setup.manage_sessions")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateHolidayDto) {
-    return this.schoolCalendarService.updateHoliday(user.tenant_id, user.sub, id, dto);
+    return this.schoolCalendarService.updateHoliday(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("academic_setup.manage_sessions")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.schoolCalendarService.deleteHoliday(user.tenant_id, user.sub, id);
+    return this.schoolCalendarService.deleteHoliday(user.tenant_id, user.sub, id, user.branch_id);
   }
 }

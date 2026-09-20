@@ -152,22 +152,35 @@ export class TimetableService {
     return toPeriodSlot(created);
   }
 
-  async updatePeriodSlot(tenantId: string, actorUserId: string, id: string, dto: UpdatePeriodSlotDto) {
+  async updatePeriodSlot(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdatePeriodSlotDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id);
+      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id, branchId);
       if (!existing) {
         throw new NotFoundException("period slot not found");
       }
 
-      const updated = await updateRow<PeriodSlotRow>(client, "period_slots", tenantId, id, {
-        name: dto.name,
-        sort_order: dto.sort_order,
-        start_time: dto.start_time,
-        end_time: dto.end_time,
-        period_type: dto.period_type ?? existing.period_type,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<PeriodSlotRow>(
+        client,
+        "period_slots",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          sort_order: dto.sort_order,
+          start_time: dto.start_time,
+          end_time: dto.end_time,
+          period_type: dto.period_type ?? existing.period_type,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -185,9 +198,9 @@ export class TimetableService {
 
   // Blocked while any timetable entry still references this slot -- deleting
   // it out from under a saved timetable would silently orphan those rows.
-  async deletePeriodSlot(tenantId: string, actorUserId: string, id: string) {
+  async deletePeriodSlot(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id);
+      const existing = await findOneForTenant<PeriodSlotRow>(client, "period_slots", tenantId, id, branchId);
       if (!existing) {
         throw new NotFoundException("period slot not found");
       }
@@ -200,11 +213,18 @@ export class TimetableService {
         throw new BadRequestException("cannot delete a period slot that the timetable still uses");
       }
 
-      const deleted = await updateRow<PeriodSlotRow>(client, "period_slots", tenantId, id, {
-        deleted_at: new Date(),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const deleted = await updateRow<PeriodSlotRow>(
+        client,
+        "period_slots",
+        tenantId,
+        id,
+        {
+          deleted_at: new Date(),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -220,25 +240,34 @@ export class TimetableService {
     });
   }
 
-  async getSectionTimetable(tenantId: string, sectionId: string, academicSessionId: string) {
+  async getSectionTimetable(tenantId: string, sectionId: string, academicSessionId: string, branchId?: string | null) {
+    // sections itself carries no branch_id -- the branch check goes through
+    // its parent class instead, so a branch-scoped caller can't view another
+    // branch's section timetable even knowing its id.
+    const sectionConditions = ["sec.id = $1", "sec.tenant_id = $2", "sec.deleted_at IS NULL"];
+    const sectionValues: unknown[] = [sectionId, tenantId];
+    if (branchId) {
+      sectionValues.push(branchId);
+      sectionConditions.push(`c.branch_id = $${sectionValues.length}`);
+    }
     const section = await this.db.queryOne<{ id: string; class_id: string; branch_id: string }>(
       tenantId,
       `SELECT sec.id, sec.class_id, c.branch_id
        FROM sections sec
        JOIN classes c ON c.id = sec.class_id
-       WHERE sec.id = $1 AND sec.tenant_id = $2 AND sec.deleted_at IS NULL`,
-      [sectionId, tenantId],
+       WHERE ${sectionConditions.join(" AND ")}`,
+      sectionValues,
     );
     if (!section) {
       throw new NotFoundException("section not found");
     }
-    const branchId = section.branch_id;
+    const sectionBranchId = section.branch_id;
 
     const [slots, entries, calendar] = await Promise.all([
       this.db.query<PeriodSlotRow>(
         tenantId,
         "SELECT * FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL ORDER BY sort_order ASC",
-        [tenantId, branchId, academicSessionId],
+        [tenantId, sectionBranchId, academicSessionId],
       ),
       this.db.query<
         TimetableEntryRow & { subject_name: string; first_name: string; last_name: string | null }
@@ -251,7 +280,7 @@ export class TimetableService {
          WHERE te.tenant_id = $1 AND te.section_id = $2 AND te.academic_session_id = $3 AND te.deleted_at IS NULL`,
         [tenantId, sectionId, academicSessionId],
       ),
-      this.schoolCalendar.getCalendar(tenantId, branchId, academicSessionId),
+      this.schoolCalendar.getCalendar(tenantId, sectionBranchId, academicSessionId),
     ]);
 
     return {
@@ -279,11 +308,28 @@ export class TimetableService {
   // itself); soft-warns (doesn't block) when the assigned teacher has no
   // matching TeacherSubjectAssignment, since substitute/early-rollout
   // scenarios shouldn't be blocked outright.
-  async saveSectionTimetable(tenantId: string, actorUserId: string, sectionId: string, dto: SaveSectionTimetableDto) {
+  async saveSectionTimetable(
+    tenantId: string,
+    actorUserId: string,
+    sectionId: string,
+    dto: SaveSectionTimetableDto,
+    branchId?: string | null,
+  ) {
+    // sections itself carries no branch_id -- go through its parent class
+    // (dto.branch_id is already server-forced to the caller's own branch by
+    // BranchScopeGuard, but sectionId is an arbitrary id the guard can't
+    // touch, so without this a branch-scoped caller could otherwise hijack
+    // another branch's section and stamp it with their own branch_id below).
+    const sectionConditions = ["sec.id = $1", "sec.tenant_id = $2", "sec.deleted_at IS NULL"];
+    const sectionValues: unknown[] = [sectionId, tenantId];
+    if (branchId) {
+      sectionValues.push(branchId);
+      sectionConditions.push(`c.branch_id = $${sectionValues.length}`);
+    }
     const section = await this.db.queryOne<{ id: string }>(
       tenantId,
-      "SELECT id FROM sections WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [sectionId, tenantId],
+      `SELECT sec.id FROM sections sec JOIN classes c ON c.id = sec.class_id WHERE ${sectionConditions.join(" AND ")}`,
+      sectionValues,
     );
     if (!section) {
       throw new NotFoundException("section not found");
@@ -421,7 +467,12 @@ export class TimetableService {
     return { warnings };
   }
 
-  async getStaffTimetable(tenantId: string, staffId: string, academicSessionId: string) {
+  async getStaffTimetable(tenantId: string, staffId: string, academicSessionId: string, branchId?: string | null) {
+    // Staff's own by-id branch check is owned by the staff module (out of
+    // scope here); timetable_entries does carry branch_id though, so it's
+    // still conditioned on it directly as defense in depth -- a
+    // branch-scoped caller who somehow names a staff id from another branch
+    // gets back an empty schedule rather than that branch's entries.
     const staff = await this.db.queryOne<{ id: string }>(
       tenantId,
       "SELECT id FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
@@ -431,6 +482,12 @@ export class TimetableService {
       throw new NotFoundException("staff member not found");
     }
 
+    const entryConditions = ["te.tenant_id = $1", "te.staff_id = $2", "te.academic_session_id = $3", "te.deleted_at IS NULL"];
+    const entryValues: unknown[] = [tenantId, staffId, academicSessionId];
+    if (branchId) {
+      entryValues.push(branchId);
+      entryConditions.push(`te.branch_id = $${entryValues.length}`);
+    }
     const entries = await this.db.query<{
       id: string;
       day_of_week: number;
@@ -455,9 +512,9 @@ export class TimetableService {
        JOIN sections sec ON sec.id = te.section_id
        JOIN classes c ON c.id = sec.class_id
        JOIN subjects sub ON sub.id = te.subject_id
-       WHERE te.tenant_id = $1 AND te.staff_id = $2 AND te.academic_session_id = $3 AND te.deleted_at IS NULL
+       WHERE ${entryConditions.join(" AND ")}
        ORDER BY te.day_of_week ASC, ps.sort_order ASC`,
-      [tenantId, staffId, academicSessionId],
+      entryValues,
     );
 
     return entries.map((e) => ({

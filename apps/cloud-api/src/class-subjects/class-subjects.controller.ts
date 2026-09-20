@@ -25,7 +25,7 @@ export class ClassSubjectsController {
   @Post()
   @RequirePermission("exams.manage_subjects")
   create(@CurrentUser() user: JwtPayload, @Param("classId") classId: string, @Body() dto: CreateClassSubjectDto) {
-    return this.classSubjectsService.addClassSubject(user.tenant_id, user.sub, classId, dto);
+    return this.classSubjectsService.addClassSubject(user.tenant_id, user.sub, classId, dto, user.branch_id);
   }
 }
 
@@ -37,7 +37,7 @@ export class ClassSubjectItemController {
   @Delete(":id")
   @RequirePermission("exams.manage_subjects")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.classSubjectsService.removeClassSubject(user.tenant_id, user.sub, id);
+    return this.classSubjectsService.removeClassSubject(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
@@ -55,7 +55,7 @@ export class ClassElectiveGroupsController {
   @Post()
   @RequirePermission("exams.manage_subjects")
   create(@CurrentUser() user: JwtPayload, @Param("classId") classId: string, @Body() dto: CreateElectiveGroupDto) {
-    return this.classSubjectsService.createElectiveGroup(user.tenant_id, user.sub, classId, dto);
+    return this.classSubjectsService.createElectiveGroup(user.tenant_id, user.sub, classId, dto, user.branch_id);
   }
 }
 
@@ -67,7 +67,7 @@ export class ElectiveGroupsController {
   @Post(":id/members")
   @RequirePermission("exams.manage_subjects")
   addMember(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AddElectiveGroupMemberDto) {
-    return this.classSubjectsService.addElectiveGroupMember(user.tenant_id, user.sub, id, dto);
+    return this.classSubjectsService.addElectiveGroupMember(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id/members/:classSubjectId")
@@ -77,12 +77,12 @@ export class ElectiveGroupsController {
     @Param("id") id: string,
     @Param("classSubjectId") classSubjectId: string,
   ) {
-    return this.classSubjectsService.removeElectiveGroupMember(user.tenant_id, user.sub, id, classSubjectId);
+    return this.classSubjectsService.removeElectiveGroupMember(user.tenant_id, user.sub, id, classSubjectId, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("exams.manage_subjects")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.classSubjectsService.deleteElectiveGroup(user.tenant_id, user.sub, id);
+    return this.classSubjectsService.deleteElectiveGroup(user.tenant_id, user.sub, id, user.branch_id);
   }
 }

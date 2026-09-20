@@ -67,9 +67,15 @@ export class ClassSubjectsService {
     }));
   }
 
-  async addClassSubject(tenantId: string, actorUserId: string, classId: string, dto: CreateClassSubjectDto) {
+  async addClassSubject(
+    tenantId: string,
+    actorUserId: string,
+    classId: string,
+    dto: CreateClassSubjectDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const klass = await findOneForTenant<ClassRow>(client, "classes", tenantId, classId);
+      const klass = await findOneForTenant<ClassRow>(client, "classes", tenantId, classId, branchId);
       if (!klass) {
         throw new NotFoundException("class not found");
       }
@@ -97,14 +103,14 @@ export class ClassSubjectsService {
     });
   }
 
-  async removeClassSubject(tenantId: string, actorUserId: string, id: string) {
+  async removeClassSubject(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<ClassSubjectRow>(client, "class_subjects", tenantId, id);
+      const existing = await findOneForTenant<ClassSubjectRow>(client, "class_subjects", tenantId, id, branchId);
       if (!existing) {
         throw new NotFoundException("class subject not found");
       }
 
-      const deleted = await softDeleteRow<ClassSubjectRow>(client, "class_subjects", tenantId, id, actorUserId);
+      const deleted = await softDeleteRow<ClassSubjectRow>(client, "class_subjects", tenantId, id, actorUserId, branchId);
 
       await this.audit.record(client, {
         tenantId,
@@ -163,9 +169,15 @@ export class ClassSubjectsService {
     }));
   }
 
-  async createElectiveGroup(tenantId: string, actorUserId: string, classId: string, dto: CreateElectiveGroupDto) {
+  async createElectiveGroup(
+    tenantId: string,
+    actorUserId: string,
+    classId: string,
+    dto: CreateElectiveGroupDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const klass = await findOneForTenant<ClassRow>(client, "classes", tenantId, classId);
+      const klass = await findOneForTenant<ClassRow>(client, "classes", tenantId, classId, branchId);
       if (!klass) {
         throw new NotFoundException("class not found");
       }
@@ -192,11 +204,17 @@ export class ClassSubjectsService {
     });
   }
 
-  async addElectiveGroupMember(tenantId: string, actorUserId: string, groupId: string, dto: AddElectiveGroupMemberDto) {
+  async addElectiveGroupMember(
+    tenantId: string,
+    actorUserId: string,
+    groupId: string,
+    dto: AddElectiveGroupMemberDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
       const [group, classSubject] = await Promise.all([
-        findOneForTenant<ElectiveGroupRow>(client, "subject_elective_groups", tenantId, groupId),
-        findOneForTenant<ClassSubjectRow>(client, "class_subjects", tenantId, dto.class_subject_id),
+        findOneForTenant<ElectiveGroupRow>(client, "subject_elective_groups", tenantId, groupId, branchId),
+        findOneForTenant<ClassSubjectRow>(client, "class_subjects", tenantId, dto.class_subject_id, branchId),
       ]);
       if (!group) {
         throw new NotFoundException("elective group not found");
@@ -232,11 +250,34 @@ export class ClassSubjectsService {
     });
   }
 
-  async removeElectiveGroupMember(tenantId: string, actorUserId: string, groupId: string, classSubjectId: string) {
+  async removeElectiveGroupMember(
+    tenantId: string,
+    actorUserId: string,
+    groupId: string,
+    classSubjectId: string,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
+      // subject_elective_group_members itself carries no branch_id -- the
+      // branch check has to go through its parent group instead, so a
+      // branch-scoped caller can't reach a member of another branch's
+      // elective group even knowing its (groupId, classSubjectId) pair.
+      const conditions = [
+        "m.tenant_id = $1",
+        "m.elective_group_id = $2",
+        "m.class_subject_id = $3",
+        "m.deleted_at IS NULL",
+      ];
+      const values: unknown[] = [tenantId, groupId, classSubjectId];
+      if (branchId) {
+        values.push(branchId);
+        conditions.push(`g.branch_id = $${values.length}`);
+      }
       const memberResult = await client.query<ElectiveGroupMemberRow>(
-        "SELECT * FROM subject_elective_group_members WHERE tenant_id = $1 AND elective_group_id = $2 AND class_subject_id = $3 AND deleted_at IS NULL",
-        [tenantId, groupId, classSubjectId],
+        `SELECT m.* FROM subject_elective_group_members m
+         JOIN subject_elective_groups g ON g.id = m.elective_group_id
+         WHERE ${conditions.join(" AND ")}`,
+        values,
       );
       const member = memberResult.rows[0];
       if (!member) {
@@ -266,9 +307,9 @@ export class ClassSubjectsService {
 
   // Blocked once any student has chosen from this group -- deleting it out
   // from under an already-made choice would silently orphan that choice.
-  async deleteElectiveGroup(tenantId: string, actorUserId: string, id: string) {
+  async deleteElectiveGroup(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const group = await findOneForTenant<ElectiveGroupRow>(client, "subject_elective_groups", tenantId, id);
+      const group = await findOneForTenant<ElectiveGroupRow>(client, "subject_elective_groups", tenantId, id, branchId);
       if (!group) {
         throw new NotFoundException("elective group not found");
       }
@@ -282,7 +323,14 @@ export class ClassSubjectsService {
         throw new BadRequestException("cannot delete an elective group that students have already chosen from");
       }
 
-      const deleted = await softDeleteRow<ElectiveGroupRow>(client, "subject_elective_groups", tenantId, id, actorUserId);
+      const deleted = await softDeleteRow<ElectiveGroupRow>(
+        client,
+        "subject_elective_groups",
+        tenantId,
+        id,
+        actorUserId,
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
