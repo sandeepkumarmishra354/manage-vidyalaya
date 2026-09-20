@@ -29,8 +29,17 @@ export class StudentsController {
     @Query("class_id") classId?: string,
     @Query("section_id") sectionId?: string,
     @Query("gender") gender?: string,
+    @Query("from_date") fromDate?: string,
+    @Query("to_date") toDate?: string,
   ) {
-    return this.studentsService.listStudents(user.tenant_id, branchId, search, { status, classId, sectionId, gender });
+    return this.studentsService.listStudents(user.tenant_id, branchId, search, {
+      status,
+      classId,
+      sectionId,
+      gender,
+      fromDate,
+      toDate,
+    });
   }
 
   @Get("in-class/:classId")

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
+import { CONSENT_VERSION } from "../common/consent.js";
 import { DbService } from "../db/db.service.js";
 import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
@@ -80,6 +81,11 @@ export interface AdmissionRow extends TenantRow {
   applied_at: Date;
   decided_at: Date | null;
   decided_by: string | null;
+  consent_given: boolean;
+  consent_given_at: Date | null;
+  consent_given_by_name: string | null;
+  consent_given_by_relation: string | null;
+  consent_version: string | null;
 }
 
 // Same convention as DocumentsService's sanitizeExtension.
@@ -114,7 +120,14 @@ export class StudentsService {
     tenantId: string,
     branchId: string,
     search?: string,
-    filters?: { status?: string; classId?: string; sectionId?: string; gender?: string },
+    filters?: {
+      status?: string;
+      classId?: string;
+      sectionId?: string;
+      gender?: string;
+      fromDate?: string;
+      toDate?: string;
+    },
   ) {
     const term = (search ?? "").trim();
     const conditions = ["s.tenant_id = $1", "s.branch_id = $2", "s.deleted_at IS NULL"];
@@ -135,6 +148,17 @@ export class StudentsService {
     if (filters?.gender) {
       values.push(filters.gender);
       conditions.push(`s.gender = $${values.length}`);
+    }
+    // Students has no dedicated admission-date column -- created_at (row
+    // creation) is the closest real proxy, used by the Reporting module's
+    // "added between" filter (deliberately not called "admitted between").
+    if (filters?.fromDate) {
+      values.push(filters.fromDate);
+      conditions.push(`s.created_at >= $${values.length}`);
+    }
+    if (filters?.toDate) {
+      values.push(filters.toDate);
+      conditions.push(`s.created_at < ($${values.length}::date + interval '1 day')`);
     }
     if (term) {
       values.push(`%${term}%`);
@@ -167,6 +191,7 @@ export class StudentsService {
       graduation_year: s.graduation_year,
       higher_education: s.higher_education,
       current_occupation: s.current_occupation,
+      created_at: s.created_at as Date,
     }));
   }
 
@@ -515,6 +540,10 @@ export class StudentsService {
   // isn't atomic; a partial failure here just means an admin may need to
   // re-apply the fee exclusions by hand, not silent data corruption.
   async createAdmission(tenantId: string, actorUserId: string, dto: CreateAdmissionDto) {
+    if (!dto.consent_given) {
+      throw new BadRequestException("Guardian consent is required to create an admission");
+    }
+
     const result = await this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
       const student = await insertRow<StudentRow>(client, "students", tenantId, {
@@ -539,12 +568,14 @@ export class StudentsService {
       });
 
       let guardianId: string;
+      let guardianName: string;
       if (dto.guardian_id) {
         const guardian = await findOneForTenant<GuardianRow>(client, "guardians", tenantId, dto.guardian_id);
         if (!guardian) {
           throw new NotFoundException("guardian not found");
         }
         guardianId = guardian.id;
+        guardianName = guardian.full_name;
       } else {
         const guardian = await insertRow<GuardianRow>(client, "guardians", tenantId, {
           full_name: dto.guardian_name!,
@@ -559,6 +590,7 @@ export class StudentsService {
           updated_at: now,
         });
         guardianId = guardian.id;
+        guardianName = guardian.full_name;
       }
 
       await client.query(
@@ -574,6 +606,11 @@ export class StudentsService {
         academic_session_id: dto.academic_session_id,
         stage: "applied",
         applied_at: now,
+        consent_given: true,
+        consent_given_at: now,
+        consent_given_by_name: guardianName,
+        consent_given_by_relation: dto.guardian_relation,
+        consent_version: CONSENT_VERSION,
         updated_at: now,
       });
 

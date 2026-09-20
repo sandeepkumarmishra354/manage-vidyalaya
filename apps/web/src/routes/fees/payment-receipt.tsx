@@ -76,7 +76,7 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
               </>
             }
           />
-          <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
+          <div className="mb-4 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
             <div className="flex justify-between gap-2">
               <span className="text-slate-600">Student</span>
               <span className="font-medium">{first.invoice.student_name}</span>
@@ -143,7 +143,7 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
               </tfoot>
             )}
           </table>
-          <div className="mt-16 flex justify-end">
+          <div className="mt-8 flex justify-end">
             <SignatureBlock
               branch={branch}
               signatureUrl={principalSignatureUrl}

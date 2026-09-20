@@ -43,11 +43,13 @@ const emptyForm = {
 
 export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const tenant = useAppStore((s) => s.tenant);
   const [open, setOpen] = useState(false);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [guardian, setGuardian] = useState<GuardianPickerValue>(emptyGuardianPickerValue);
+  const [consentGiven, setConsentGiven] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -126,10 +128,12 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
         guardian_annual_income:
           guardian.mode === "new" && guardian.annualIncome ? Number(guardian.annualIncome) : null,
         fee_structure_ids: Array.from(selectedFeeStructureIds),
+        consent_given: consentGiven,
       });
       setForm(emptyForm);
       setGuardian(emptyGuardianPickerValue);
       setSelectedFeeStructureIds(new Set());
+      setConsentGiven(false);
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -160,6 +164,7 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
               <TabsTrigger value="address">Address</TabsTrigger>
               <TabsTrigger value="guardian">Guardian</TabsTrigger>
               <TabsTrigger value="additional">Additional Details</TabsTrigger>
+              <TabsTrigger value="consent">Consent</TabsTrigger>
             </TabsList>
 
             <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -316,12 +321,37 @@ export function NewAdmissionDialog({ onCreated }: { onCreated: () => void }) {
                 </div>
               )}
             </TabsContent>
+
+            <TabsContent value="consent" className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                {tenant?.name ?? "This school"} collects and processes this student's personal data (name, date of
+                birth, contact and address details, and any other information provided in this form) for admission,
+                academic, attendance, and fee-management purposes, in accordance with the Digital Personal Data
+                Protection Act, 2023.
+              </p>
+              {guardian.fullName ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={consentGiven}
+                    onChange={(e) => setConsentGiven(e.target.checked)}
+                    className="mt-0.5 size-4 rounded border-input"
+                  />
+                  <span>
+                    I confirm that <strong>{guardian.fullName}</strong>, as the student&apos;s{" "}
+                    <strong>{form.guardianRelation || "guardian"}</strong>, has given consent for the above.
+                  </span>
+                </label>
+              ) : (
+                <p className="text-sm text-amber-600">Fill in the Guardian tab first to record consent.</p>
+              )}
+            </TabsContent>
           </Tabs>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || !consentGiven}>
               {isSubmitting ? "Saving..." : "Save admission"}
             </Button>
           </DialogFooter>

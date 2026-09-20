@@ -51,6 +51,18 @@ export class PayrollRunsController {
     return this.payrollService.listPayrollRuns(user.tenant_id, branchId);
   }
 
+  // Registered before ":id" so "report" isn't swallowed as a run id.
+  @Get("report")
+  @RequirePermission("payroll.view")
+  report(
+    @CurrentUser() user: JwtPayload,
+    @Query("branch_id") branchId: string,
+    @Query("from_date") fromDate: string,
+    @Query("to_date") toDate: string,
+  ) {
+    return this.payrollService.getReport(user.tenant_id, branchId, fromDate, toDate);
+  }
+
   @Post("generate")
   @RequirePermission("payroll.generate")
   generate(@CurrentUser() user: JwtPayload, @Body() dto: GeneratePayrollRunDto) {

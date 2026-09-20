@@ -1,4 +1,4 @@
-import { IsArray, IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
+import { IsArray, IsBoolean, IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
 
 export class CreateAdmissionDto {
   @IsString()
@@ -117,4 +117,11 @@ export class CreateAdmissionDto {
   @IsArray()
   @IsString({ each: true })
   fee_structure_ids?: string[];
+
+  // DPDP: must be true -- StudentsService.createAdmission rejects the
+  // request otherwise. The guardian's name/relation for the consent
+  // record are derived server-side from the guardian data above, not
+  // asked for twice here.
+  @IsBoolean()
+  consent_given!: boolean;
 }

@@ -53,8 +53,10 @@ const emptyForm = {
 
 export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
+  const tenant = useAppStore((s) => s.tenant);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [consentGiven, setConsentGiven] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,9 +101,11 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
         emergency_contact_name: form.emergencyContactName || null,
         emergency_contact_phone: form.emergencyContactPhone || null,
         notes: null,
+        consent_given: consentGiven,
       };
       await api.createStaff(input);
       setForm(emptyForm);
+      setConsentGiven(false);
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -135,6 +139,7 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
               <TabsTrigger value="employment">Employment</TabsTrigger>
               <TabsTrigger value="statutory">Statutory &amp; Bank</TabsTrigger>
               <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
+              <TabsTrigger value="consent">Consent</TabsTrigger>
             </TabsList>
 
             <TabsContent value="basic" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -297,12 +302,36 @@ export function NewStaffDialog({ onCreated }: { onCreated: () => void }) {
                 <Input id="emergencyContactPhone" value={form.emergencyContactPhone} onChange={update("emergencyContactPhone")} />
               </div>
             </TabsContent>
+
+            <TabsContent value="consent" className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                {tenant?.name ?? "This school"} collects and processes personal data (name, contact and address
+                details, bank/statutory identifiers, and any other information provided in this form) for HR,
+                payroll, and administrative purposes, in accordance with the Digital Personal Data Protection Act,
+                2023.
+              </p>
+              {form.firstName ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={consentGiven}
+                    onChange={(e) => setConsentGiven(e.target.checked)}
+                    className="mt-0.5 size-4 rounded border-input"
+                  />
+                  <span>
+                    I, <strong>{form.firstName} {form.lastName}</strong>, consent to the above.
+                  </span>
+                </label>
+              ) : (
+                <p className="text-sm text-amber-600">Fill in the Basic Info tab first to record consent.</p>
+              )}
+            </TabsContent>
           </Tabs>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || !consentGiven}>
               {isSubmitting ? "Saving..." : "Save staff member"}
             </Button>
           </DialogFooter>

@@ -171,7 +171,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
               right={<p className="font-medium text-slate-900">{reportCard.exam_name}</p>}
             />
 
-            <div className="mb-6 flex items-start justify-between">
+            <div className="mb-4 flex items-start justify-between">
               <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
                 <p className="col-span-2 text-lg font-semibold">{reportCard.student_name}</p>
                 <div className="flex justify-between gap-2">
@@ -229,7 +229,7 @@ export function ReportCardViewer({ exam }: { exam: Exam }) {
               </tfoot>
             </table>
 
-            <div className="mt-16 flex justify-between text-sm text-slate-600">
+            <div className="mt-8 flex justify-between text-sm text-slate-600">
               <SignatureBlock
                 branch={branch}
                 signatureUrl={classTeacherSignatureUrl}

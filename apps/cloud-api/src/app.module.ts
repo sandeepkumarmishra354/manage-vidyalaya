@@ -26,6 +26,7 @@ import { ModuleSettingsModule } from "./module-settings/module-settings.module.j
 import { PayrollModule } from "./payroll/payroll.module.js";
 import { PromotionModule } from "./promotion/promotion.module.js";
 import { QrModule } from "./qr/qr.module.js";
+import { RetentionModule } from "./retention/retention.module.js";
 import { RolesModule } from "./roles/roles.module.js";
 import { SchoolCalendarModule } from "./school-calendar/school-calendar.module.js";
 import { StaffModule } from "./staff/staff.module.js";
@@ -77,6 +78,7 @@ import { UsersModule } from "./users/users.module.js";
     ModuleSettingsModule,
     AuditLogModule,
     DashboardModule,
+    RetentionModule,
     StorageModule,
     DocumentsModule,
     ExpensesModule,
