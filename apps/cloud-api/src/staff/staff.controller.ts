@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateStaffDto } from "./dto/create-staff.dto.js";
@@ -15,7 +16,7 @@ import { UpdateStaffDto } from "./dto/update-staff.dto.js";
 import { StaffService } from "./staff.service.js";
 
 @Controller("staff")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffController {
   constructor(private readonly staffService: StaffService) {}
 
@@ -159,7 +160,7 @@ export class StaffController {
 }
 
 @Controller("teacher-assignments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TeacherAssignmentsController {
   constructor(private readonly staffService: StaffService) {}
 
@@ -186,7 +187,7 @@ export class TeacherAssignmentsController {
 // staff.manage_assignments (a staffing decision), unlike the rest of
 // /sections's CRUD in AcademicModule which is gated by academic_setup keys.
 @Controller("sections")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SectionClassTeacherController {
   constructor(private readonly staffService: StaffService) {}
 

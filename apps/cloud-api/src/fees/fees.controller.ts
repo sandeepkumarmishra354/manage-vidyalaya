@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CarryForwardStructuresDto } from "./dto/carry-forward-structures.dto.js";
@@ -20,7 +21,7 @@ import { VoidInvoiceDto } from "./dto/void-invoice.dto.js";
 import { FeesService } from "./fees.service.js";
 
 @Controller("fee-structures")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class FeeStructuresController {
   constructor(private readonly feesService: FeesService) {}
 
@@ -81,7 +82,7 @@ export class FeeStructuresController {
 }
 
 @Controller("fee-invoices")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class FeeInvoicesController {
   constructor(private readonly feesService: FeesService) {}
 
@@ -117,7 +118,7 @@ export class FeeInvoicesController {
 }
 
 @Controller("fee-payments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class FeePaymentsController {
   constructor(private readonly feesService: FeesService) {}
 
@@ -166,7 +167,7 @@ export class FeePaymentsController {
 }
 
 @Controller("student-fee-assignments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StudentFeeAssignmentsController {
   constructor(private readonly feesService: FeesService) {}
 
@@ -184,7 +185,7 @@ export class StudentFeeAssignmentsController {
 }
 
 @Controller("students")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StudentFeeAssignmentsQueryController {
   constructor(private readonly feesService: FeesService) {}
 

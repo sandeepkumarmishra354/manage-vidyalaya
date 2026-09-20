@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/c
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateDocumentDto } from "./dto/create-document.dto.js";
@@ -10,7 +11,7 @@ import { RequestUploadUrlDto } from "./dto/request-upload-url.dto.js";
 import { DocumentsService } from "./documents.service.js";
 
 @Controller("students/:id/documents")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StudentDocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
@@ -46,7 +47,7 @@ export class StudentDocumentsController {
 }
 
 @Controller("staff/:id/documents")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffDocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 

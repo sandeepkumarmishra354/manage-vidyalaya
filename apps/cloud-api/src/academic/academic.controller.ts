@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
@@ -28,7 +29,7 @@ import { UpdateSectionDto } from "./dto/update-section.dto.js";
 // `academic_setup.view` from using features that have nothing to do with
 // academic setup administration.
 @Controller("branches")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class BranchesController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -45,7 +46,7 @@ export class BranchesController {
 }
 
 @Controller("academic-sessions")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AcademicSessionsController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -68,7 +69,7 @@ export class AcademicSessionsController {
 }
 
 @Controller("classes")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ClassesController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -97,7 +98,7 @@ export class ClassesController {
 }
 
 @Controller("sections")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SectionsController {
   constructor(private readonly academicService: AcademicService) {}
 

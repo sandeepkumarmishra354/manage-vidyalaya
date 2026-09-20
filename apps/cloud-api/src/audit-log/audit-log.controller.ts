@@ -3,6 +3,7 @@ import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { DbService } from "../db/db.service.js";
@@ -10,7 +11,7 @@ import { DbService } from "../db/db.service.js";
 const PAGE_SIZE = 100;
 
 @Controller("audit-log")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AuditLogController {
   constructor(private readonly db: DbService) {}
 

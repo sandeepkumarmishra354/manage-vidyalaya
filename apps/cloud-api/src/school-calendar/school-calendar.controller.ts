@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateHolidayDto } from "./dto/create-holiday.dto.js";
@@ -16,7 +17,7 @@ import { SchoolCalendarService } from "./school-calendar.service.js";
 // it (a teacher's attendance grid, an accountant's payroll run, the
 // dashboard's upcoming-holidays widget). Only mutations are permission-gated.
 @Controller("school-calendar")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SchoolCalendarController {
   constructor(private readonly schoolCalendarService: SchoolCalendarService) {}
 
@@ -55,7 +56,7 @@ export class SchoolCalendarController {
 }
 
 @Controller("calendar-holidays")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class CalendarHolidaysController {
   constructor(private readonly schoolCalendarService: SchoolCalendarService) {}
 
