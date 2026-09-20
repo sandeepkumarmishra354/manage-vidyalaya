@@ -49,30 +49,30 @@ export class ExpensesController {
   @Patch(":id")
   @RequirePermission("expenses.manage")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateExpenseDto) {
-    return this.expenses.update(user.tenant_id, user.sub, id, dto);
+    return this.expenses.update(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("expenses.manage")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.expenses.remove(user.tenant_id, user.sub, id);
+    return this.expenses.remove(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Post(":id/receipt-upload-url")
   @RequirePermission("expenses.manage")
   requestReceiptUploadUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: RequestUploadUrlDto) {
-    return this.expenses.requestReceiptUploadUrl(user.tenant_id, id, dto);
+    return this.expenses.requestReceiptUploadUrl(user.tenant_id, id, dto, user.branch_id);
   }
 
   @Patch(":id/receipt")
   @RequirePermission("expenses.manage")
   attachReceipt(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AttachReceiptDto) {
-    return this.expenses.attachReceipt(user.tenant_id, user.sub, id, dto.storage_key);
+    return this.expenses.attachReceipt(user.tenant_id, user.sub, id, dto.storage_key, user.branch_id);
   }
 
   @Get(":id/receipt-download-url")
   @RequirePermission("expenses.view")
   getReceiptDownloadUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.expenses.getReceiptDownloadUrl(user.tenant_id, id);
+    return this.expenses.getReceiptDownloadUrl(user.tenant_id, id, user.branch_id);
   }
 }

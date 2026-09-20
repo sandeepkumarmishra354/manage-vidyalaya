@@ -561,3 +561,152 @@ describe("FeesService.editInvoice", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+// Phase 2: branch-scoped callers must not be able to view/update/delete a
+// same-tenant record belonging to a *different* branch by passing its id
+// directly -- findOneForTenant/updateRow/softDeleteRow map a branch
+// mismatch to "not found" (never "belongs to another branch"), exactly
+// like a wrong id would.
+describe("FeesService branch isolation (Phase 2)", () => {
+  let client: FakeClient;
+  let db: ReturnType<typeof makeDbMock>;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: FeesService;
+
+  beforeEach(() => {
+    client = { query: vi.fn() };
+    db = makeDbMock(client);
+    audit = makeAuditMock();
+    service = new FeesService(db, audit);
+  });
+
+  describe("updateFeeStructure", () => {
+    const dto = { name: "Tuition", amount: 1000, frequency: "annual", fee_type: "tuition" };
+
+    it("404s a same-tenant structure that belongs to a different branch", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "cat-1" });
+      client.query.mockResolvedValueOnce({ rows: [] }); // UPDATE ... AND branch_id = $N filtered it out
+
+      await expect(
+        service.updateFeeStructure("tenant-1", "actor-1", "struct-1", dto, "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("updates a structure that belongs to the caller's own branch", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "cat-1" });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "struct-1", tenant_id: "tenant-1" }] });
+
+      const result = await service.updateFeeStructure("tenant-1", "actor-1", "struct-1", dto, "branch-mine");
+      expect(result.id).toBe("struct-1");
+    });
+
+    it("adds no branch filter for an unscoped caller (branchId null)", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "cat-1" });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "struct-1", tenant_id: "tenant-1" }] });
+
+      await service.updateFeeStructure("tenant-1", "actor-1", "struct-1", dto, null);
+
+      const [text] = client.query.mock.calls[0];
+      expect(text).not.toMatch(/branch_id/);
+    });
+  });
+
+  describe("editInvoice", () => {
+    it("404s an invoice from another branch instead of the tenant-only 'invoice not found' it always throws for a genuinely missing id", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant filtered out by branch_id
+
+      await expect(
+        service.editInvoice("tenant-1", "actor-1", "inv-1", { amount_due: 1000, reason: "correction" }, "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("edits an invoice that belongs to the caller's own branch", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "inv-1", tenant_id: "tenant-1", status: "pending", amount_paid: 0 }] })
+        .mockResolvedValueOnce({ rows: [{ id: "inv-1", tenant_id: "tenant-1" }] });
+
+      const result = await service.editInvoice(
+        "tenant-1",
+        "actor-1",
+        "inv-1",
+        { amount_due: 1000, reason: "correction" },
+        "branch-mine",
+      );
+      expect(result.id).toBe("inv-1");
+    });
+  });
+
+  describe("voidInvoice", () => {
+    it("404s an invoice belonging to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.voidInvoice("tenant-1", "actor-1", "inv-1", "duplicate", "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("is unaffected for an unscoped caller", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "inv-1", tenant_id: "tenant-1" }] });
+
+      await service.voidInvoice("tenant-1", "actor-1", "inv-1", "duplicate", null);
+
+      const [text] = client.query.mock.calls[0];
+      expect(text).not.toMatch(/branch_id/);
+    });
+  });
+
+  describe("recordPayment", () => {
+    const dto = { invoice_id: "inv-1", amount: 500, payment_method: "cash", payment_date: "2026-04-01" };
+
+    it("404s when the invoice belongs to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant inside applyPayment
+
+      await expect(service.recordPayment("tenant-1", "actor-1", dto, "branch-mine")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("records a payment against an invoice in the caller's own branch", async () => {
+      client.query
+        .mockResolvedValueOnce({
+          rows: [{ id: "inv-1", tenant_id: "tenant-1", branch_id: "branch-mine", amount_due: 1000, amount_paid: 0 }],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: "payment-1", tenant_id: "tenant-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "inv-1", tenant_id: "tenant-1" }] });
+
+      const result = await service.recordPayment("tenant-1", "actor-1", dto, "branch-mine");
+      expect(result.id).toBe("payment-1");
+    });
+  });
+
+  describe("removeStudentFeeAssignment", () => {
+    it("404s an assignment belonging to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.removeStudentFeeAssignment("tenant-1", "actor-1", "assign-1", "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("removes an assignment belonging to the caller's own branch", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "assign-1", tenant_id: "tenant-1" }] }) // findOneForTenant
+        .mockResolvedValueOnce({ rows: [{ id: "assign-1", tenant_id: "tenant-1" }] }); // softDeleteRow -> updateRow
+
+      const result = await service.removeStudentFeeAssignment("tenant-1", "actor-1", "assign-1", "branch-mine");
+      expect(result.id).toBe("assign-1");
+    });
+  });
+});

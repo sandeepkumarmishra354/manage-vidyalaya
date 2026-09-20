@@ -97,10 +97,17 @@ export class PayrollService {
     tenantId: string,
     staffId: string,
     asOfDate: Date,
+    branchId?: string | null,
   ): Promise<{ structure: SalaryStructureRow; components: SalaryComponentRow[] } | null> {
+    const conditions = ["tenant_id = $1", "staff_id = $2", "deleted_at IS NULL", "effective_from <= $3"];
+    const values: unknown[] = [tenantId, staffId, asOfDate];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const structureResult = await client.query<SalaryStructureRow>(
-      "SELECT * FROM salary_structures WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL AND effective_from <= $3 ORDER BY effective_from DESC LIMIT 1",
-      [tenantId, staffId, asOfDate],
+      `SELECT * FROM salary_structures WHERE ${conditions.join(" AND ")} ORDER BY effective_from DESC LIMIT 1`,
+      values,
     );
     const structure = structureResult.rows[0];
     if (!structure) return null;
@@ -129,9 +136,9 @@ export class PayrollService {
     };
   }
 
-  async getSalaryStructure(tenantId: string, staffId: string) {
+  async getSalaryStructure(tenantId: string, staffId: string, branchId?: string | null) {
     const result = await this.db.withTransaction(tenantId, (client) =>
-      this.getEffectiveSalaryStructure(client, tenantId, staffId, new Date()),
+      this.getEffectiveSalaryStructure(client, tenantId, staffId, new Date(), branchId),
     );
     return result ? this.formatStructure(result.structure, result.components) : null;
   }
@@ -139,11 +146,17 @@ export class PayrollService {
   // Every historical structure a staff member has ever had, most recent
   // first -- the increment history behind the "current" one getSalaryStructure
   // returns.
-  async listSalaryHistory(tenantId: string, staffId: string) {
+  async listSalaryHistory(tenantId: string, staffId: string, branchId?: string | null) {
+    const conditions = ["tenant_id = $1", "staff_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, staffId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const structures = await this.db.query<SalaryStructureRow>(
       tenantId,
-      "SELECT * FROM salary_structures WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL ORDER BY effective_from DESC",
-      [tenantId, staffId],
+      `SELECT * FROM salary_structures WHERE ${conditions.join(" AND ")} ORDER BY effective_from DESC`,
+      values,
     );
     if (structures.length === 0) return [];
 
@@ -277,7 +290,7 @@ export class PayrollService {
       const payslips = [];
 
       for (const staff of activeStaff) {
-        const resolved = await this.getEffectiveSalaryStructure(client, tenantId, staff.id, periodLastDay);
+        const resolved = await this.getEffectiveSalaryStructure(client, tenantId, staff.id, periodLastDay, dto.branch_id);
         if (!resolved) {
           continue; // no salary structure configured -- nothing to pay out yet
         }
@@ -431,11 +444,17 @@ export class PayrollService {
     );
   }
 
-  async getPayrollRun(tenantId: string, runId: string) {
+  async getPayrollRun(tenantId: string, runId: string, branchId?: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2"];
+    const values: unknown[] = [runId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const run = await this.db.queryOne<PayrollRunRow>(
       tenantId,
-      "SELECT * FROM payroll_runs WHERE id = $1 AND tenant_id = $2",
-      [runId, tenantId],
+      `SELECT * FROM payroll_runs WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!run) {
       throw new NotFoundException("payroll run not found");
@@ -490,14 +509,21 @@ export class PayrollService {
     };
   }
 
-  async finalizePayrollRun(tenantId: string, actorUserId: string, runId: string) {
+  async finalizePayrollRun(tenantId: string, actorUserId: string, runId: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
 
-      const updated = await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
-        status: "finalized",
-        updated_at: now,
-      });
+      const updated = await updateRow<PayrollRunRow>(
+        client,
+        "payroll_runs",
+        tenantId,
+        runId,
+        {
+          status: "finalized",
+          updated_at: now,
+        },
+        branchId,
+      );
 
       await client.query(
         "UPDATE payslips SET status = 'finalized', updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
@@ -521,9 +547,9 @@ export class PayrollService {
   // a finalized run may already carry real payslip history, so it must go
   // through reopenPayrollRun (which itself blocks on paid payslips) before
   // it becomes eligible for delete.
-  async deletePayrollRun(tenantId: string, actorUserId: string, runId: string) {
+  async deletePayrollRun(tenantId: string, actorUserId: string, runId: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId);
+      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId, branchId);
       if (!run) {
         throw new NotFoundException("payroll run not found");
       }
@@ -549,10 +575,17 @@ export class PayrollService {
         "UPDATE payslips SET deleted_at = $1, updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
         [now, tenantId, runId],
       );
-      await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
-        deleted_at: now,
-        updated_at: now,
-      });
+      await updateRow<PayrollRunRow>(
+        client,
+        "payroll_runs",
+        tenantId,
+        runId,
+        {
+          deleted_at: now,
+          updated_at: now,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -568,9 +601,9 @@ export class PayrollService {
 
   // Finalized -> draft. Rejects if any payslip is already paid, so a real
   // payment record is never silently undone.
-  async reopenPayrollRun(tenantId: string, actorUserId: string, runId: string) {
+  async reopenPayrollRun(tenantId: string, actorUserId: string, runId: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId);
+      const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, runId, branchId);
       if (!run) {
         throw new NotFoundException("payroll run not found");
       }
@@ -588,10 +621,17 @@ export class PayrollService {
 
       const now = new Date();
 
-      await updateRow<PayrollRunRow>(client, "payroll_runs", tenantId, runId, {
-        status: "draft",
-        updated_at: now,
-      });
+      await updateRow<PayrollRunRow>(
+        client,
+        "payroll_runs",
+        tenantId,
+        runId,
+        {
+          status: "draft",
+          updated_at: now,
+        },
+        branchId,
+      );
       await client.query(
         "UPDATE payslips SET status = 'draft', updated_at = $1 WHERE tenant_id = $2 AND payroll_run_id = $3 AND deleted_at IS NULL",
         [now, tenantId, runId],
@@ -608,8 +648,34 @@ export class PayrollService {
     });
   }
 
-  async markPayslipPaid(tenantId: string, actorUserId: string, payslipId: string, paidOn: string) {
+  // payslips (and payslip_line_items) carry no branch_id column of their
+  // own -- they're always reached through their parent payroll_runs row, so
+  // branch isolation for a by-id payslip endpoint means resolving the
+  // payslip's own payroll_run_id first and checking *that* row against the
+  // caller's branch, rather than the payslip directly (see markPayslipPaid/
+  // adjustLineItem, both of which are reached straight from a payslip id
+  // with no payroll-run id anywhere in the request).
+  private async assertPayslipInBranch(
+    client: PoolClient,
+    tenantId: string,
+    payslip: PayslipRow,
+    branchId?: string | null,
+  ): Promise<void> {
+    if (!branchId) return;
+    const run = await findOneForTenant<PayrollRunRow>(client, "payroll_runs", tenantId, payslip.payroll_run_id, branchId);
+    if (!run) {
+      throw new NotFoundException("payslip not found");
+    }
+  }
+
+  async markPayslipPaid(tenantId: string, actorUserId: string, payslipId: string, paidOn: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
+      const payslip = await findOneForTenant<PayslipRow>(client, "payslips", tenantId, payslipId);
+      if (!payslip) {
+        throw new NotFoundException("payslip not found");
+      }
+      await this.assertPayslipInBranch(client, tenantId, payslip, branchId);
+
       const updated = await updateRow<PayslipRow>(client, "payslips", tenantId, payslipId, {
         status: "paid",
         paid_on: new Date(paidOn),
@@ -631,12 +697,19 @@ export class PayrollService {
 
   // Adds or updates a manual line item on a still-draft payslip, then
   // recomputes the payslip's totals from the full set of line items.
-  async adjustLineItem(tenantId: string, actorUserId: string, payslipId: string, dto: AdjustLineItemDto) {
+  async adjustLineItem(
+    tenantId: string,
+    actorUserId: string,
+    payslipId: string,
+    dto: AdjustLineItemDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
       const payslip = await findOneForTenant<PayslipRow>(client, "payslips", tenantId, payslipId);
       if (!payslip) {
         throw new NotFoundException("payslip not found");
       }
+      await this.assertPayslipInBranch(client, tenantId, payslip, branchId);
       if (payslip.status !== "draft") {
         throw new BadRequestException("only draft payslips can be adjusted");
       }
