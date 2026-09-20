@@ -111,3 +111,53 @@ describe("AcademicService.deleteClass branch scoping", () => {
     await expect(service.deleteClass("tenant-1", "actor-1", "class-1", null)).resolves.toBeDefined();
   });
 });
+
+// `branches` rows have no branch_id column of their own -- a row IS a
+// branch -- so unlike every other Phase 2 case, this isn't threaded into
+// updateRow: a branch-scoped caller's id must equal their own branch_id, or
+// updateBranch rejects before ever touching the DB.
+describe("AcademicService.updateBranch branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: AcademicService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new AcademicService(db, audit);
+  });
+
+  it("404s a branch-scoped caller updating a different branch's own record", async () => {
+    await expect(
+      service.updateBranch("tenant-1", "actor-1", "branch-other", { name: "Renamed" }, "branch-mine"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("lets a branch-scoped caller update their own branch", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "branch-mine", tenant_id: "tenant-1", name: "Old Name", print_template: "classic", print_paper_color: "white" }],
+    });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "branch-mine", tenant_id: "tenant-1", name: "Renamed" }],
+    });
+
+    await expect(
+      service.updateBranch("tenant-1", "actor-1", "branch-mine", { name: "Renamed" }, "branch-mine"),
+    ).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "branch-any", tenant_id: "tenant-1", name: "Old Name", print_template: "classic", print_paper_color: "white" }],
+    });
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "branch-any", tenant_id: "tenant-1", name: "Renamed" }],
+    });
+
+    await expect(
+      service.updateBranch("tenant-1", "actor-1", "branch-any", { name: "Renamed" }, null),
+    ).resolves.toBeDefined();
+  });
+});

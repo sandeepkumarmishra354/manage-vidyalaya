@@ -95,6 +95,49 @@ describe("ExamsService.updateExam branch scoping", () => {
   });
 });
 
+// subjects.branch_id is NOT NULL in the schema (confirmed against
+// migrations/1789709307097_baseline-schema.sql) -- updateSubject was
+// missed by the initial Phase 2 pass, which incorrectly treated subjects
+// as tenant-wide. Same updateRow-branch_id pattern as updateExam above.
+describe("ExamsService.updateSubject branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: ExamsService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new ExamsService(db, makeAuditMock(), makeScopedAccessMock(), makeClassSubjectsMock());
+  });
+
+  it("404s updating a subject outside the caller's branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      service.updateSubject("tenant-1", "actor-1", "subject-1", { name: "Maths" }, "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updates a subject within the caller's own branch", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "subject-1", tenant_id: "tenant-1", branch_id: "branch-a", name: "Maths" }],
+    });
+
+    await expect(
+      service.updateSubject("tenant-1", "actor-1", "subject-1", { name: "Maths" }, "branch-a"),
+    ).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "subject-1", tenant_id: "tenant-1", branch_id: "branch-other", name: "Maths" }],
+    });
+
+    await expect(
+      service.updateSubject("tenant-1", "actor-1", "subject-1", { name: "Maths" }, null),
+    ).resolves.toBeDefined();
+  });
+});
+
 // Every hand-written by-id exam lookup (marks-entry authorization,
 // teaching assignments, submission status, publish/reopen, report card,
 // backpaper roster) funnels through the same branch-conditioned query --

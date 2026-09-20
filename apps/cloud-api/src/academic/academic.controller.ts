@@ -41,7 +41,7 @@ export class BranchesController {
   @Patch(":id")
   @RequirePermission("academic_setup.manage_school_details")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBranchDto) {
-    return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto);
+    return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 

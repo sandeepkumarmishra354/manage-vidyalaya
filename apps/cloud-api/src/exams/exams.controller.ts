@@ -33,7 +33,7 @@ export class SubjectsController {
   @Patch(":id")
   @RequirePermission("exams.manage_subjects")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateSubjectDto) {
-    return this.examsService.updateSubject(user.tenant_id, user.sub, id, dto);
+    return this.examsService.updateSubject(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 

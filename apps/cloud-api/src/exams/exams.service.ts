@@ -71,14 +71,27 @@ export class ExamsService {
     });
   }
 
-  async updateSubject(tenantId: string, actorUserId: string, id: string, dto: UpdateSubjectDto) {
+  async updateSubject(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateSubjectDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<SubjectRow>(client, "subjects", tenantId, id, {
-        name: dto.name,
-        code: dto.code ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<SubjectRow>(
+        client,
+        "subjects",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          code: dto.code ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

@@ -47,7 +47,22 @@ export class AcademicService {
     );
   }
 
-  async updateBranch(tenantId: string, actorUserId: string, id: string, dto: UpdateBranchDto) {
+  async updateBranch(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateBranchDto,
+    callerBranchId: string | null,
+  ) {
+    // `branches` rows have no branch_id column of their own -- a row IS a
+    // branch -- so a branch-scoped caller's own branch is the id itself,
+    // not something threaded into findOneForTenant. Same "not found" (not
+    // "forbidden") semantics as everywhere else: a mismatch doesn't confirm
+    // the id exists in another branch.
+    if (callerBranchId && callerBranchId !== id) {
+      throw new NotFoundException("branch not found");
+    }
+
     return this.db.withTransaction(tenantId, async (client) => {
       const existing = await findOneForTenant<BranchRow>(client, "branches", tenantId, id);
       if (!existing) {
