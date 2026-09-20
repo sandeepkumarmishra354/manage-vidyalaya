@@ -103,18 +103,24 @@ export class PromotionService {
         summary: "Created promotion batch (draft)",
       });
 
-      return this.loadBatch(client, tenantId, batchId);
+      return this.loadBatch(client, tenantId, batchId, dto.branch_id);
     });
   }
 
-  async getPromotionBatch(tenantId: string, batchId: string) {
-    return this.db.withTransaction(tenantId, (client) => this.loadBatch(client, tenantId, batchId));
+  async getPromotionBatch(tenantId: string, batchId: string, branchId?: string | null) {
+    return this.db.withTransaction(tenantId, (client) => this.loadBatch(client, tenantId, batchId, branchId));
   }
 
-  private async loadBatch(client: PoolClient, tenantId: string, batchId: string) {
+  private async loadBatch(client: PoolClient, tenantId: string, batchId: string, branchId?: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2"];
+    const values: unknown[] = [batchId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const batchResult = await client.query<PromotionBatchRow>(
-      "SELECT * FROM promotion_batches WHERE id = $1 AND tenant_id = $2",
-      [batchId, tenantId],
+      `SELECT * FROM promotion_batches WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     const batch = batchResult.rows[0];
     if (!batch) {
@@ -158,13 +164,23 @@ export class PromotionService {
     };
   }
 
-  async setPromotionDecision(tenantId: string, itemId: string, dto: SetPromotionDecisionDto) {
+  // promotion_batch_items itself carries no branch_id -- the branch check
+  // goes through its parent batch instead (joined in via the FROM clause),
+  // so a branch-scoped caller can't reach an item belonging to another
+  // branch's batch even knowing its id.
+  async setPromotionDecision(tenantId: string, itemId: string, dto: SetPromotionDecisionDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const result = await client.query<PromotionBatchItemRow>(
-        `UPDATE promotion_batch_items SET decision = $1, to_class_id = $2, to_section_id = $3, updated_at = $4
-         WHERE id = $5 AND tenant_id = $6 RETURNING *`,
-        [dto.decision, dto.to_class_id ?? null, dto.to_section_id ?? null, new Date(), itemId, tenantId],
-      );
+      const values: unknown[] = [dto.decision, dto.to_class_id ?? null, dto.to_section_id ?? null, new Date(), itemId, tenantId];
+      let sql = `UPDATE promotion_batch_items SET decision = $1, to_class_id = $2, to_section_id = $3, updated_at = $4
+         FROM promotion_batches b
+         WHERE promotion_batch_items.id = $5 AND promotion_batch_items.tenant_id = $6
+           AND promotion_batch_items.promotion_batch_id = b.id`;
+      if (branchId) {
+        values.push(branchId);
+        sql += ` AND b.branch_id = $${values.length}`;
+      }
+      sql += " RETURNING promotion_batch_items.*";
+      const result = await client.query<PromotionBatchItemRow>(sql, values);
       const updated = result.rows[0];
       if (!updated) {
         throw new NotFoundException("promotion batch item not found");
@@ -179,11 +195,17 @@ export class PromotionService {
   // into the *same* class (repeating the year) and leaves the pointer
   // as-is; withdraw marks the student withdrawn and writes no new-session
   // enrollment row. One audit_log row covers the whole batch.
-  async executePromotionBatch(tenantId: string, actorUserId: string, batchId: string) {
+  async executePromotionBatch(tenantId: string, actorUserId: string, batchId: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
+      const batchConditions = ["id = $1", "tenant_id = $2"];
+      const batchValues: unknown[] = [batchId, tenantId];
+      if (branchId) {
+        batchValues.push(branchId);
+        batchConditions.push(`branch_id = $${batchValues.length}`);
+      }
       const batchResult = await client.query<PromotionBatchRow>(
-        "SELECT * FROM promotion_batches WHERE id = $1 AND tenant_id = $2",
-        [batchId, tenantId],
+        `SELECT * FROM promotion_batches WHERE ${batchConditions.join(" AND ")}`,
+        batchValues,
       );
       const batch = batchResult.rows[0];
       if (!batch) {

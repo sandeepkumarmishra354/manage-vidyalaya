@@ -189,14 +189,21 @@ export class AcademicService {
     });
   }
 
-  async updateClass(tenantId: string, actorUserId: string, id: string, dto: UpdateClassDto) {
+  async updateClass(tenantId: string, actorUserId: string, id: string, dto: UpdateClassDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<ClassRow>(client, "classes", tenantId, id, {
-        name: dto.name,
-        sort_order: dto.sort_order,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<ClassRow>(
+        client,
+        "classes",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          sort_order: dto.sort_order,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -211,14 +218,21 @@ export class AcademicService {
     });
   }
 
-  async deleteClass(tenantId: string, actorUserId: string, id: string) {
+  async deleteClass(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
-      const deleted = await updateRow<ClassRow>(client, "classes", tenantId, id, {
-        deleted_at: now,
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const deleted = await updateRow<ClassRow>(
+        client,
+        "classes",
+        tenantId,
+        id,
+        {
+          deleted_at: now,
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

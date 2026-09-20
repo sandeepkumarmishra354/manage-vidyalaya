@@ -36,13 +36,13 @@ export class PeriodSlotsController {
   @Patch(":id")
   @RequirePermission("timetable.manage")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdatePeriodSlotDto) {
-    return this.timetableService.updatePeriodSlot(user.tenant_id, user.sub, id, dto);
+    return this.timetableService.updatePeriodSlot(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("timetable.manage")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.timetableService.deletePeriodSlot(user.tenant_id, user.sub, id);
+    return this.timetableService.deletePeriodSlot(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
@@ -65,7 +65,7 @@ export class SectionTimetableController {
     @Query("academic_session_id") academicSessionId: string,
   ) {
     await this.timetableService.assertCanView(user.tenant_id, user.sub, sectionId);
-    return this.timetableService.getSectionTimetable(user.tenant_id, sectionId, academicSessionId);
+    return this.timetableService.getSectionTimetable(user.tenant_id, sectionId, academicSessionId, user.branch_id);
   }
 
   @Put(":sectionId")
@@ -75,7 +75,7 @@ export class SectionTimetableController {
     @Param("sectionId") sectionId: string,
     @Body() dto: SaveSectionTimetableDto,
   ) {
-    return this.timetableService.saveSectionTimetable(user.tenant_id, user.sub, sectionId, dto);
+    return this.timetableService.saveSectionTimetable(user.tenant_id, user.sub, sectionId, dto, user.branch_id);
   }
 }
 
@@ -102,7 +102,7 @@ export class StaffTimetableController {
     if (!allowed) {
       throw new ForbiddenException("not authorized to view this staff member's timetable");
     }
-    return this.timetableService.getStaffTimetable(user.tenant_id, staffId, academicSessionId);
+    return this.timetableService.getStaffTimetable(user.tenant_id, staffId, academicSessionId, user.branch_id);
   }
 }
 
@@ -120,6 +120,6 @@ export class MyTimetableController {
     if (!staff) {
       throw new ForbiddenException("your account isn't linked to a staff record");
     }
-    return this.timetableService.getStaffTimetable(user.tenant_id, staff.id, academicSessionId);
+    return this.timetableService.getStaffTimetable(user.tenant_id, staff.id, academicSessionId, user.branch_id);
   }
 }

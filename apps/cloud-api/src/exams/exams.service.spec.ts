@@ -52,6 +52,94 @@ function makeClassSubjectsMock() {
     Record<string, ReturnType<typeof vi.fn>>;
 }
 
+// Phase 2 branch scoping: updateExam goes straight through tenant-repo's
+// updateRow, which ANDs branch_id into the WHERE clause when branchId is
+// passed -- a mismatched branch comes back as "not found" exactly like a
+// wrong id would.
+describe("ExamsService.updateExam branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: ExamsService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new ExamsService(db, makeAuditMock(), makeScopedAccessMock(), makeClassSubjectsMock());
+  });
+
+  it("404s updating an exam outside the caller's branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      service.updateExam("tenant-1", "actor-1", "exam-1", { name: "Term 1", passing_percentage: 33 }, "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updates an exam within the caller's own branch", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "exam-1", tenant_id: "tenant-1", branch_id: "branch-a", name: "Term 1" }],
+    });
+
+    await expect(
+      service.updateExam("tenant-1", "actor-1", "exam-1", { name: "Term 1", passing_percentage: 33 }, "branch-a"),
+    ).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    client.query.mockResolvedValueOnce({
+      rows: [{ id: "exam-1", tenant_id: "tenant-1", branch_id: "branch-other", name: "Term 1" }],
+    });
+
+    await expect(
+      service.updateExam("tenant-1", "actor-1", "exam-1", { name: "Term 1", passing_percentage: 33 }, null),
+    ).resolves.toBeDefined();
+  });
+});
+
+// Every hand-written by-id exam lookup (marks-entry authorization,
+// teaching assignments, submission status, publish/reopen, report card,
+// backpaper roster) funnels through the same branch-conditioned query --
+// exercised here via getMarksRoster as a representative case.
+describe("ExamsService exam lookup branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let classSubjects: ReturnType<typeof makeClassSubjectsMock>;
+  let service: ExamsService;
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    scopedAccess = makeScopedAccessMock();
+    classSubjects = makeClassSubjectsMock();
+    service = new ExamsService(db, makeAuditMock(), scopedAccess, classSubjects);
+  });
+
+  it("404s when the exam doesn't come back for the caller's branch", async () => {
+    (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    db.queryOne.mockResolvedValueOnce(null); // real Postgres excludes it via branch_id = $N
+
+    await expect(
+      service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1", "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("finds the exam when it belongs to the caller's own branch", async () => {
+    (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM });
+
+    await expect(
+      service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1", "branch-a"),
+    ).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    (scopedAccess.hasPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM });
+
+    await expect(
+      service.getMarksRoster("tenant-1", "user-1", "exam-1", "subj-1", null),
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("ExamsService marks-entry authorization", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;

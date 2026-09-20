@@ -54,6 +54,118 @@ function makeAuditMock() {
 
 const draftBatch = { id: "batch-1", tenant_id: "tenant-a", branch_id: "branch-1", to_session_id: "session-2", status: "draft" };
 
+// Phase 2 branch scoping: promotion_batches carries branch_id directly, and
+// promotion_batch_items (which has none of its own) is checked through its
+// parent batch via a join -- a mismatched branch comes back "not found"
+// exactly like a wrong id would.
+describe("PromotionService.getPromotionBatch branch scoping", () => {
+  let audit: ReturnType<typeof makeAuditMock>;
+
+  beforeEach(() => {
+    audit = makeAuditMock();
+  });
+
+  it("404s for a batch belonging to a different branch", async () => {
+    const client: FakeClient = { query: vi.fn().mockResolvedValueOnce({ rows: [] }) };
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(service.getPromotionBatch("tenant-a", "batch-1", "branch-x")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("returns a batch belonging to the caller's own branch", async () => {
+    const client: FakeClient = { query: vi.fn() };
+    client.query.mockResolvedValueOnce({ rows: [draftBatch] }).mockResolvedValueOnce({ rows: [] });
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(service.getPromotionBatch("tenant-a", "batch-1", "branch-1")).resolves.toMatchObject({
+      id: "batch-1",
+    });
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    const client: FakeClient = { query: vi.fn() };
+    client.query.mockResolvedValueOnce({ rows: [draftBatch] }).mockResolvedValueOnce({ rows: [] });
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(service.getPromotionBatch("tenant-a", "batch-1", null)).resolves.toMatchObject({ id: "batch-1" });
+  });
+});
+
+describe("PromotionService.setPromotionDecision branch scoping", () => {
+  let audit: ReturnType<typeof makeAuditMock>;
+
+  beforeEach(() => {
+    audit = makeAuditMock();
+  });
+
+  it("404s for an item whose batch belongs to a different branch", async () => {
+    const client: FakeClient = { query: vi.fn().mockResolvedValueOnce({ rows: [] }) };
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(
+      service.setPromotionDecision("tenant-a", "item-1", { decision: "promote" }, "branch-x"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updates the decision for an item whose batch belongs to the caller's own branch", async () => {
+    const client: FakeClient = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [{ id: "item-1", tenant_id: "tenant-a", decision: "promote" }] }),
+    };
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(
+      service.setPromotionDecision("tenant-a", "item-1", { decision: "promote" }, "branch-1"),
+    ).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    const client: FakeClient = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [{ id: "item-1", tenant_id: "tenant-a", decision: "promote" }] }),
+    };
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(
+      service.setPromotionDecision("tenant-a", "item-1", { decision: "promote" }, null),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("PromotionService.executePromotionBatch branch scoping", () => {
+  let audit: ReturnType<typeof makeAuditMock>;
+
+  beforeEach(() => {
+    audit = makeAuditMock();
+  });
+
+  it("404s executing a batch belonging to a different branch", async () => {
+    const client: FakeClient = { query: vi.fn().mockResolvedValueOnce({ rows: [] }) };
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(service.executePromotionBatch("tenant-a", "actor-1", "batch-1", "branch-x")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("executes a batch belonging to the caller's own branch", async () => {
+    const client = makeRoutedClient({ batch: draftBatch, items: [] });
+    const db = makeDbMock(client);
+    const service = new PromotionService(db, audit);
+
+    await expect(
+      service.executePromotionBatch("tenant-a", "actor-1", "batch-1", "branch-1"),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe("PromotionService.executePromotionBatch", () => {
   let audit: ReturnType<typeof makeAuditMock>;
 
