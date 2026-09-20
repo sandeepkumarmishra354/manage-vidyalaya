@@ -245,6 +245,62 @@ describe("AttendanceService.getRosterRange", () => {
   });
 });
 
+describe("AttendanceService.getStudentHistory (branch isolation)", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let audit: ReturnType<typeof makeAuditMock>;
+  let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
+  let service: AttendanceService;
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    audit = makeAuditMock();
+    scopedAccess = makeScopedAccessMock();
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new AttendanceService(db, audit, scopedAccess, schoolCalendar, new QrTokenService());
+  });
+
+  it("adds a branch_id condition and binds branchId when the caller is branch-scoped", async () => {
+    db.query.mockResolvedValueOnce([]);
+
+    await service.getStudentHistory("tenant-1", "student-1", "branch-a");
+
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/branch_id = \$3/);
+    expect(params).toEqual(["tenant-1", "student-1", "branch-a"]);
+  });
+
+  it("excludes a different branch's records for the same student id", async () => {
+    // The real WHERE branch_id = $3 clause would exclude the row entirely;
+    // the fake DB layer mirrors that by returning no rows for the mismatch.
+    db.query.mockResolvedValueOnce([]);
+
+    const result = await service.getStudentHistory("tenant-1", "student-1", "branch-other");
+
+    expect(result).toEqual([]);
+  });
+
+  it("returns the caller's own-branch records", async () => {
+    db.query.mockResolvedValueOnce([
+      { attendance_date: new Date("2026-01-10"), status: "present", remarks: null, branch_id: "branch-a" },
+    ]);
+
+    const result = await service.getStudentHistory("tenant-1", "student-1", "branch-a");
+
+    expect(result).toEqual([{ attendance_date: new Date("2026-01-10"), status: "present", remarks: null }]);
+  });
+
+  it("an unscoped caller (branchId: null) omits the branch condition", async () => {
+    db.query.mockResolvedValueOnce([]);
+
+    await service.getStudentHistory("tenant-1", "student-1", null);
+
+    const [, sql, params] = db.query.mock.calls[0];
+    expect(sql).not.toMatch(/branch_id/);
+    expect(params).toEqual(["tenant-1", "student-1"]);
+  });
+});
+
 describe("AttendanceService.scanMark", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let client: FakeClient;
@@ -371,5 +427,41 @@ describe("AttendanceService.scanMark", () => {
 
     const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
     await expect(service.scanMark("tenant-1", "actor-1", token)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects (student not found) scanning a student who belongs to a different branch", async () => {
+    db.queryOne.mockImplementationOnce(async () => student); // student's own branch is "branch-1"
+
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
+    await expect(service.scanMark("tenant-1", "actor-1", token, "branch-other")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("succeeds scanning a student in the caller's own branch", async () => {
+    db.queryOne.mockImplementationOnce(async () => student); // student lookup
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM classes") ? { name: "Class 5" } : null));
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM sections") ? { name: "A" } : null));
+    db.queryOne.mockImplementationOnce(async () => null); // existing attendance record
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
+    const result = await service.scanMark("tenant-1", "actor-1", token, "branch-1");
+
+    expect(result).toEqual(expect.objectContaining({ status: "marked", student_id: "student-1" }));
+  });
+
+  it("an unscoped caller (branchId: null) is unaffected", async () => {
+    db.queryOne.mockImplementationOnce(async () => student);
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM classes") ? { name: "Class 5" } : null));
+    db.queryOne.mockImplementationOnce(async (_t: string, sql: string) => (sql.includes("FROM sections") ? { name: "A" } : null));
+    db.queryOne.mockImplementationOnce(async () => null);
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    const token = qrToken.generate("student", "tenant-1", student.id, student.qr_code_version);
+    const result = await service.scanMark("tenant-1", "actor-1", token, null);
+
+    expect(result).toEqual(expect.objectContaining({ status: "marked", student_id: "student-1" }));
   });
 });

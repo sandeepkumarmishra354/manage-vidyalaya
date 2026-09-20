@@ -43,27 +43,27 @@ export class UsersController {
   // defense-in-depth on top of the flat permission check.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async resetPassword(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ResetPasswordDto) {
-    await this.usersService.resetPassword(user.tenant_id, user.sub, id, dto.password);
+    await this.usersService.resetPassword(user.tenant_id, user.sub, id, dto.password, user.branch_id);
     return { ok: true };
   }
 
   @Post(":id/roles")
   @RequirePermission("users.manage")
   async assignRole(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AssignRoleDto) {
-    await this.usersService.assignUserRole(user.tenant_id, user.sub, id, dto.role_id);
+    await this.usersService.assignUserRole(user.tenant_id, user.sub, id, dto.role_id, user.branch_id);
     return { ok: true };
   }
 
   @Delete(":id/roles/:roleId")
   @RequirePermission("users.manage")
   async removeRole(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Param("roleId") roleId: string) {
-    await this.usersService.removeUserRole(user.tenant_id, user.sub, id, roleId);
+    await this.usersService.removeUserRole(user.tenant_id, user.sub, id, roleId, user.branch_id);
     return { ok: true };
   }
 
   @Post(":id/active")
   @RequirePermission("users.manage")
   setActive(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetUserActiveDto) {
-    return this.usersService.setUserActive(user.tenant_id, user.sub, id, dto.is_active);
+    return this.usersService.setUserActive(user.tenant_id, user.sub, id, dto.is_active, user.branch_id);
   }
 }

@@ -31,7 +31,7 @@ export class LibraryBooksController {
   @Patch(":id")
   @RequirePermission("library.manage_catalog")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBookDto) {
-    return this.libraryService.updateBook(user.tenant_id, user.sub, id, dto);
+    return this.libraryService.updateBook(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
@@ -56,13 +56,13 @@ export class LibraryIssuesController {
   @Post()
   @RequirePermission("library.manage_issues")
   issue(@CurrentUser() user: JwtPayload, @Body() dto: IssueBookDto) {
-    return this.libraryService.issueBook(user.tenant_id, user.sub, dto);
+    return this.libraryService.issueBook(user.tenant_id, user.sub, dto, user.branch_id);
   }
 
   @Post(":id/return")
   @RequirePermission("library.manage_issues")
   return_(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.libraryService.returnBook(user.tenant_id, id);
+    return this.libraryService.returnBook(user.tenant_id, id, user.branch_id);
   }
 }
 

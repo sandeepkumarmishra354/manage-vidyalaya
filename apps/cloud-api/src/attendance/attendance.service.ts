@@ -310,11 +310,20 @@ export class AttendanceService {
     });
   }
 
-  async getStudentHistory(tenantId: string, studentId: string) {
+  // branchId: a branch-scoped caller only sees attendance records that
+  // belong to their own branch -- a different branch's records for the
+  // same student id are silently excluded rather than leaked.
+  async getStudentHistory(tenantId: string, studentId: string, branchId?: string | null) {
+    const values: unknown[] = [tenantId, studentId];
+    let branchCondition = "";
+    if (branchId) {
+      values.push(branchId);
+      branchCondition = `AND branch_id = $${values.length}`;
+    }
     const records = await this.db.query<AttendanceRecordRow>(
       tenantId,
-      "SELECT * FROM attendance_records WHERE tenant_id = $1 AND student_id = $2 AND deleted_at IS NULL ORDER BY attendance_date DESC LIMIT 90",
-      [tenantId, studentId],
+      `SELECT * FROM attendance_records WHERE tenant_id = $1 AND student_id = $2 AND deleted_at IS NULL ${branchCondition} ORDER BY attendance_date DESC LIMIT 90`,
+      values,
     );
 
     return records.map((r) => ({
@@ -330,7 +339,11 @@ export class AttendanceService {
   // the student's own class teacher). Idempotent -- rescanning a code that
   // already has a record for today never overwrites it (e.g. a
   // manually-corrected "absent" survives an accidental rescan).
-  async scanMark(tenantId: string, actorUserId: string, token: string) {
+  // branchId: a branch-scoped operator can only scan-mark students who
+  // belong to their own branch -- a QR code for another branch's student
+  // is treated as "student not found", same as a garbage/unknown code,
+  // rather than silently marking attendance across branches.
+  async scanMark(tenantId: string, actorUserId: string, token: string, branchId?: string | null) {
     const parsed = this.qrToken.parse(token);
     if (parsed.type !== "student") {
       throw new BadRequestException("not a student QR code");
@@ -341,7 +354,7 @@ export class AttendanceService {
       "SELECT * FROM students WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
       [parsed.entityId, tenantId],
     );
-    if (!student) {
+    if (!student || (branchId && student.branch_id !== branchId)) {
       throw new NotFoundException("student not found");
     }
     if (!this.qrToken.verifySignature(token, parsed, tenantId, student.qr_code_version)) {

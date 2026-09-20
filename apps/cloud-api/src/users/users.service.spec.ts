@@ -151,6 +151,123 @@ describe("UsersService", () => {
     });
   });
 
+  describe("branch isolation", () => {
+    describe("resetPassword", () => {
+      it("throws NotFoundException resetting a password for a same-tenant, different-branch user", async () => {
+        client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant, branch-filtered -- no match
+
+        await expect(
+          service.resetPassword("tenant-a", "actor-1", "user-1", "new-password", "branch-other"),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it("succeeds and threads branchId into the UPDATE for the caller's own-branch user", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] });
+
+        await service.resetPassword("tenant-a", "actor-1", "user-1", "new-password", "branch-a");
+
+        const [updateSql, updateParams] = client.query.mock.calls[1];
+        expect(updateSql).toMatch(/branch_id = \$\d/);
+        expect(updateParams).toContain("branch-a");
+      });
+
+      it("an unscoped caller (branchId: null) is unaffected", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] })
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] });
+
+        await service.resetPassword("tenant-a", "actor-1", "user-1", "new-password", null);
+
+        const [findSql] = client.query.mock.calls[0];
+        const [updateSql] = client.query.mock.calls[1];
+        expect(findSql).not.toMatch(/branch_id/);
+        expect(updateSql).not.toMatch(/branch_id/);
+      });
+    });
+
+    describe("setUserActive", () => {
+      it("throws NotFoundException deactivating a same-tenant, different-branch user", async () => {
+        client.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+          service.setUserActive("tenant-a", "actor-1", "user-1", false, "branch-other"),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it("succeeds and threads branchId into the UPDATE for the caller's own-branch user", async () => {
+        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", is_active: false }] });
+
+        await service.setUserActive("tenant-a", "actor-1", "user-1", false, "branch-a");
+
+        const [sql, params] = client.query.mock.calls[0];
+        expect(sql).toMatch(/branch_id = \$\d/);
+        expect(params).toContain("branch-a");
+      });
+
+      it("an unscoped caller (branchId: null) is unaffected", async () => {
+        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] });
+
+        await service.setUserActive("tenant-a", "actor-1", "user-1", true, null);
+
+        const [sql] = client.query.mock.calls[0];
+        expect(sql).not.toMatch(/branch_id/);
+      });
+    });
+
+    describe("assignUserRole", () => {
+      it("throws NotFoundException assigning a role to a same-tenant, different-branch user", async () => {
+        client.query.mockResolvedValueOnce({ rows: [] }); // ownership check fails
+
+        await expect(
+          service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-other"),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(client.query).toHaveBeenCalledTimes(1); // never reaches the INSERT
+      });
+
+      it("succeeds for the caller's own-branch user", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
+          .mockResolvedValueOnce({ rows: [] }); // INSERT INTO user_roles
+
+        await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-a");
+
+        expect(client.query).toHaveBeenCalledTimes(2);
+      });
+
+      it("an unscoped caller (branchId: null) is unaffected", async () => {
+        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }).mockResolvedValueOnce({ rows: [] });
+
+        await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", null);
+
+        const [findSql] = client.query.mock.calls[0];
+        expect(findSql).not.toMatch(/branch_id/);
+      });
+    });
+
+    describe("removeUserRole", () => {
+      it("throws NotFoundException removing a role from a same-tenant, different-branch user", async () => {
+        client.query.mockResolvedValueOnce({ rows: [] });
+
+        await expect(
+          service.removeUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-other"),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(client.query).toHaveBeenCalledTimes(1); // never reaches the DELETE
+      });
+
+      it("succeeds for the caller's own-branch user", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
+          .mockResolvedValueOnce({ rows: [] }); // DELETE FROM user_roles
+
+        await service.removeUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-a");
+
+        expect(client.query).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
   describe("listUsers", () => {
     it("scopes to the tenant with no extra filters when none are given", async () => {
       await service.listUsers("tenant-a");

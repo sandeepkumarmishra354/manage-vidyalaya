@@ -32,7 +32,7 @@ export class HousesController {
   @Patch(":id")
   @RequirePermission("houses.manage_teams")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateHouseDto) {
-    return this.housesService.updateHouse(user.tenant_id, user.sub, id, dto);
+    return this.housesService.updateHouse(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get("leaderboard")
@@ -63,6 +63,6 @@ export class HousesController {
 
   @Get("student/:studentId")
   studentHouse(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.housesService.getStudentHouse(user.tenant_id, studentId);
+    return this.housesService.getStudentHouse(user.tenant_id, studentId, user.branch_id);
   }
 }

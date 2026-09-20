@@ -33,13 +33,13 @@ export class TransportRoutesController {
   @Patch(":id")
   @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateRouteDto) {
-    return this.transportService.updateRoute(user.tenant_id, user.sub, id, dto);
+    return this.transportService.updateRoute(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":routeId/roster")
   @RequirePermission("transport.view")
   roster(@CurrentUser() user: JwtPayload, @Param("routeId") routeId: string) {
-    return this.transportService.listRouteRoster(user.tenant_id, routeId);
+    return this.transportService.listRouteRoster(user.tenant_id, routeId, user.branch_id);
   }
 }
 
@@ -51,7 +51,7 @@ export class TransportStopsController {
   @Get()
   @RequirePermission("transport.view")
   list(@CurrentUser() user: JwtPayload, @Query("route_id") routeId: string) {
-    return this.transportService.listStops(user.tenant_id, routeId);
+    return this.transportService.listStops(user.tenant_id, routeId, user.branch_id);
   }
 
   @Post()
@@ -63,7 +63,7 @@ export class TransportStopsController {
   @Patch(":id")
   @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStopDto) {
-    return this.transportService.updateStop(user.tenant_id, user.sub, id, dto);
+    return this.transportService.updateStop(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
@@ -81,6 +81,6 @@ export class TransportAssignmentsController {
   @Get("student/:studentId")
   @RequirePermission("transport.view")
   studentTransport(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.transportService.getStudentTransport(user.tenant_id, studentId);
+    return this.transportService.getStudentTransport(user.tenant_id, studentId, user.branch_id);
   }
 }

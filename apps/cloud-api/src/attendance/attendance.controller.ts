@@ -70,13 +70,13 @@ export class AttendanceController {
   // the scanned student's own section), same additive pattern as mark/bulk.
   @Post("scan")
   async scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanAttendanceDto) {
-    return this.attendanceService.scanMark(user.tenant_id, user.sub, dto.token);
+    return this.attendanceService.scanMark(user.tenant_id, user.sub, dto.token, user.branch_id);
   }
 
   @Get("student/:studentId/history")
   @RequirePermission("attendance.view")
   history(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.attendanceService.getStudentHistory(user.tenant_id, studentId);
+    return this.attendanceService.getStudentHistory(user.tenant_id, studentId, user.branch_id);
   }
 
   @Get("report")

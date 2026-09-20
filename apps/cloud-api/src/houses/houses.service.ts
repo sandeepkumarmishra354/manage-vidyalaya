@@ -40,14 +40,27 @@ export class HousesService {
     );
   }
 
-  async updateHouse(tenantId: string, actorUserId: string, id: string, dto: UpdateHouseDto) {
+  async updateHouse(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateHouseDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<HouseRow>(client, "houses", tenantId, id, {
-        name: dto.name,
-        color: dto.color ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<HouseRow>(
+        client,
+        "houses",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          color: dto.color ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -89,13 +102,23 @@ export class HousesService {
     });
   }
 
-  async getStudentHouse(tenantId: string, studentId: string) {
+  // branchId (when the caller is branch-scoped): the student's house is
+  // only returned when it belongs to the caller's own branch -- a house in
+  // another branch comes back as null, same as no house assigned at all,
+  // rather than leaking that it exists elsewhere.
+  async getStudentHouse(tenantId: string, studentId: string, branchId?: string | null) {
+    const values: unknown[] = [tenantId, studentId];
+    let branchCondition = "";
+    if (branchId) {
+      values.push(branchId);
+      branchCondition = `AND h.branch_id = $${values.length}`;
+    }
     return this.db.queryOne<HouseRow>(
       tenantId,
       `SELECT h.* FROM student_houses sh
        JOIN houses h ON h.id = sh.house_id
-       WHERE sh.tenant_id = $1 AND sh.student_id = $2 AND sh.deleted_at IS NULL AND h.deleted_at IS NULL`,
-      [tenantId, studentId],
+       WHERE sh.tenant_id = $1 AND sh.student_id = $2 AND sh.deleted_at IS NULL AND h.deleted_at IS NULL ${branchCondition}`,
+      values,
     );
   }
 
