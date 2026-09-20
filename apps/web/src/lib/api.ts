@@ -1342,6 +1342,8 @@ export type StaffLeaveStatus = "pending" | "approved" | "rejected" | "cancelled"
 export interface StaffLeaveRequest {
   id: string;
   staff_id: string;
+  leave_type_id: string | null;
+  leave_type_name?: string | null;
   start_date: string;
   end_date: string;
   reason?: string | null;
@@ -1352,6 +1354,12 @@ export interface StaffLeaveRequest {
   decision_note?: string | null;
   created_at: string;
   is_half_day: boolean;
+  // Only set for a quota-enabled leave type, once decided -- how many of
+  // this request's days landed within entitlement (paid) vs. beyond it
+  // (unpaid/LOP). Null for a non-quota leave type or a not-yet-approved
+  // request.
+  paid_days: number | null;
+  unpaid_days: number | null;
 }
 
 export interface StaffLeaveRequestListItem extends StaffLeaveRequest {
@@ -1359,6 +1367,7 @@ export interface StaffLeaveRequestListItem extends StaffLeaveRequest {
 }
 
 export interface ApplyStaffLeaveInput {
+  leave_type_id: string;
   start_date: string;
   end_date: string;
   reason?: string | null;
@@ -1367,6 +1376,32 @@ export interface ApplyStaffLeaveInput {
 
 export interface FileStaffLeaveInput extends ApplyStaffLeaveInput {
   staff_id: string;
+}
+
+// Leave entitlement -- see docs/production-readiness.md. A leave type with
+// quota_enabled=false behaves like an ordinary leave request always did:
+// freely approvable, always fully paid, no balance tracked.
+export interface LeaveType {
+  id: string;
+  name: string;
+  is_system: boolean;
+  quota_enabled: boolean;
+}
+
+export interface LeaveTypeQuota {
+  id: string;
+  leave_type_id: string;
+  staff_category_id: string | null; // null = default/fallback quota
+  monthly_accrual_days: number;
+}
+
+export interface LeaveBalanceEntry {
+  leave_type_id: string;
+  leave_type_name: string;
+  monthly_accrual_days: number | null; // null = no quota configured for this staff member's category
+  accrued_days: number | null;
+  used_days: number;
+  remaining_days: number | null;
 }
 
 export interface TransferCertificate {
@@ -2236,6 +2271,16 @@ export const api = {
   createStaffCategory: (name: string) => http.post<StaffCategory>("/staff-categories", { name }),
   updateStaffCategory: (id: string, name: string) => http.patch<StaffCategory>(`/staff-categories/${id}`, { name }),
   deleteStaffCategory: (id: string) => http.delete<void>(`/staff-categories/${id}`),
+
+  listLeaveTypes: () => http.get<LeaveType[]>("/leave-types"),
+  createLeaveType: (name: string, quotaEnabled: boolean) =>
+    http.post<LeaveType>("/leave-types", { name, quota_enabled: quotaEnabled }),
+  updateLeaveType: (id: string, input: { name?: string; quota_enabled?: boolean }) =>
+    http.patch<LeaveType>(`/leave-types/${id}`, input),
+  deleteLeaveType: (id: string) => http.delete<void>(`/leave-types/${id}`),
+  listLeaveTypeQuotas: (leaveTypeId: string) => http.get<LeaveTypeQuota[]>(`/leave-types/${leaveTypeId}/quotas`),
+  setLeaveTypeQuotas: (leaveTypeId: string, quotas: { staff_category_id: string | null; monthly_accrual_days: number }[]) =>
+    http.put<LeaveTypeQuota[]>(`/leave-types/${leaveTypeId}/quotas`, { quotas }),
   listMasterDataItems: (type: MasterDataType) => http.get<MasterDataItem[]>("/master-data", { type }),
   createMasterDataItem: (type: MasterDataType, name: string) =>
     http.post<MasterDataItem>("/master-data", { type, name }),
@@ -2277,6 +2322,8 @@ export const api = {
   // Staff leave -- self-service
   applyStaffLeave: (input: ApplyStaffLeaveInput) => http.post<StaffLeaveRequest>("/staff-leave/apply", input),
   getMyStaffLeave: () => http.get<StaffLeaveRequest[]>("/staff-leave/mine"),
+  getMyLeaveBalance: () => http.get<LeaveBalanceEntry[]>("/staff-leave/balance"),
+  getStaffLeaveBalance: (staffId: string) => http.get<LeaveBalanceEntry[]>(`/staff-leave/balance/${staffId}`),
   cancelStaffLeave: (id: string) => http.post<StaffLeaveRequest>(`/staff-leave/${id}/cancel`),
 
   // Staff leave -- HR/admin

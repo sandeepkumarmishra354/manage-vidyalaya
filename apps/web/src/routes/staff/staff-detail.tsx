@@ -17,6 +17,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import {
   api,
+  type LeaveType,
   type SchoolClass,
   type Section,
   type Staff,
@@ -168,18 +169,33 @@ const LEAVE_STATUS_VARIANT: Record<StaffLeaveStatus, "warning" | "success" | "de
 
 function AddLeaveDialog({ staff, onAdded }: { staff: Staff; onAdded: () => void }) {
   const [open, setOpen] = useState(false);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [leaveTypeId, setLeaveTypeId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    api.listLeaveTypes().then((types) => {
+      setLeaveTypes(types);
+      setLeaveTypeId((current) => current || types[0]?.id || "");
+    });
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
-      await api.fileStaffLeave({ staff_id: staff.id, start_date: startDate, end_date: endDate, reason: reason || null });
+      await api.fileStaffLeave({
+        staff_id: staff.id,
+        leave_type_id: leaveTypeId,
+        start_date: startDate,
+        end_date: endDate,
+        reason: reason || null,
+      });
       setStartDate("");
       setEndDate("");
       setReason("");
@@ -208,6 +224,21 @@ function AddLeaveDialog({ staff, onAdded }: { staff: Staff; onAdded: () => void 
           <p className="text-sm text-muted-foreground">
             Filed by HR, so it's recorded as approved immediately and reflected on the attendance calendar.
           </p>
+          <div className="flex flex-col gap-1.5">
+            <Label>Leave type</Label>
+            <Select value={leaveTypeId} onValueChange={setLeaveTypeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select leave type" />
+              </SelectTrigger>
+              <SelectContent>
+                {leaveTypes.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="add-leave-start">Start date</Label>
@@ -224,7 +255,7 @@ function AddLeaveDialog({ staff, onAdded }: { staff: Staff; onAdded: () => void 
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || !leaveTypeId}>
               {isSubmitting ? "Saving..." : "Add leave"}
             </Button>
           </DialogFooter>
@@ -255,6 +286,7 @@ function StaffLeaveTab({ staff }: { staff: Staff }) {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>Type</TableHead>
             <TableHead>Dates</TableHead>
             <TableHead>Reason</TableHead>
             <TableHead>Status</TableHead>
@@ -264,6 +296,14 @@ function StaffLeaveTab({ staff }: { staff: Staff }) {
         <TableBody>
           {requests.map((r) => (
             <TableRow key={r.id}>
+              <TableCell>
+                {r.leave_type_name ?? "—"}
+                {r.status === "approved" && r.unpaid_days != null && r.unpaid_days > 0 && (
+                  <Badge variant="destructive" className="ml-2">
+                    {r.unpaid_days} unpaid
+                  </Badge>
+                )}
+              </TableCell>
               <TableCell>
                 {formatDate(r.start_date)}
                 {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
@@ -277,7 +317,7 @@ function StaffLeaveTab({ staff }: { staff: Staff }) {
           ))}
           {requests.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+              <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                 No leave records yet.
               </TableCell>
             </TableRow>

@@ -14,6 +14,7 @@ import pg from "pg";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
 import { FEE_TYPES } from "../src/fees/fee-type.js";
+import { DEFAULT_LEAVE_TYPES } from "../src/leave-types/default-leave-types.js";
 import { DEFAULT_RETENTION_POLICIES } from "../src/retention/retention-categories.js";
 
 const { Pool } = pg;
@@ -254,6 +255,15 @@ async function main() {
          VALUES ($1, $2, $3, true, $4)
          ON CONFLICT (tenant_id, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
         [randomUUID(), DEMO_TENANT_ID, name, now],
+      );
+    }
+
+    for (const { name, quotaEnabled } of DEFAULT_LEAVE_TYPES) {
+      await client.query(
+        `INSERT INTO leave_types (id, tenant_id, name, is_system, quota_enabled, updated_at)
+         VALUES ($1, $2, $3, true, $4, $5)
+         ON CONFLICT (tenant_id, name) WHERE deleted_at IS NULL DO UPDATE SET deleted_at = NULL`,
+        [randomUUID(), DEMO_TENANT_ID, name, quotaEnabled, now],
       );
     }
 

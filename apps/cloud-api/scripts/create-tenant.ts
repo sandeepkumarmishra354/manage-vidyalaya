@@ -17,6 +17,7 @@ import pg from "pg";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
 import { FEE_TYPES } from "../src/fees/fee-type.js";
+import { DEFAULT_LEAVE_TYPES } from "../src/leave-types/default-leave-types.js";
 import { DEFAULT_RETENTION_POLICIES } from "../src/retention/retention-categories.js";
 
 const { Pool } = pg;
@@ -196,6 +197,14 @@ async function main() {
         `INSERT INTO staff_categories (id, tenant_id, name, is_system, updated_at)
          VALUES ($1, $2, $3, true, $4)`,
         [randomUUID(), tenantId, name, now],
+      );
+    }
+
+    for (const { name, quotaEnabled } of DEFAULT_LEAVE_TYPES) {
+      await client.query(
+        `INSERT INTO leave_types (id, tenant_id, name, is_system, quota_enabled, updated_at)
+         VALUES ($1, $2, $3, true, $4, $5)`,
+        [randomUUID(), tenantId, name, quotaEnabled, now],
       );
     }
 
