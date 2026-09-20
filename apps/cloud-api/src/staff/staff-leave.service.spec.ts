@@ -168,7 +168,7 @@ describe("StaffLeaveService.cancel", () => {
       .mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "staff-1", status: "pending" }] })
       .mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", status: "cancelled" }] });
 
-    await service.cancel("tenant-1", "user-1", "req-1");
+    await service.cancel("tenant-1", "user-1", "req-1", null);
 
     expect(client.query.mock.calls[1][0]).toContain("UPDATE staff_leave_requests");
     const [, params] = client.query.mock.calls[1];
@@ -181,7 +181,7 @@ describe("StaffLeaveService.cancel", () => {
       rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "staff-1", status: "approved" }],
     });
 
-    await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toThrow();
+    await expect(service.cancel("tenant-1", "user-1", "req-1", null)).rejects.toThrow();
     expect(client.query).toHaveBeenCalledTimes(1);
   });
 
@@ -189,7 +189,7 @@ describe("StaffLeaveService.cancel", () => {
     scopedAccess.getActingStaff.mockResolvedValueOnce({ id: "staff-1", branch_id: "branch-1" });
     client.query.mockResolvedValueOnce({ rows: [] });
 
-    await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.cancel("tenant-1", "user-1", "req-1", null)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("404s when the request belongs to a different staff member", async () => {
@@ -198,7 +198,7 @@ describe("StaffLeaveService.cancel", () => {
       rows: [{ id: "req-1", tenant_id: "tenant-1", staff_id: "someone-else", status: "pending" }],
     });
 
-    await expect(service.cancel("tenant-1", "user-1", "req-1")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.cancel("tenant-1", "user-1", "req-1", null)).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
@@ -230,12 +230,17 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
       return { rows: [] };
     });
 
-    await service.file("tenant-1", "hr-1", {
-      staff_id: "staff-1",
-      leave_type_id: "type-1",
-      start_date: "2026-04-10",
-      end_date: "2026-04-12",
-    });
+    await service.file(
+      "tenant-1",
+      "hr-1",
+      {
+        staff_id: "staff-1",
+        leave_type_id: "type-1",
+        start_date: "2026-04-10",
+        end_date: "2026-04-12",
+      },
+      null,
+    );
 
     const attendanceCalls = client.query.mock.calls.filter(
       ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
@@ -249,12 +254,17 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
     client.query.mockResolvedValueOnce({ rows: [] });
 
     await expect(
-      service.file("tenant-1", "hr-1", {
-        staff_id: "missing",
-        leave_type_id: "type-1",
-        start_date: "2026-04-10",
-        end_date: "2026-04-12",
-      }),
+      service.file(
+        "tenant-1",
+        "hr-1",
+        {
+          staff_id: "missing",
+          leave_type_id: "type-1",
+          start_date: "2026-04-10",
+          end_date: "2026-04-12",
+        },
+        null,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -264,12 +274,17 @@ describe("StaffLeaveService.file (HR on-behalf)", () => {
     });
 
     await expect(
-      service.file("tenant-1", "hr-1", {
-        staff_id: "staff-1",
-        leave_type_id: "type-1",
-        start_date: "2026-04-10",
-        end_date: "2026-04-12",
-      }),
+      service.file(
+        "tenant-1",
+        "hr-1",
+        {
+          staff_id: "staff-1",
+          leave_type_id: "type-1",
+          start_date: "2026-04-10",
+          end_date: "2026-04-12",
+        },
+        null,
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(client.query).toHaveBeenCalledTimes(1);
   });
@@ -316,7 +331,7 @@ describe("StaffLeaveService.decide", () => {
       return { rows: [] };
     });
 
-    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" });
+    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, null);
 
     const attendanceCalls = client.query.mock.calls.filter(
       ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
@@ -350,7 +365,7 @@ describe("StaffLeaveService.decide", () => {
       return { rows: [] };
     });
 
-    await service.decide("tenant-1", "hr-1", "req-1", { decision: "rejected", note: "no coverage available" });
+    await service.decide("tenant-1", "hr-1", "req-1", { decision: "rejected", note: "no coverage available" }, null);
 
     const attendanceCalls = client.query.mock.calls.filter(
       ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
@@ -361,7 +376,7 @@ describe("StaffLeaveService.decide", () => {
   it("blocks deciding a request that's already been decided", async () => {
     client.query.mockResolvedValueOnce({ rows: [{ id: "req-1", tenant_id: "tenant-1", status: "approved" }] });
 
-    await expect(service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" })).rejects.toThrow();
+    await expect(service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, null)).rejects.toThrow();
   });
 
   it("approving a half-day request writes a staff_attendance 'half_day' row instead of 'leave'", async () => {
@@ -390,7 +405,7 @@ describe("StaffLeaveService.decide", () => {
       return { rows: [] };
     });
 
-    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" });
+    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, null);
 
     const attendanceCalls = client.query.mock.calls.filter(
       ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
@@ -435,7 +450,7 @@ describe("StaffLeaveService.decide", () => {
     (leaveTypes.resolveMonthlyAccrual as ReturnType<typeof vi.fn>).mockResolvedValue(1);
     (leaveTypes.usedDaysInYear as ReturnType<typeof vi.fn>).mockResolvedValue(0);
 
-    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" });
+    await service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, null);
 
     const attendanceCalls = client.query.mock.calls.filter(
       ([text]) => typeof text === "string" && text.includes("INSERT INTO staff_attendance"),
@@ -448,5 +463,96 @@ describe("StaffLeaveService.decide", () => {
 
     const updateCall = client.query.mock.calls.find(([text]) => typeof text === "string" && text.startsWith("UPDATE staff_leave_requests"));
     expect(updateCall![1]).toEqual(expect.arrayContaining([4, 1]));
+  });
+});
+
+// Phase 2: branch isolation. `staff_leave_requests` carries its own
+// branch_id, so decide/staffBalance fold a branch_id condition into their
+// SQL when the caller is branch-scoped, reading as "not found" for a
+// request/staff member outside it. An unscoped caller is unaffected.
+describe("StaffLeaveService branch isolation", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let scopedAccess: ReturnType<typeof makeScopedAccessMock>;
+  let leaveTypes: ReturnType<typeof makeLeaveTypesMock>;
+  let service: StaffLeaveService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    scopedAccess = makeScopedAccessMock();
+    leaveTypes = makeLeaveTypesMock();
+    service = new StaffLeaveService(db, audit, scopedAccess, leaveTypes);
+  });
+
+  describe("decide", () => {
+    it("folds a branch_id condition into the lookup when branch-scoped", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // not found once filtered
+
+      await expect(
+        service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, "branch-1"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).toContain("lr.branch_id = $3");
+      expect(params).toEqual(["req-1", "tenant-1", "branch-1"]);
+    });
+
+    it("succeeds for a request in the caller's own branch", async () => {
+      client.query.mockImplementation(async (text: unknown) => {
+        if (typeof text === "string" && text.includes("FROM staff_leave_requests lr")) {
+          return {
+            rows: [
+              {
+                id: "req-1",
+                status: "pending",
+                tenant_id: "tenant-1",
+                branch_id: "branch-1",
+                staff_id: "staff-1",
+                start_date: new Date("2026-04-10T00:00:00.000Z"),
+                end_date: new Date("2026-04-10T00:00:00.000Z"),
+                staff_first_name: "Asha",
+                staff_last_name: "Rao",
+              },
+            ],
+          };
+        }
+        if (typeof text === "string" && text.startsWith("UPDATE staff_leave_requests")) {
+          return { rows: [{ id: "req-1", status: "rejected", tenant_id: "tenant-1" }] };
+        }
+        return { rows: [] };
+      });
+
+      const result = await service.decide("tenant-1", "hr-1", "req-1", { decision: "rejected" }, "branch-1");
+
+      expect(result.status).toBe("rejected");
+    });
+
+    it("adds no branch_id condition for an unscoped caller", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.decide("tenant-1", "hr-1", "req-1", { decision: "approved" }, null),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+      expect(params).toEqual(["req-1", "tenant-1"]);
+    });
+  });
+
+  describe("staffBalance", () => {
+    it("folds a branch_id condition into the staff lookup when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce(null);
+
+      await expect(service.staffBalance("tenant-1", "staff-1", "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("branch_id = $3");
+      expect(params).toEqual(["tenant-1", "staff-1", "branch-1"]);
+    });
   });
 });

@@ -219,15 +219,21 @@ export class StudentsService {
     }));
   }
 
-  async getStudent(tenantId: string, id: string) {
+  async getStudent(tenantId: string, id: string, branchId: string | null) {
+    const conditions = ["s.tenant_id = $1", "s.id = $2", "s.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, id];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`s.branch_id = $${values.length}`);
+    }
     const student = await this.db.queryOne<StudentRow & { class_name: string | null; section_name: string | null }>(
       tenantId,
       `SELECT s.*, c.name AS class_name, sec.name AS section_name
        FROM students s
        LEFT JOIN classes c ON c.id = s.current_class_id
        LEFT JOIN sections sec ON sec.id = s.current_section_id
-       WHERE s.tenant_id = $1 AND s.id = $2 AND s.deleted_at IS NULL`,
-      [tenantId, id],
+       WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!student) {
       throw new NotFoundException("student not found");
@@ -305,7 +311,18 @@ export class StudentsService {
   // Other enrolled students who share at least one guardian with this
   // student -- de-duplicated since two students can share more than one
   // guardian (e.g. both a father and mother in common).
-  async getSiblings(tenantId: string, studentId: string) {
+  // student_guardians/guardians carry no branch_id of their own, so a
+  // branch-scoped caller's access to this studentId's siblings is gated by
+  // verifying the student itself is in-branch first (see rule in tenant-repo
+  // doc comment: a mismatched branch reads as "not found", not a leak).
+  async getSiblings(tenantId: string, studentId: string, branchId: string | null) {
+    const student = await this.db.withTransaction(tenantId, (client) =>
+      findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId),
+    );
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+
     const guardianIdRows = await this.db.query<{ guardian_id: string }>(
       tenantId,
       "SELECT guardian_id FROM student_guardians WHERE tenant_id = $1 AND student_id = $2",
@@ -411,7 +428,12 @@ export class StudentsService {
   // and returns every linked child regardless of enrollment status, since
   // a guardian's own page should show their full family, not just who's
   // currently enrolled.
-  async getGuardian(tenantId: string, guardianId: string) {
+  // guardians carries no branch_id -- a branch-scoped caller is still
+  // allowed to look up any tenant guardian by id (guardians aren't
+  // themselves branch-owned), but the "children" list below is filtered to
+  // students in-branch since `students` (unlike `guardians`) does carry a
+  // branch_id.
+  async getGuardian(tenantId: string, guardianId: string, branchId: string | null) {
     const guardian = await this.db.queryOne<GuardianRow>(
       tenantId,
       "SELECT * FROM guardians WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
@@ -419,6 +441,13 @@ export class StudentsService {
     );
     if (!guardian) {
       throw new NotFoundException("guardian not found");
+    }
+
+    const childConditions = ["sg.tenant_id = $1", "sg.guardian_id = $2", "s.deleted_at IS NULL"];
+    const childValues: unknown[] = [tenantId, guardianId];
+    if (branchId) {
+      childValues.push(branchId);
+      childConditions.push(`s.branch_id = $${childValues.length}`);
     }
 
     const children = await this.db.query<{
@@ -436,8 +465,8 @@ export class StudentsService {
        JOIN students s ON s.id = sg.student_id
        LEFT JOIN classes c ON c.id = s.current_class_id
        LEFT JOIN sections sec ON sec.id = s.current_section_id
-       WHERE sg.tenant_id = $1 AND sg.guardian_id = $2 AND s.deleted_at IS NULL`,
-      [tenantId, guardianId],
+       WHERE ${childConditions.join(" AND ")}`,
+      childValues,
     );
 
     return {
@@ -457,9 +486,15 @@ export class StudentsService {
 
   // Links an existing guardian to a student, or creates a new one and
   // links it -- the mechanism siblings share a guardian through.
-  async addGuardianToStudent(tenantId: string, actorUserId: string, studentId: string, dto: AddGuardianDto) {
+  async addGuardianToStudent(
+    tenantId: string,
+    actorUserId: string,
+    studentId: string,
+    dto: AddGuardianDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }
@@ -668,11 +703,17 @@ export class StudentsService {
     return result;
   }
 
-  async getAdmissionForStudent(tenantId: string, studentId: string) {
+  async getAdmissionForStudent(tenantId: string, studentId: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "student_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const admission = await this.db.queryOne<AdmissionRow>(
       tenantId,
-      "SELECT * FROM admissions WHERE tenant_id = $1 AND student_id = $2 AND deleted_at IS NULL",
-      [tenantId, studentId],
+      `SELECT * FROM admissions WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!admission) {
       return null;
@@ -697,11 +738,17 @@ export class StudentsService {
   // transaction that confirms the admission commits -- see the note on
   // createAdmission. A missing current session doesn't block confirming
   // the admission itself.
-  async confirmAdmission(tenantId: string, actorUserId: string, admissionId: string) {
+  async confirmAdmission(tenantId: string, actorUserId: string, admissionId: string, branchId: string | null) {
+    const admConditions = ["tenant_id = $1", "id = $2", "deleted_at IS NULL"];
+    const admValues: unknown[] = [tenantId, admissionId];
+    if (branchId) {
+      admValues.push(branchId);
+      admConditions.push(`branch_id = $${admValues.length}`);
+    }
     const admission = await this.db.queryOne<AdmissionRow>(
       tenantId,
-      "SELECT * FROM admissions WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
-      [tenantId, admissionId],
+      `SELECT * FROM admissions WHERE ${admConditions.join(" AND ")}`,
+      admValues,
     );
     if (!admission) {
       throw new NotFoundException("admission not found");
@@ -731,11 +778,18 @@ export class StudentsService {
         const candidate = `${prefix}${String(nextSeq).padStart(4, "0")}`;
         try {
           await client.query("SAVEPOINT admission_number_attempt");
-          await updateRow<StudentRow>(client, "students", tenantId, admission.student_id, {
-            admission_number: candidate,
-            status: "enrolled",
-            updated_at: new Date(),
-          });
+          await updateRow<StudentRow>(
+            client,
+            "students",
+            tenantId,
+            admission.student_id,
+            {
+              admission_number: candidate,
+              status: "enrolled",
+              updated_at: new Date(),
+            },
+            branchId,
+          );
           await client.query("RELEASE SAVEPOINT admission_number_attempt");
           admissionNumber = candidate;
           break;
@@ -753,12 +807,19 @@ export class StudentsService {
       }
 
       const now = new Date();
-      await updateRow<AdmissionRow>(client, "admissions", tenantId, admissionId, {
-        stage: "enrolled",
-        decided_at: now,
-        decided_by: actorUserId,
-        updated_at: now,
-      });
+      await updateRow<AdmissionRow>(
+        client,
+        "admissions",
+        tenantId,
+        admissionId,
+        {
+          stage: "enrolled",
+          decided_at: now,
+          decided_by: actorUserId,
+          updated_at: now,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -818,40 +879,53 @@ export class StudentsService {
     };
   }
 
-  async updateStudent(tenantId: string, actorUserId: string, id: string, dto: UpdateStudentDto) {
+  async updateStudent(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateStudentDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<StudentRow>(client, "students", tenantId, id, {
-        first_name: dto.first_name,
-        last_name: dto.last_name ?? null,
-        roll_number: dto.roll_number ?? null,
-        date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
-        gender: dto.gender ?? null,
-        blood_group: dto.blood_group ?? null,
-        current_class_id: dto.current_class_id ?? null,
-        current_section_id: dto.current_section_id ?? null,
-        ...(dto.status ? { status: dto.status } : {}),
-        address: dto.address ?? null,
-        city: dto.city ?? null,
-        state: dto.state ?? null,
-        pincode: dto.pincode ?? null,
-        notes: dto.notes ?? null,
-        category: dto.category ?? null,
-        religion: dto.religion ?? null,
-        nationality: dto.nationality ?? null,
-        mother_tongue: dto.mother_tongue ?? null,
-        aadhaar_number: dto.aadhaar_number ?? null,
-        previous_school_name: dto.previous_school_name ?? null,
-        medical_notes: dto.medical_notes ?? null,
-        emergency_contact_name: dto.emergency_contact_name ?? null,
-        emergency_contact_phone: dto.emergency_contact_phone ?? null,
-        graduation_year: dto.graduation_year ?? null,
-        higher_education: dto.higher_education ?? null,
-        current_occupation: dto.current_occupation ?? null,
-        alumni_contact_email: dto.alumni_contact_email ?? null,
-        alumni_notes: dto.alumni_notes ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StudentRow>(
+        client,
+        "students",
+        tenantId,
+        id,
+        {
+          first_name: dto.first_name,
+          last_name: dto.last_name ?? null,
+          roll_number: dto.roll_number ?? null,
+          date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
+          gender: dto.gender ?? null,
+          blood_group: dto.blood_group ?? null,
+          current_class_id: dto.current_class_id ?? null,
+          current_section_id: dto.current_section_id ?? null,
+          ...(dto.status ? { status: dto.status } : {}),
+          address: dto.address ?? null,
+          city: dto.city ?? null,
+          state: dto.state ?? null,
+          pincode: dto.pincode ?? null,
+          notes: dto.notes ?? null,
+          category: dto.category ?? null,
+          religion: dto.religion ?? null,
+          nationality: dto.nationality ?? null,
+          mother_tongue: dto.mother_tongue ?? null,
+          aadhaar_number: dto.aadhaar_number ?? null,
+          previous_school_name: dto.previous_school_name ?? null,
+          medical_notes: dto.medical_notes ?? null,
+          emergency_contact_name: dto.emergency_contact_name ?? null,
+          emergency_contact_phone: dto.emergency_contact_phone ?? null,
+          graduation_year: dto.graduation_year ?? null,
+          higher_education: dto.higher_education ?? null,
+          current_occupation: dto.current_occupation ?? null,
+          alumni_contact_email: dto.alumni_contact_email ?? null,
+          alumni_notes: dto.alumni_notes ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -876,25 +950,33 @@ export class StudentsService {
     actorUserId: string,
     studentId: string,
     dto: IssueTransferCertificateDto,
+    branchId: string | null,
   ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }
       const now = new Date();
       const tcNumber = student.tc_number ?? generateTcNumber(student.branch_id);
 
-      const updated = await updateRow<StudentRow>(client, "students", tenantId, studentId, {
-        reason_for_leaving: dto.reason_for_leaving,
-        date_of_leaving: new Date(dto.date_of_leaving),
-        conduct_remark: dto.conduct_remark ?? null,
-        tc_number: tcNumber,
-        tc_issue_date: student.tc_issue_date ?? now,
-        status: student.status === "alumni" ? student.status : "withdrawn",
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StudentRow>(
+        client,
+        "students",
+        tenantId,
+        studentId,
+        {
+          reason_for_leaving: dto.reason_for_leaving,
+          date_of_leaving: new Date(dto.date_of_leaving),
+          conduct_remark: dto.conduct_remark ?? null,
+          tc_number: tcNumber,
+          tc_issue_date: student.tc_issue_date ?? now,
+          status: student.status === "alumni" ? student.status : "withdrawn",
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -910,15 +992,21 @@ export class StudentsService {
     });
   }
 
-  async getTransferCertificate(tenantId: string, studentId: string) {
+  async getTransferCertificate(tenantId: string, studentId: string, branchId: string | null) {
+    const conditions = ["s.tenant_id = $1", "s.id = $2", "s.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`s.branch_id = $${values.length}`);
+    }
     const student = await this.db.queryOne<StudentRow & { class_name: string | null; section_name: string | null }>(
       tenantId,
       `SELECT s.*, c.name AS class_name, sec.name AS section_name
        FROM students s
        LEFT JOIN classes c ON c.id = s.current_class_id
        LEFT JOIN sections sec ON sec.id = s.current_section_id
-       WHERE s.tenant_id = $1 AND s.id = $2 AND s.deleted_at IS NULL`,
-      [tenantId, studentId],
+       WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!student) {
       throw new NotFoundException("student not found");
@@ -949,11 +1037,17 @@ export class StudentsService {
     };
   }
 
-  async getQrCode(tenantId: string, studentId: string) {
+  async getQrCode(tenantId: string, studentId: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const student = await this.db.queryOne<StudentRow>(
       tenantId,
-      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
-      [tenantId, studentId],
+      `SELECT * FROM students WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!student) {
       throw new NotFoundException("student not found");
@@ -964,17 +1058,23 @@ export class StudentsService {
   // Bumping qrCodeVersion instantly invalidates every previously-printed
   // code for this student, since verification always checks against the
   // row's current version -- no separate revocation list needed.
-  async reissueQrCode(tenantId: string, actorUserId: string, studentId: string) {
+  async reissueQrCode(tenantId: string, actorUserId: string, studentId: string, branchId: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }
 
+      const updateConditions = ["tenant_id = $3", "id = $4"];
+      const updateValues: unknown[] = [new Date(), actorUserId, tenantId, studentId];
+      if (branchId) {
+        updateValues.push(branchId);
+        updateConditions.push(`branch_id = $${updateValues.length}`);
+      }
       const updated = await client.query<StudentRow>(
         `UPDATE students SET qr_code_version = qr_code_version + 1, updated_at = $1, updated_by = $2, version = version + 1
-         WHERE tenant_id = $3 AND id = $4 RETURNING *`,
-        [new Date(), actorUserId, tenantId, studentId],
+         WHERE ${updateConditions.join(" AND ")} RETURNING *`,
+        updateValues,
       );
       const row = updated.rows[0]!;
 
@@ -992,11 +1092,17 @@ export class StudentsService {
     });
   }
 
-  async getQrCodesBulk(tenantId: string, ids: string[]) {
+  async getQrCodesBulk(tenantId: string, ids: string[], branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = ANY($2)", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, ids];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const students = await this.db.query<StudentRow>(
       tenantId,
-      "SELECT * FROM students WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL",
-      [tenantId, ids],
+      `SELECT * FROM students WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     return students.map((s) => ({
       student_id: s.id,
@@ -1004,11 +1110,17 @@ export class StudentsService {
     }));
   }
 
-  async getPhotoUploadUrl(tenantId: string, studentId: string, fileName: string, contentType: string) {
+  async getPhotoUploadUrl(tenantId: string, studentId: string, fileName: string, contentType: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const student = await this.db.queryOne<StudentRow>(
       tenantId,
-      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
-      [tenantId, studentId],
+      `SELECT * FROM students WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!student) {
       throw new NotFoundException("student not found");
@@ -1022,18 +1134,25 @@ export class StudentsService {
   // Single slot, not a list -- setting a new photo best-effort deletes the
   // old object (mirrors DocumentsService.remove's storage cleanup, but here
   // it happens as part of the replace rather than a separate delete call).
-  async setPhoto(tenantId: string, actorUserId: string, studentId: string, storageKey: string) {
+  async setPhoto(tenantId: string, actorUserId: string, studentId: string, storageKey: string, branchId: string | null) {
     const previousPath = await this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }
 
-      await updateRow<StudentRow>(client, "students", tenantId, studentId, {
-        photo_path: storageKey,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<StudentRow>(
+        client,
+        "students",
+        tenantId,
+        studentId,
+        {
+          photo_path: storageKey,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -1055,11 +1174,17 @@ export class StudentsService {
     return { ok: true };
   }
 
-  async getPhotoUrl(tenantId: string, studentId: string) {
+  async getPhotoUrl(tenantId: string, studentId: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const student = await this.db.queryOne<StudentRow>(
       tenantId,
-      "SELECT * FROM students WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
-      [tenantId, studentId],
+      `SELECT * FROM students WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!student) {
       throw new NotFoundException("student not found");
@@ -1070,9 +1195,9 @@ export class StudentsService {
     return this.storage.createDownloadUrl(student.photo_path);
   }
 
-  async deletePhoto(tenantId: string, actorUserId: string, studentId: string) {
+  async deletePhoto(tenantId: string, actorUserId: string, studentId: string, branchId: string | null) {
     const previousPath = await this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }
@@ -1080,11 +1205,18 @@ export class StudentsService {
         return null;
       }
 
-      await updateRow<StudentRow>(client, "students", tenantId, studentId, {
-        photo_path: null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<StudentRow>(
+        client,
+        "students",
+        tenantId,
+        studentId,
+        {
+          photo_path: null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -1106,11 +1238,17 @@ export class StudentsService {
     return { ok: true };
   }
 
-  async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
+  async getPhotoUrlsBulk(tenantId: string, ids: string[], branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = ANY($2)", "deleted_at IS NULL", "photo_path IS NOT NULL"];
+    const values: unknown[] = [tenantId, ids];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const students = await this.db.query<StudentRow>(
       tenantId,
-      "SELECT * FROM students WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND photo_path IS NOT NULL",
-      [tenantId, ids],
+      `SELECT * FROM students WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     const entries = await Promise.all(
       students.map(async (s) => ({ student_id: s.id, ...(await this.storage.createDownloadUrl(s.photo_path!)) })),
@@ -1121,14 +1259,21 @@ export class StudentsService {
   // Soft-delete only; a student leaving the school normally goes through
   // updateStudent (status = withdrawn/alumni) instead, which preserves
   // their attendance/fee/exam history. Deletion is for data-entry mistakes.
-  async deleteStudent(tenantId: string, actorUserId: string, id: string) {
+  async deleteStudent(tenantId: string, actorUserId: string, id: string, branchId: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
-      const deleted = await updateRow<StudentRow>(client, "students", tenantId, id, {
-        deleted_at: now,
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const deleted = await updateRow<StudentRow>(
+        client,
+        "students",
+        tenantId,
+        id,
+        {
+          deleted_at: now,
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -1177,7 +1322,17 @@ export class StudentsService {
     });
   }
 
-  async listElectiveChoices(tenantId: string, studentId: string, academicSessionId?: string) {
+  // student_elective_choices carries no branch_id of its own, so branch
+  // access to studentId is gated by verifying the parent student row first
+  // (same pattern as getSiblings).
+  async listElectiveChoices(tenantId: string, studentId: string, branchId: string | null, academicSessionId?: string) {
+    const student = await this.db.withTransaction(tenantId, (client) =>
+      findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId),
+    );
+    if (!student) {
+      throw new NotFoundException("student not found");
+    }
+
     const conditions = ["c.tenant_id = $1", "c.student_id = $2", "c.deleted_at IS NULL"];
     const values: unknown[] = [tenantId, studentId];
     if (academicSessionId) {
@@ -1209,9 +1364,15 @@ export class StudentsService {
   // Elects (or re-elects, for the same group+session) a subject from an
   // elective group -- the chosen subject must actually be a member of that
   // group, and the group must belong to the student's current class.
-  async electSubject(tenantId: string, actorUserId: string, studentId: string, dto: ElectSubjectDto) {
+  async electSubject(
+    tenantId: string,
+    actorUserId: string,
+    studentId: string,
+    dto: ElectSubjectDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId);
+      const student = await findOneForTenant<StudentRow>(client, "students", tenantId, studentId, branchId);
       if (!student) {
         throw new NotFoundException("student not found");
       }

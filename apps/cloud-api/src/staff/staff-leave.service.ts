@@ -136,11 +136,17 @@ export class StaffLeaveService {
     return this.leaveTypes.getBalance(tenantId, staff.id, staff.category_id, staff.date_of_joining, new Date());
   }
 
-  async staffBalance(tenantId: string, staffId: string) {
+  async staffBalance(tenantId: string, staffId: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, staffId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
-      [tenantId, staffId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -148,11 +154,21 @@ export class StaffLeaveService {
     return this.leaveTypes.getBalance(tenantId, staff.id, staff.category_id, staff.date_of_joining, new Date());
   }
 
-  async cancel(tenantId: string, actorUserId: string, id: string) {
+  // Self-service ownership (existing.staff_id !== staff.id, derived from the
+  // caller's own login) already prevents acting on someone else's request
+  // regardless of branch -- branchId is threaded through anyway for
+  // defense in depth, consistent with every other by-id lookup.
+  async cancel(tenantId: string, actorUserId: string, id: string, branchId: string | null) {
     const staff = await this.requireActingStaff(tenantId, actorUserId);
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id);
+      const existing = await findOneForTenant<StaffLeaveRequestRow>(
+        client,
+        "staff_leave_requests",
+        tenantId,
+        id,
+        branchId,
+      );
       if (!existing || existing.staff_id !== staff.id) {
         throw new NotFoundException("leave request not found");
       }
@@ -160,18 +176,25 @@ export class StaffLeaveService {
         throw new BadRequestException("only a pending request can be cancelled");
       }
 
-      return updateRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id, {
-        status: "cancelled",
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      return updateRow<StaffLeaveRequestRow>(
+        client,
+        "staff_leave_requests",
+        tenantId,
+        id,
+        {
+          status: "cancelled",
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
     });
   }
 
   // HR on-behalf filing: the filer already holds approval authority, so
   // this is created straight into "approved" and immediately writes
   // attendance -- no pointless self-approval step.
-  async file(tenantId: string, actorUserId: string, dto: FileStaffLeaveDto) {
+  async file(tenantId: string, actorUserId: string, dto: FileStaffLeaveDto, branchId: string | null) {
     if (dto.end_date < dto.start_date) {
       throw new BadRequestException("end date must be on or after the start date");
     }
@@ -180,7 +203,7 @@ export class StaffLeaveService {
     }
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, dto.staff_id);
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, dto.staff_id, branchId);
       if (!staff) {
         throw new NotFoundException("staff member not found");
       }
@@ -257,8 +280,14 @@ export class StaffLeaveService {
     }));
   }
 
-  async decide(tenantId: string, actorUserId: string, id: string, dto: DecideStaffLeaveDto) {
+  async decide(tenantId: string, actorUserId: string, id: string, dto: DecideStaffLeaveDto, branchId: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
+      const conditions = ["lr.id = $1", "lr.tenant_id = $2", "lr.deleted_at IS NULL"];
+      const values: unknown[] = [id, tenantId];
+      if (branchId) {
+        values.push(branchId);
+        conditions.push(`lr.branch_id = $${values.length}`);
+      }
       const existingResult = await client.query<
         StaffLeaveRequestRow & {
           staff_first_name: string;
@@ -271,8 +300,8 @@ export class StaffLeaveService {
                 s.category_id AS staff_category_id, s.date_of_joining AS staff_date_of_joining
          FROM staff_leave_requests lr
          JOIN staff s ON s.id = lr.staff_id
-         WHERE lr.id = $1 AND lr.tenant_id = $2 AND lr.deleted_at IS NULL`,
-        [id, tenantId],
+         WHERE ${conditions.join(" AND ")}`,
+        values,
       );
       const existing = existingResult.rows[0];
       if (!existing) {
@@ -315,16 +344,23 @@ export class StaffLeaveService {
         await this.writeAttendanceForRange(client, tenantId, existing.branch_id, existing.staff_id, actorUserId, plan.dayStatuses);
       }
 
-      const updated = await updateRow<StaffLeaveRequestRow>(client, "staff_leave_requests", tenantId, id, {
-        status: dto.decision,
-        decided_by_user_id: actorUserId,
-        decided_at: now,
-        decision_note: dto.note ?? null,
-        paid_days: paidDays,
-        unpaid_days: unpaidDays,
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StaffLeaveRequestRow>(
+        client,
+        "staff_leave_requests",
+        tenantId,
+        id,
+        {
+          status: dto.decision,
+          decided_by_user_id: actorUserId,
+          decided_at: now,
+          decision_note: dto.note ?? null,
+          paid_days: paidDays,
+          unpaid_days: unpaidDays,
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

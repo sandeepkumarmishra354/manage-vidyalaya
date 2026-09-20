@@ -116,6 +116,7 @@ export class StaffAttendanceService {
     await this.assertTargetsAllowAttendance(
       tenantId,
       dto.entries.map((e) => e.staff_id),
+      dto.branch_id,
     );
     const now = new Date();
 
@@ -161,6 +162,7 @@ export class StaffAttendanceService {
     await this.assertTargetsAllowAttendance(
       tenantId,
       dto.entries.map((e) => e.staff_id),
+      dto.branch_id,
     );
     const now = new Date();
     const attendanceDate = new Date(dto.attendance_date);
@@ -245,12 +247,22 @@ export class StaffAttendanceService {
   // here. Tenant-scoped: a staff_id belonging to another tenant is treated
   // the same as a missing one (rejected), never silently written into this
   // tenant's attendance table.
-  private async assertTargetsAllowAttendance(tenantId: string, staffIds: string[]) {
+  // branchId (dto.branch_id, already forced to the caller's own branch by
+  // BranchScopeGuard) is checked the same way -- a staff_id from another
+  // branch is rejected as "not found", so a branch-scoped caller can't mark
+  // attendance under a branch_id they don't own for staff outside it either.
+  private async assertTargetsAllowAttendance(tenantId: string, staffIds: string[], branchId: string | null) {
     const uniqueIds = [...new Set(staffIds)];
+    const conditions = ["tenant_id = $1", "id = ANY($2)"];
+    const values: unknown[] = [tenantId, uniqueIds];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.query<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2)",
-      [tenantId, uniqueIds],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     const foundIds = new Set(staff.map((s) => s.id));
     const missing = uniqueIds.filter((id) => !foundIds.has(id));
@@ -264,11 +276,17 @@ export class StaffAttendanceService {
     }
   }
 
-  async getStaffHistory(tenantId: string, staffId: string) {
+  async getStaffHistory(tenantId: string, staffId: string, branchId: string | null) {
+    const conditions = ["tenant_id = $1", "staff_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, staffId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const records = await this.db.query<StaffAttendanceRow>(
       tenantId,
-      "SELECT * FROM staff_attendance WHERE tenant_id = $1 AND staff_id = $2 AND deleted_at IS NULL ORDER BY attendance_date DESC LIMIT 90",
-      [tenantId, staffId],
+      `SELECT * FROM staff_attendance WHERE ${conditions.join(" AND ")} ORDER BY attendance_date DESC LIMIT 90`,
+      values,
     );
 
     return records.map((r) => ({ attendance_date: r.attendance_date, status: r.status, remarks: r.remarks }));
@@ -277,17 +295,25 @@ export class StaffAttendanceService {
   // Scan-to-mark, mirroring AttendanceService.scanMark for students. No
   // class-teacher concept for staff -- authorization is flat
   // (staff_attendance.mark), enforced by @RequirePermission on the
-  // controller route rather than in here.
-  async scanMark(tenantId: string, actorUserId: string, token: string) {
+  // controller route rather than in here. branchId gates which staff QR
+  // codes a branch-scoped scanner (e.g. front-desk kiosk) can mark --
+  // mirrors every other by-id staff lookup.
+  async scanMark(tenantId: string, actorUserId: string, token: string, branchId: string | null) {
     const parsed = this.qrToken.parse(token);
     if (parsed.type !== "staff") {
       throw new BadRequestException("not a staff QR code");
     }
 
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [parsed.entityId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [parsed.entityId, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");

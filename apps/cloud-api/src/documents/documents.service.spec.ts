@@ -58,7 +58,7 @@ describe("DocumentsService", () => {
     it("404s when the owner doesn't exist in this tenant", async () => {
       db.queryOne.mockResolvedValueOnce(null);
       await expect(
-        service.requestUploadUrl("tenant-1", "student", "student-1", { file_name: "a.pdf", content_type: "application/pdf" }),
+        service.requestUploadUrl("tenant-1", "student", "student-1", { file_name: "a.pdf", content_type: "application/pdf" }, null),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(storage.createUploadUrl).not.toHaveBeenCalled();
     });
@@ -67,10 +67,16 @@ describe("DocumentsService", () => {
       db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-1" });
       storage.createUploadUrl.mockResolvedValueOnce({ url: "http://x", method: "PUT", expires_at: "now" });
 
-      const result = await service.requestUploadUrl("tenant-1", "student", "student-1", {
-        file_name: "report.pdf",
-        content_type: "application/pdf",
-      });
+      const result = await service.requestUploadUrl(
+        "tenant-1",
+        "student",
+        "student-1",
+        {
+          file_name: "report.pdf",
+          content_type: "application/pdf",
+        },
+        null,
+      );
 
       expect(storage.createUploadUrl).toHaveBeenCalledWith(expect.stringMatching(/^doc-.+\.pdf$/), "application/pdf");
       expect(result.storage_key).toMatch(/^doc-.+\.pdf$/);
@@ -97,13 +103,20 @@ describe("DocumentsService", () => {
         ],
       });
 
-      await service.create("tenant-1", "user-1", "student", "student-1", {
-        label: "Birth Certificate",
-        storage_key: "doc-1.pdf",
-        file_name: "cert.pdf",
-        mime_type: "application/pdf",
-        file_size: 100,
-      });
+      await service.create(
+        "tenant-1",
+        "user-1",
+        "student",
+        "student-1",
+        {
+          label: "Birth Certificate",
+          storage_key: "doc-1.pdf",
+          file_name: "cert.pdf",
+          mime_type: "application/pdf",
+          file_size: 100,
+        },
+        null,
+      );
 
       const [text, params] = client.query.mock.calls[0];
       expect(text).toMatch(/INSERT INTO student_documents/);
@@ -131,13 +144,20 @@ describe("DocumentsService", () => {
         ],
       });
 
-      await service.create("tenant-1", "user-1", "staff", "staff-1", {
-        label: "Resume",
-        storage_key: "doc-2.pdf",
-        file_name: "resume.pdf",
-        mime_type: "application/pdf",
-        file_size: 50,
-      });
+      await service.create(
+        "tenant-1",
+        "user-1",
+        "staff",
+        "staff-1",
+        {
+          label: "Resume",
+          storage_key: "doc-2.pdf",
+          file_name: "resume.pdf",
+          mime_type: "application/pdf",
+          file_size: 50,
+        },
+        null,
+      );
 
       const [text, params] = client.query.mock.calls[0];
       expect(text).toMatch(/INSERT INTO staff_documents/);
@@ -148,7 +168,7 @@ describe("DocumentsService", () => {
   describe("getDownloadUrl / remove", () => {
     it("404s fetching a download URL for a document outside the tenant/owner scope", async () => {
       db.queryOne.mockResolvedValueOnce(null);
-      await expect(service.getDownloadUrl("tenant-1", "student", "student-1", "doc-x")).rejects.toBeInstanceOf(
+      await expect(service.getDownloadUrl("tenant-1", "student", "student-1", "doc-x", null)).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
@@ -157,7 +177,7 @@ describe("DocumentsService", () => {
       db.queryOne.mockResolvedValueOnce({ id: "doc-1", storage_key: "doc-1.pdf", branch_id: "branch-1" });
       storage.createDownloadUrl.mockResolvedValueOnce({ url: "http://x/doc-1.pdf", expires_at: "now" });
 
-      const result = await service.getDownloadUrl("tenant-1", "student", "student-1", "doc-1");
+      const result = await service.getDownloadUrl("tenant-1", "student", "student-1", "doc-1", null);
 
       expect(storage.createDownloadUrl).toHaveBeenCalledWith("doc-1.pdf");
       expect(result.url).toBe("http://x/doc-1.pdf");
@@ -173,12 +193,85 @@ describe("DocumentsService", () => {
       });
       client.query.mockResolvedValueOnce({ rows: [{ id: "doc-1", tenant_id: "tenant-1" }] });
 
-      await service.remove("tenant-1", "user-1", "student", "student-1", "doc-1");
+      await service.remove("tenant-1", "user-1", "student", "student-1", "doc-1", null);
 
       const [text] = client.query.mock.calls[0];
       expect(text).toMatch(/UPDATE student_documents SET/);
       expect(storage.deleteObject).toHaveBeenCalledWith("doc-1.pdf");
       expect(audit.record).toHaveBeenCalled();
+    });
+  });
+
+  // Phase 2: branch isolation. Both the parent owner (students/staff) and
+  // the document tables themselves (student_documents/staff_documents)
+  // carry branch_id, so resolveOwner (list/create/upload-url) and findOwned
+  // (download/remove) each fold a branch_id condition into their SQL when
+  // the caller is branch-scoped, reading as "not found" for anything
+  // outside it. An unscoped caller is unaffected.
+  describe("branch isolation", () => {
+    it("list: folds a branch_id condition into the owner lookup when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // owner filtered out by branch
+
+      await expect(service.list("tenant-1", "student", "student-1", "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("branch_id = $3");
+      expect(params).toEqual(["student-1", "tenant-1", "branch-1"]);
+    });
+
+    it("list: adds no branch_id condition for an unscoped caller", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-2" });
+      db.query.mockResolvedValueOnce([]);
+
+      await service.list("tenant-1", "student", "student-1", null);
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).not.toContain("AND branch_id");
+      expect(params).toEqual(["student-1", "tenant-1"]);
+    });
+
+    it("getDownloadUrl: folds a branch_id condition into the document lookup when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // document filtered out by branch
+
+      await expect(
+        service.getDownloadUrl("tenant-1", "student", "student-1", "doc-1", "branch-1"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("branch_id = $4");
+      expect(params).toEqual(["doc-1", "student-1", "tenant-1", "branch-1"]);
+    });
+
+    it("getDownloadUrl: succeeds for a document in the caller's own branch", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "doc-1", storage_key: "doc-1.pdf", branch_id: "branch-1" });
+      storage.createDownloadUrl.mockResolvedValueOnce({ url: "http://x/doc-1.pdf", expires_at: "now" });
+
+      const result = await service.getDownloadUrl("tenant-1", "student", "student-1", "doc-1", "branch-1");
+
+      expect(result.url).toBe("http://x/doc-1.pdf");
+    });
+
+    it("remove: folds a branch_id condition into both the lookup and the soft-delete UPDATE", async () => {
+      db.queryOne.mockResolvedValueOnce({
+        id: "doc-1",
+        storage_key: "doc-1.pdf",
+        branch_id: "branch-1",
+        label: "Birth Certificate",
+        file_name: "cert.pdf",
+      });
+      client.query.mockResolvedValueOnce({ rows: [{ id: "doc-1", tenant_id: "tenant-1" }] });
+
+      await service.remove("tenant-1", "user-1", "student", "student-1", "doc-1", "branch-1");
+
+      const [, findSql, findParams] = db.queryOne.mock.calls[0];
+      expect(findSql).toContain("branch_id = $4");
+      expect(findParams).toEqual(["doc-1", "student-1", "tenant-1", "branch-1"]);
+
+      const [updateSql, updateParams] = client.query.mock.calls[0];
+      expect(updateSql).toContain("branch_id = $");
+      expect(updateParams).toContain("branch-1");
     });
   });
 });
