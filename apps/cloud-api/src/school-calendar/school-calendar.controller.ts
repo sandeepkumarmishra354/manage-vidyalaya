@@ -6,6 +6,7 @@ import { CurrentUser } from "../common/current-user.decorator.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateHolidayDto } from "./dto/create-holiday.dto.js";
+import { CreateHolidayRangeDto } from "./dto/create-holiday-range.dto.js";
 import { SetWeeklyRuleDto } from "./dto/set-weekly-rule.dto.js";
 import { UpdateHolidayDto } from "./dto/update-holiday.dto.js";
 import { SchoolCalendarService } from "./school-calendar.service.js";
@@ -44,6 +45,12 @@ export class SchoolCalendarController {
   @RequirePermission("academic_setup.manage_sessions")
   addHoliday(@CurrentUser() user: JwtPayload, @Body() dto: CreateHolidayDto) {
     return this.schoolCalendarService.addHoliday(user.tenant_id, user.sub, dto);
+  }
+
+  @Post("holidays/range")
+  @RequirePermission("academic_setup.manage_sessions")
+  addHolidayRange(@CurrentUser() user: JwtPayload, @Body() dto: CreateHolidayRangeDto) {
+    return this.schoolCalendarService.addHolidayRange(user.tenant_id, user.sub, dto);
   }
 }
 

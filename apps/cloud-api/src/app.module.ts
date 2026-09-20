@@ -20,6 +20,7 @@ import { FeeCategoriesModule } from "./fee-categories/fee-categories.module.js";
 import { FeeDiscountsModule } from "./fee-discounts/fee-discounts.module.js";
 import { FeesModule } from "./fees/fees.module.js";
 import { HousesModule } from "./houses/houses.module.js";
+import { LeaveTypesModule } from "./leave-types/leave-types.module.js";
 import { LibraryModule } from "./library/library.module.js";
 import { MasterDataModule } from "./master-data/master-data.module.js";
 import { ModuleSettingsModule } from "./module-settings/module-settings.module.js";
@@ -71,6 +72,7 @@ import { UsersModule } from "./users/users.module.js";
     TransportModule,
     StaffModule,
     StaffCategoriesModule,
+    LeaveTypesModule,
     MasterDataModule,
     PayrollModule,
     PromotionModule,

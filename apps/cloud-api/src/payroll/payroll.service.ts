@@ -211,8 +211,11 @@ export class PayrollService {
   // and staff_attendance status is only consulted on days that aren't a
   // full holiday -- present = full paid day, half_day (the staff member's
   // own attendance status, distinct from a calendar half-day) = half
-  // paid/half LOP, absent = full LOP, leave = paid (not counted). Days with
-  // no attendance record are not penalized. PF/ESI/Professional-Tax/TDS are
+  // paid/half LOP, absent = full LOP, leave = paid (not counted),
+  // leave_unpaid = full LOP (an approved leave day beyond the staff
+  // member's entitlement balance for that leave type -- see
+  // StaffLeaveService.planLeaveDays). Days with no attendance record are
+  // not penalized. PF/ESI/Professional-Tax/TDS are
   // whatever the salary structure's deduction components say, not computed
   // against government slabs.
   async generatePayrollRun(tenantId: string, actorUserId: string, dto: GeneratePayrollRunDto) {
@@ -293,7 +296,7 @@ export class PayrollService {
           else if (status === "half_day") {
             daysPresent += weight / 2;
             daysLop += weight / 2;
-          }
+          } else if (status === "leave_unpaid") daysLop += weight;
           // leave: paid, not counted
         }
 

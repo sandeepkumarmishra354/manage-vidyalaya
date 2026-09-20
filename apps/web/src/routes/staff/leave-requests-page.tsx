@@ -117,6 +117,7 @@ export function LeaveRequestsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Staff</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Dates</TableHead>
                 <TableHead>Reason</TableHead>
                 <TableHead>Status</TableHead>
@@ -128,6 +129,14 @@ export function LeaveRequestsPage() {
                 <TableRow key={r.id}>
                   <TableCell className="font-medium">
                     <PersonLink type="staff" id={r.staff_id} name={r.staff_name} />
+                  </TableCell>
+                  <TableCell>
+                    {r.leave_type_name ?? "—"}
+                    {r.status === "approved" && r.unpaid_days != null && r.unpaid_days > 0 && (
+                      <Badge variant="destructive" className="ml-2">
+                        {r.unpaid_days} unpaid
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     {formatDate(r.start_date)}
@@ -157,7 +166,7 @@ export function LeaveRequestsPage() {
               ))}
               {requests.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                     No {statusFilter === "pending" ? "pending " : ""}leave requests.
                   </TableCell>
                 </TableRow>
@@ -173,10 +182,16 @@ export function LeaveRequestsPage() {
                   <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
+                  {r.leave_type_name ? `${r.leave_type_name} · ` : ""}
                   {formatDate(r.start_date)}
                   {r.start_date !== r.end_date ? ` – ${formatDate(r.end_date)}` : ""}
                 </p>
                 {r.is_half_day && <Badge variant="info" className="w-fit">Half day</Badge>}
+                {r.status === "approved" && r.unpaid_days != null && r.unpaid_days > 0 && (
+                  <Badge variant="destructive" className="w-fit">
+                    {r.unpaid_days} unpaid
+                  </Badge>
+                )}
                 {r.reason && <p className="text-sm text-muted-foreground">{r.reason}</p>}
                 {r.status === "pending" && (
                   <div className="flex items-center gap-1">

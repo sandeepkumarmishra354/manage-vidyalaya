@@ -373,6 +373,101 @@ function HolidayDialog({
   );
 }
 
+function HolidayRangeDialog({
+  branchId,
+  sessionId,
+  sessionStart,
+  sessionEnd,
+  onClose,
+  onSaved,
+}: {
+  branchId: string;
+  sessionId: string;
+  sessionStart: string;
+  sessionEnd: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [startDate, setStartDate] = useState(sessionStart);
+  const [endDate, setEndDate] = useState(sessionEnd);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"holiday" | "half_day">("holiday");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await api.addHolidayRange({
+        branch_id: branchId,
+        academic_session_id: sessionId,
+        start_date: startDate,
+        end_date: endDate,
+        name,
+        type,
+      });
+      onSaved();
+      onClose();
+    } catch {
+      setError("Couldn't save this range. Check the dates and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add a vacation / holiday range</DialogTitle>
+        </DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSave}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="range-start">Start date</Label>
+              <Input id="range-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="range-end">End date</Label>
+              <Input id="range-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="range-name">Name</Label>
+            <Input
+              id="range-name"
+              placeholder="e.g. Summer vacation"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => setType(v as "holiday" | "half_day")}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="holiday">Full holiday</SelectItem>
+                <SelectItem value="half_day">Half day</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting || !name || !startDate || !endDate || endDate < startDate}>
+              {isSubmitting ? "Saving..." : "Save range"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SchoolCalendarTab() {
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const hasPermission = useAppStore((s) => s.hasPermission);
@@ -386,6 +481,7 @@ function SchoolCalendarTab() {
   const [weeklyHalfDays, setWeeklyHalfDays] = useState<number[]>([]);
   const [isSavingRule, setIsSavingRule] = useState(false);
   const [dialogDate, setDialogDate] = useState<Date | null>(null);
+  const [rangeDialogOpen, setRangeDialogOpen] = useState(false);
 
   useEffect(() => {
     api.listAcademicSessions().then((list) => {
@@ -532,17 +628,24 @@ function SchoolCalendarTab() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Calendar</CardTitle>
-          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded-sm bg-destructive/25" /> Holiday
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded-sm bg-warning/30" /> Half-day
-            </span>
-            {canManage && <span>Click a date to name it as a holiday or half-day.</span>}
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Calendar</CardTitle>
+            <div className="mt-1.5 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="size-3 rounded-sm bg-destructive/25" /> Holiday
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-3 rounded-sm bg-warning/30" /> Half-day
+              </span>
+              {canManage && <span>Click a date to name it as a holiday or half-day.</span>}
+            </div>
           </div>
+          {canManage && (
+            <Button variant="outline" size="sm" onClick={() => setRangeDialogOpen(true)}>
+              Add vacation / range
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <DayPicker
@@ -629,6 +732,17 @@ function SchoolCalendarTab() {
           date={dialogDate}
           existing={namedHolidayByDate.get(format(dialogDate, "yyyy-MM-dd"))}
           onClose={() => setDialogDate(null)}
+          onSaved={refresh}
+        />
+      )}
+
+      {rangeDialogOpen && (
+        <HolidayRangeDialog
+          branchId={selectedBranchId}
+          sessionId={session.id}
+          sessionStart={session.start_date.slice(0, 10)}
+          sessionEnd={session.end_date.slice(0, 10)}
+          onClose={() => setRangeDialogOpen(false)}
           onSaved={refresh}
         />
       )}

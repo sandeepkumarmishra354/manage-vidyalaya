@@ -28,6 +28,17 @@ export class StaffLeaveController {
     return this.staffLeaveService.listMine(user.tenant_id, user.sub);
   }
 
+  @Get("balance")
+  myBalance(@CurrentUser() user: JwtPayload) {
+    return this.staffLeaveService.myBalance(user.tenant_id, user.sub);
+  }
+
+  @Get("balance/:staffId")
+  @RequirePermission("staff_leave.manage")
+  staffBalance(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
+    return this.staffLeaveService.staffBalance(user.tenant_id, staffId);
+  }
+
   @Post(":id/cancel")
   cancel(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.staffLeaveService.cancel(user.tenant_id, user.sub, id);

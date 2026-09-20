@@ -8,6 +8,9 @@ export class FileStaffLeaveDto {
   staff_id!: string;
 
   @IsString()
+  leave_type_id!: string;
+
+  @IsString()
   start_date!: string;
 
   @IsString()

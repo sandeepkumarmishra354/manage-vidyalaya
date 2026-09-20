@@ -2,6 +2,9 @@ import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class ApplyStaffLeaveDto {
   @IsString()
+  leave_type_id!: string;
+
+  @IsString()
   start_date!: string;
 
   @IsString()

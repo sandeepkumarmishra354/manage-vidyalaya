@@ -185,6 +185,95 @@ describe("SchoolCalendarService.setWeeklyRule", () => {
   });
 });
 
+describe("SchoolCalendarService.addHolidayRange", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: SchoolCalendarService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new SchoolCalendarService(db, audit);
+  });
+
+  it("throws BadRequestException when end_date is before start_date", async () => {
+    await expect(
+      service.addHolidayRange("tenant-1", "actor-1", {
+        branch_id: "branch-1",
+        academic_session_id: "session-1",
+        start_date: "2026-06-10",
+        end_date: "2026-06-01",
+        name: "Summer vacation",
+        type: "holiday",
+      }),
+    ).rejects.toThrow(/end_date must be on or after start_date/);
+    expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("inserts one row per day in the range and records a single audit entry", async () => {
+    client.query.mockImplementation(async (text: string) => {
+      if (/SELECT \* FROM school_calendars/.test(text)) {
+        return { rows: [{ id: "cal-1", tenant_id: "tenant-1" }] };
+      }
+      if (/SELECT \* FROM calendar_holidays/.test(text)) {
+        return { rows: [] }; // nothing already named in this range
+      }
+      if (/INSERT INTO calendar_holidays/.test(text)) {
+        return { rows: [{ id: "h-new", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
+    });
+
+    const result = await service.addHolidayRange("tenant-1", "actor-1", {
+      branch_id: "branch-1",
+      academic_session_id: "session-1",
+      start_date: "2026-05-15",
+      end_date: "2026-05-17",
+      name: "Summer vacation",
+      type: "holiday",
+    });
+
+    const insertCalls = client.query.mock.calls.filter(([text]) => /INSERT INTO calendar_holidays/.test(text as string));
+    expect(insertCalls).toHaveLength(3);
+    expect(result).toEqual({ count: 3, start_date: "2026-05-15", end_date: "2026-05-17" });
+    expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("overwrites (rather than duplicates) a date already named within the range", async () => {
+    client.query.mockImplementation(async (text: string) => {
+      if (/SELECT \* FROM school_calendars/.test(text)) {
+        return { rows: [{ id: "cal-1", tenant_id: "tenant-1" }] };
+      }
+      if (/SELECT \* FROM calendar_holidays/.test(text)) {
+        return { rows: [{ id: "h-existing", tenant_id: "tenant-1", date: new Date("2026-05-16"), name: "Old name", type: "holiday" }] };
+      }
+      if (/UPDATE calendar_holidays SET/.test(text)) {
+        return { rows: [{ id: "h-existing", tenant_id: "tenant-1" }] };
+      }
+      if (/INSERT INTO calendar_holidays/.test(text)) {
+        return { rows: [{ id: "h-new", tenant_id: "tenant-1" }] };
+      }
+      return { rows: [] };
+    });
+
+    await service.addHolidayRange("tenant-1", "actor-1", {
+      branch_id: "branch-1",
+      academic_session_id: "session-1",
+      start_date: "2026-05-15",
+      end_date: "2026-05-17",
+      name: "Summer vacation",
+      type: "holiday",
+    });
+
+    const insertCalls = client.query.mock.calls.filter(([text]) => /INSERT INTO calendar_holidays/.test(text as string));
+    const updateCalls = client.query.mock.calls.filter(([text]) => /UPDATE calendar_holidays SET/.test(text as string));
+    expect(insertCalls).toHaveLength(2); // the 15th and 17th
+    expect(updateCalls).toHaveLength(1); // the already-named 16th
+    expect(updateCalls[0]![1]).toEqual(expect.arrayContaining(["h-existing"]));
+  });
+});
+
 describe("SchoolCalendarService.updateHoliday / deleteHoliday", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let client: FakeClient;
