@@ -4,6 +4,7 @@ import { Throttle } from "@nestjs/throttler";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignRoleDto } from "./dto/assign-role.dto.js";
@@ -14,7 +15,7 @@ import { SetUserActiveDto } from "./dto/set-user-active.dto.js";
 import { UsersService } from "./users.service.js";
 
 @Controller("users")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 

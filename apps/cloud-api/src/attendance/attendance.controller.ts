@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/co
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AttendanceService } from "./attendance.service.js";
@@ -17,7 +18,7 @@ import { ScanAttendanceDto } from "./dto/scan-attendance.dto.js";
 // PermissionsGuard stays on the class for the routes that do use
 // @RequirePermission (it no-ops on handlers with no metadata).
 @Controller("attendance")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 

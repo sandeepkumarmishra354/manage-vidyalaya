@@ -110,7 +110,7 @@ export class AuthService {
     await this.assertLinkedStaffAllowsAccess(found.tenant_id, found.id);
 
     const roles = await this.getRoleNames(found.tenant_id, found.id);
-    const { access_token, refresh_token } = await this.issueTokenPair(found.id, found.tenant_id, roles);
+    const { access_token, refresh_token } = await this.issueTokenPair(found.id, found.tenant_id, found.branch_id, roles);
 
     return {
       access_token,
@@ -150,13 +150,13 @@ export class AuthService {
     }
     await this.assertLinkedStaffAllowsAccess(payload.tenant_id, user.id);
 
-    // Re-derive roles from the database rather than trusting the refresh
-    // token's payload -- role assignments may have changed since it was
-    // issued.
+    // Re-derive roles AND branch from the database rather than trusting the
+    // refresh token's payload -- role/branch assignments may have changed
+    // since it was issued.
     const roles = await this.getRoleNames(payload.tenant_id, user.id);
     const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
     const access_token = await this.jwt.signAsync(
-      { sub: user.id, tenant_id: user.tenant_id, roles, type: "access" },
+      { sub: user.id, tenant_id: user.tenant_id, branch_id: user.branch_id, roles, type: "access" },
       { expiresIn: accessTtl as JwtSignOptions["expiresIn"] },
     );
 
@@ -259,16 +259,16 @@ export class AuthService {
     }
   }
 
-  private async issueTokenPair(userId: string, tenantId: string, roles: string[]) {
+  private async issueTokenPair(userId: string, tenantId: string, branchId: string | null, roles: string[]) {
     const accessTtl = this.config.get<string>("JWT_ACCESS_TOKEN_TTL", "1h");
     const refreshTtl = this.config.get<string>("JWT_REFRESH_TOKEN_TTL", "30d");
 
     const access_token = await this.jwt.signAsync(
-      { sub: userId, tenant_id: tenantId, roles, type: "access" },
+      { sub: userId, tenant_id: tenantId, branch_id: branchId, roles, type: "access" },
       { expiresIn: accessTtl as JwtSignOptions["expiresIn"] },
     );
     const refresh_token = await this.jwt.signAsync(
-      { sub: userId, tenant_id: tenantId, roles, type: "refresh" },
+      { sub: userId, tenant_id: tenantId, branch_id: branchId, roles, type: "refresh" },
       { expiresIn: refreshTtl as JwtSignOptions["expiresIn"] },
     );
 

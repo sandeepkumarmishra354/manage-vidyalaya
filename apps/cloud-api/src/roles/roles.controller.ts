@@ -4,6 +4,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { PERMISSION_CATALOG, PERMISSION_LABELS } from "../common/permission-catalog.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateRoleDto } from "./dto/create-role.dto.js";
@@ -12,7 +13,7 @@ import { UpdateRoleDto } from "./dto/update-role.dto.js";
 import { RolesService } from "./roles.service.js";
 
 @Controller("roles")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 

@@ -22,16 +22,26 @@ export interface TenantRow {
   [key: string]: unknown;
 }
 
+// `branchId`: when provided (a branch-scoped caller), the row must also
+// match this branch -- a mismatched or other-branch row comes back as
+// "not found" exactly like a wrong id would, rather than leaking that it
+// exists in another branch. Omit it (or pass null/undefined) for an
+// unscoped caller (e.g. super_admin) or a table that isn't branch-scoped
+// at all -- see BranchScopeGuard for where branchId is derived.
 export async function findOneForTenant<T extends TenantRow>(
   client: PoolClient,
   table: string,
   tenantId: string,
   id: string,
+  branchId?: string | null,
 ): Promise<T | null> {
-  const result = await client.query<T>(
-    `SELECT * FROM ${table} WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-    [id, tenantId],
-  );
+  const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+  const values: unknown[] = [id, tenantId];
+  if (branchId) {
+    values.push(branchId);
+    conditions.push(`branch_id = $${values.length}`);
+  }
+  const result = await client.query<T>(`SELECT * FROM ${table} WHERE ${conditions.join(" AND ")}`, values);
   return result.rows[0] ?? null;
 }
 
@@ -80,20 +90,28 @@ export async function insertRow<T extends TenantRow>(
 
 // Bumps `version` itself (matching the existing manual-optimistic-locking
 // convention) -- callers pass every other changed column in `data`.
+// `branchId`: see findOneForTenant's doc -- same "not found" semantics for
+// a branch-scoped caller touching a row outside their branch.
 export async function updateRow<T extends TenantRow>(
   client: PoolClient,
   table: string,
   tenantId: string,
   id: string,
   data: Record<string, unknown>,
+  branchId?: string | null,
 ): Promise<T> {
   const columns = Object.keys(data);
   const values: unknown[] = Object.values(data);
   const setClauses = columns.map((col, i) => `${col} = $${i + 1}`);
   setClauses.push("version = version + 1");
   values.push(id, tenantId);
+  const conditions = [`id = $${values.length - 1}`, `tenant_id = $${values.length}`, "deleted_at IS NULL"];
+  if (branchId) {
+    values.push(branchId);
+    conditions.push(`branch_id = $${values.length}`);
+  }
   const result = await client.query<T>(
-    `UPDATE ${table} SET ${setClauses.join(", ")} WHERE id = $${values.length - 1} AND tenant_id = $${values.length} AND deleted_at IS NULL RETURNING *`,
+    `UPDATE ${table} SET ${setClauses.join(", ")} WHERE ${conditions.join(" AND ")} RETURNING *`,
     values,
   );
   const row = result.rows[0];
@@ -109,10 +127,18 @@ export async function softDeleteRow<T extends TenantRow>(
   tenantId: string,
   id: string,
   updatedBy: string,
+  branchId?: string | null,
 ): Promise<T> {
-  return updateRow<T>(client, table, tenantId, id, {
-    deleted_at: new Date(),
-    updated_at: new Date(),
-    updated_by: updatedBy,
-  });
+  return updateRow<T>(
+    client,
+    table,
+    tenantId,
+    id,
+    {
+      deleted_at: new Date(),
+      updated_at: new Date(),
+      updated_by: updatedBy,
+    },
+    branchId,
+  );
 }

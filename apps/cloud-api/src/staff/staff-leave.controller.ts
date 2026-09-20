@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/co
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { ApplyStaffLeaveDto } from "./dto/apply-staff-leave.dto.js";
@@ -11,7 +12,7 @@ import { FileStaffLeaveDto } from "./dto/file-staff-leave.dto.js";
 import { StaffLeaveService } from "./staff-leave.service.js";
 
 @Controller("staff-leave")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffLeaveController {
   constructor(private readonly staffLeaveService: StaffLeaveService) {}
 
