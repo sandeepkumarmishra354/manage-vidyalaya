@@ -133,6 +133,15 @@ export interface CreateHolidayInput {
   type: "holiday" | "half_day";
 }
 
+export interface CreateHolidayRangeInput {
+  branch_id: string;
+  academic_session_id: string;
+  start_date: string;
+  end_date: string;
+  name: string;
+  type: "holiday" | "half_day";
+}
+
 export interface UpdateHolidayInput {
   date: string;
   name: string;
@@ -1930,6 +1939,8 @@ export const api = {
     http.get<SchoolCalendarData>("/school-calendar", { branch_id: branchId, academic_session_id: academicSessionId }),
   setWeeklyRule: (input: SetWeeklyRuleInput) => http.post<void>("/school-calendar/weekly-rule", input),
   addHoliday: (input: CreateHolidayInput) => http.post<CalendarHoliday>("/school-calendar/holidays", input),
+  addHolidayRange: (input: CreateHolidayRangeInput) =>
+    http.post<{ count: number; start_date: string; end_date: string }>("/school-calendar/holidays/range", input),
   updateHoliday: (id: string, input: UpdateHolidayInput) => http.patch<void>(`/calendar-holidays/${id}`, input),
   deleteHoliday: (id: string) => http.delete<void>(`/calendar-holidays/${id}`),
   getDayTypes: (branchId: string, startDate: string, endDate: string) =>
