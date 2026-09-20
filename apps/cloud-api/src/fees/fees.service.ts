@@ -196,23 +196,36 @@ export class FeesService {
     });
   }
 
-  async updateFeeStructure(tenantId: string, actorUserId: string, id: string, dto: UpdateFeeStructureDto) {
+  async updateFeeStructure(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateFeeStructureDto,
+    branchId?: string | null,
+  ) {
     await this.assertValidFeeType(tenantId, dto.fee_type);
     const academicSessionId = dto.academic_session_id ?? null;
     const classId = dto.class_id ?? null;
     this.assertSessionClassCombo(academicSessionId, classId);
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<FeeStructureRow>(client, "fee_structures", tenantId, id, {
-        name: dto.name,
-        amount: dto.amount,
-        frequency: dto.frequency,
-        fee_type: dto.fee_type,
-        class_id: classId,
-        academic_session_id: academicSessionId,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<FeeStructureRow>(
+        client,
+        "fee_structures",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          amount: dto.amount,
+          frequency: dto.frequency,
+          fee_type: dto.fee_type,
+          class_id: classId,
+          academic_session_id: academicSessionId,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -335,8 +348,9 @@ export class FeesService {
     feeStructureId: string,
     client: PoolClient,
     upToPeriod?: string,
+    branchId?: string | null,
   ): Promise<number> {
-    const structure = await findOneForTenant<FeeStructureRow>(client, "fee_structures", tenantId, feeStructureId);
+    const structure = await findOneForTenant<FeeStructureRow>(client, "fee_structures", tenantId, feeStructureId, branchId);
     if (!structure) {
       throw new NotFoundException("fee structure not found");
     }
@@ -413,9 +427,15 @@ export class FeesService {
   // Accepts an optional pooled client so the bulk path (generateInvoicesBulk)
   // can share this exact implementation across several structures inside
   // one transaction. Returns the created count.
-  async generateInvoices(tenantId: string, feeStructureId: string, client?: PoolClient, upToPeriod?: string): Promise<number> {
+  async generateInvoices(
+    tenantId: string,
+    feeStructureId: string,
+    client?: PoolClient,
+    upToPeriod?: string,
+    branchId?: string | null,
+  ): Promise<number> {
     const run = async (c: PoolClient) => {
-      const structure = await findOneForTenant<FeeStructureRow>(c, "fee_structures", tenantId, feeStructureId);
+      const structure = await findOneForTenant<FeeStructureRow>(c, "fee_structures", tenantId, feeStructureId, branchId);
       if (!structure) {
         throw new NotFoundException("fee structure not found");
       }
@@ -446,7 +466,7 @@ export class FeesService {
 
       let created = 0;
       for (const studentId of eligibleIds) {
-        created += await this.generateInvoiceForStudent(tenantId, studentId, feeStructureId, c, upToPeriod);
+        created += await this.generateInvoiceForStudent(tenantId, studentId, feeStructureId, c, upToPeriod, branchId);
       }
       return created;
     };
@@ -480,7 +500,7 @@ export class FeesService {
 
       const byStructure: { fee_structure_id: string; created: number }[] = [];
       for (const structure of structuresResult.rows) {
-        const created = await this.generateInvoices(tenantId, structure.id, client, upToPeriod);
+        const created = await this.generateInvoices(tenantId, structure.id, client, upToPeriod, branchId);
         byStructure.push({ fee_structure_id: structure.id, created });
       }
 
@@ -507,28 +527,52 @@ export class FeesService {
   // generated for that (student, structure) -- a paid one must be reversed
   // first. Including takes immediate effect: the student's invoice(s) are
   // generated right away rather than waiting for the next bulk run.
-  async setStudentFeeAssignment(tenantId: string, actorUserId: string, dto: SetStudentFeeAssignmentDto) {
+  async setStudentFeeAssignment(
+    tenantId: string,
+    actorUserId: string,
+    dto: SetStudentFeeAssignmentDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const structure = await findOneForTenant<FeeStructureRow>(client, "fee_structures", tenantId, dto.fee_structure_id);
+      const structure = await findOneForTenant<FeeStructureRow>(
+        client,
+        "fee_structures",
+        tenantId,
+        dto.fee_structure_id,
+        branchId,
+      );
       if (!structure) {
         throw new NotFoundException("fee structure not found");
       }
 
+      const existingConditions = ["tenant_id = $1", "student_id = $2", "fee_structure_id = $3"];
+      const existingParams: unknown[] = [tenantId, dto.student_id, dto.fee_structure_id];
+      if (branchId) {
+        existingParams.push(branchId);
+        existingConditions.push(`branch_id = $${existingParams.length}`);
+      }
       const existingResult = await client.query<StudentFeeAssignmentRow>(
-        "SELECT * FROM student_fee_assignments WHERE tenant_id = $1 AND student_id = $2 AND fee_structure_id = $3",
-        [tenantId, dto.student_id, dto.fee_structure_id],
+        `SELECT * FROM student_fee_assignments WHERE ${existingConditions.join(" AND ")}`,
+        existingParams,
       );
       const existing = existingResult.rows[0];
       const now = new Date();
 
       const assignment = existing
-        ? await updateRow<StudentFeeAssignmentRow>(client, "student_fee_assignments", tenantId, existing.id, {
-            mode: dto.mode,
-            reason: dto.reason ?? null,
-            deleted_at: null,
-            updated_at: now,
-            updated_by: actorUserId,
-          })
+        ? await updateRow<StudentFeeAssignmentRow>(
+            client,
+            "student_fee_assignments",
+            tenantId,
+            existing.id,
+            {
+              mode: dto.mode,
+              reason: dto.reason ?? null,
+              deleted_at: null,
+              updated_at: now,
+              updated_by: actorUserId,
+            },
+            branchId,
+          )
         : await insertRow<StudentFeeAssignmentRow>(client, "student_fee_assignments", tenantId, {
             branch_id: structure.branch_id,
             student_id: dto.student_id,
@@ -540,9 +584,15 @@ export class FeesService {
           });
 
       if (dto.mode === "exclude") {
+        const invoiceConditions = ["tenant_id = $1", "student_id = $2", "fee_structure_id = $3", "deleted_at IS NULL", "status != 'voided'"];
+        const invoiceParams: unknown[] = [tenantId, dto.student_id, dto.fee_structure_id];
+        if (branchId) {
+          invoiceParams.push(branchId);
+          invoiceConditions.push(`branch_id = $${invoiceParams.length}`);
+        }
         const invoicesResult = await client.query<FeeInvoiceRow>(
-          "SELECT * FROM fee_invoices WHERE tenant_id = $1 AND student_id = $2 AND fee_structure_id = $3 AND deleted_at IS NULL AND status != 'voided'",
-          [tenantId, dto.student_id, dto.fee_structure_id],
+          `SELECT * FROM fee_invoices WHERE ${invoiceConditions.join(" AND ")}`,
+          invoiceParams,
         );
         if (invoicesResult.rows.some((i) => i.amount_paid > 0)) {
           throw new BadRequestException(
@@ -550,11 +600,18 @@ export class FeesService {
           );
         }
         for (const invoice of invoicesResult.rows) {
-          await updateRow<FeeInvoiceRow>(client, "fee_invoices", tenantId, invoice.id, {
-            status: "voided",
-            updated_at: now,
-            updated_by: actorUserId,
-          });
+          await updateRow<FeeInvoiceRow>(
+            client,
+            "fee_invoices",
+            tenantId,
+            invoice.id,
+            {
+              status: "voided",
+              updated_at: now,
+              updated_by: actorUserId,
+            },
+            branchId,
+          );
         }
       }
 
@@ -571,16 +628,22 @@ export class FeesService {
       });
 
       if (dto.mode === "include") {
-        await this.generateInvoiceForStudent(tenantId, dto.student_id, dto.fee_structure_id, client);
+        await this.generateInvoiceForStudent(tenantId, dto.student_id, dto.fee_structure_id, client, undefined, branchId);
       }
 
       return assignment;
     });
   }
 
-  async removeStudentFeeAssignment(tenantId: string, actorUserId: string, id: string) {
+  async removeStudentFeeAssignment(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<StudentFeeAssignmentRow>(client, "student_fee_assignments", tenantId, id);
+      const existing = await findOneForTenant<StudentFeeAssignmentRow>(
+        client,
+        "student_fee_assignments",
+        tenantId,
+        id,
+        branchId,
+      );
       if (!existing) {
         throw new NotFoundException("assignment not found");
       }
@@ -591,6 +654,7 @@ export class FeesService {
         tenantId,
         id,
         actorUserId,
+        branchId,
       );
 
       await this.audit.record(client, {
@@ -606,7 +670,13 @@ export class FeesService {
     });
   }
 
-  async listStructureAssignments(tenantId: string, feeStructureId: string) {
+  async listStructureAssignments(tenantId: string, feeStructureId: string, branchId?: string | null) {
+    const conditions = ["sfa.tenant_id = $1", "sfa.fee_structure_id = $2", "sfa.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, feeStructureId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`sfa.branch_id = $${values.length}`);
+    }
     const rows = await this.db.query<{
       id: string;
       student_id: string;
@@ -621,8 +691,8 @@ export class FeesService {
        FROM student_fee_assignments sfa
        JOIN students s ON s.id = sfa.student_id
        LEFT JOIN classes c ON c.id = s.current_class_id
-       WHERE sfa.tenant_id = $1 AND sfa.fee_structure_id = $2 AND sfa.deleted_at IS NULL`,
-      [tenantId, feeStructureId],
+       WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     return rows.map((r) => ({
       id: r.id,
@@ -634,7 +704,13 @@ export class FeesService {
     }));
   }
 
-  async listStudentFeeAssignments(tenantId: string, studentId: string) {
+  async listStudentFeeAssignments(tenantId: string, studentId: string, branchId?: string | null) {
+    const conditions = ["sfa.tenant_id = $1", "sfa.student_id = $2", "sfa.deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`sfa.branch_id = $${values.length}`);
+    }
     const rows = await this.db.query<{
       id: string;
       fee_structure_id: string;
@@ -646,8 +722,8 @@ export class FeesService {
       `SELECT sfa.id, sfa.fee_structure_id, fs.name AS fee_structure_name, sfa.mode, sfa.reason
        FROM student_fee_assignments sfa
        JOIN fee_structures fs ON fs.id = sfa.fee_structure_id
-       WHERE sfa.tenant_id = $1 AND sfa.student_id = $2 AND sfa.deleted_at IS NULL`,
-      [tenantId, studentId],
+       WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     return rows.map((r) => ({
       id: r.id,
@@ -658,13 +734,20 @@ export class FeesService {
     }));
   }
 
-  async voidInvoice(tenantId: string, actorUserId: string, invoiceId: string, reason: string) {
+  async voidInvoice(tenantId: string, actorUserId: string, invoiceId: string, reason: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<FeeInvoiceRow>(client, "fee_invoices", tenantId, invoiceId, {
-        status: "voided",
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<FeeInvoiceRow>(
+        client,
+        "fee_invoices",
+        tenantId,
+        invoiceId,
+        {
+          status: "voided",
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -679,9 +762,15 @@ export class FeesService {
     });
   }
 
-  async editInvoice(tenantId: string, actorUserId: string, invoiceId: string, dto: EditInvoiceDto) {
+  async editInvoice(
+    tenantId: string,
+    actorUserId: string,
+    invoiceId: string,
+    dto: EditInvoiceDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, invoiceId);
+      const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, invoiceId, branchId);
       if (!invoice) {
         throw new NotFoundException("invoice not found");
       }
@@ -692,13 +781,20 @@ export class FeesService {
         throw new BadRequestException("amount due cannot be less than the amount already paid");
       }
 
-      const updated = await updateRow<FeeInvoiceRow>(client, "fee_invoices", tenantId, invoiceId, {
-        amount_due: dto.amount_due,
-        due_date: dto.due_date !== undefined ? (dto.due_date ? new Date(dto.due_date) : null) : invoice.due_date,
-        status: invoiceStatus(dto.amount_due, invoice.amount_paid),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<FeeInvoiceRow>(
+        client,
+        "fee_invoices",
+        tenantId,
+        invoiceId,
+        {
+          amount_due: dto.amount_due,
+          due_date: dto.due_date !== undefined ? (dto.due_date ? new Date(dto.due_date) : null) : invoice.due_date,
+          status: invoiceStatus(dto.amount_due, invoice.amount_paid),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -773,23 +869,35 @@ export class FeesService {
     return rows.map((i) => this.toListItem(i, guardianByStudent.get(i.student_id) ?? null));
   }
 
-  async getStudentFeeSummary(tenantId: string, studentId: string) {
+  async getStudentFeeSummary(tenantId: string, studentId: string, branchId?: string | null) {
+    const invoiceConditions = ["fi.tenant_id = $1", "fi.student_id = $2", "fi.deleted_at IS NULL"];
+    const invoiceValues: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      invoiceValues.push(branchId);
+      invoiceConditions.push(`fi.branch_id = $${invoiceValues.length}`);
+    }
     const rows = await this.db.query<FeeInvoiceListRow>(
       tenantId,
       `SELECT ${FeesService.INVOICE_LIST_SELECT}
-       WHERE fi.tenant_id = $1 AND fi.student_id = $2 AND fi.deleted_at IS NULL
+       WHERE ${invoiceConditions.join(" AND ")}
        ORDER BY fi.due_date ASC`,
-      [tenantId, studentId],
+      invoiceValues,
     );
 
+    const paymentConditions = ["fi.tenant_id = $1", "fi.student_id = $2", "fp.deleted_at IS NULL"];
+    const paymentValues: unknown[] = [tenantId, studentId];
+    if (branchId) {
+      paymentValues.push(branchId);
+      paymentConditions.push(`fi.branch_id = $${paymentValues.length}`);
+    }
     const payments = await this.db.query<FeePaymentRow>(
       tenantId,
       `SELECT fp.*
        FROM fee_payments fp
        JOIN fee_invoices fi ON fi.id = fp.invoice_id
-       WHERE fi.tenant_id = $1 AND fi.student_id = $2 AND fp.deleted_at IS NULL
+       WHERE ${paymentConditions.join(" AND ")}
        ORDER BY fp.payment_date DESC`,
-      [tenantId, studentId],
+      paymentValues,
     );
 
     const guardianByStudent = await this.fetchPrimaryGuardianNames(tenantId, [studentId]);
@@ -831,8 +939,9 @@ export class FeesService {
       receiptNumber: string | null;
       remarks: string | null;
     },
+    branchId?: string | null,
   ) {
-    const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, entry.invoiceId);
+    const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, entry.invoiceId, branchId);
     if (!invoice) {
       throw new NotFoundException("invoice not found");
     }
@@ -850,27 +959,41 @@ export class FeesService {
     });
 
     const newPaid = invoice.amount_paid + entry.amount;
-    await updateRow<FeeInvoiceRow>(client, "fee_invoices", tenantId, entry.invoiceId, {
-      amount_paid: newPaid,
-      status: invoiceStatus(invoice.amount_due, newPaid),
-      updated_at: now,
-    });
+    await updateRow<FeeInvoiceRow>(
+      client,
+      "fee_invoices",
+      tenantId,
+      entry.invoiceId,
+      {
+        amount_paid: newPaid,
+        status: invoiceStatus(invoice.amount_due, newPaid),
+        updated_at: now,
+      },
+      branchId,
+    );
 
     return payment;
   }
 
   // Records a payment and updates the invoice's amount_paid/status
   // accordingly, in one transaction.
-  async recordPayment(tenantId: string, actorUserId: string, dto: RecordPaymentDto) {
+  async recordPayment(tenantId: string, actorUserId: string, dto: RecordPaymentDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const payment = await this.applyPayment(client, tenantId, actorUserId, new Date(), {
-        invoiceId: dto.invoice_id,
-        amount: dto.amount,
-        paymentMethod: dto.payment_method,
-        paymentDate: dto.payment_date,
-        receiptNumber: dto.receipt_number ?? null,
-        remarks: dto.remarks ?? null,
-      });
+      const payment = await this.applyPayment(
+        client,
+        tenantId,
+        actorUserId,
+        new Date(),
+        {
+          invoiceId: dto.invoice_id,
+          amount: dto.amount,
+          paymentMethod: dto.payment_method,
+          paymentDate: dto.payment_date,
+          receiptNumber: dto.receipt_number ?? null,
+          remarks: dto.remarks ?? null,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -889,27 +1012,40 @@ export class FeesService {
   // in a single transaction -- the "pay several outstanding invoices for
   // one student in one combined receipt" flow. Amounts are explicit per
   // invoice, no auto-allocation across them.
-  async recordPaymentBatch(tenantId: string, actorUserId: string, dto: RecordPaymentBatchDto) {
+  async recordPaymentBatch(tenantId: string, actorUserId: string, dto: RecordPaymentBatchDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
       const payments = [];
       let sharedReceiptNumber = dto.receipt_number ?? null;
       if (!sharedReceiptNumber) {
-        const firstInvoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, dto.entries[0].invoice_id);
+        const firstInvoice = await findOneForTenant<FeeInvoiceRow>(
+          client,
+          "fee_invoices",
+          tenantId,
+          dto.entries[0].invoice_id,
+          branchId,
+        );
         if (!firstInvoice) {
           throw new NotFoundException("invoice not found");
         }
         sharedReceiptNumber = generateReceiptNumber(firstInvoice.branch_id);
       }
       for (const entry of dto.entries) {
-        const payment = await this.applyPayment(client, tenantId, actorUserId, now, {
-          invoiceId: entry.invoice_id,
-          amount: entry.amount,
-          paymentMethod: dto.payment_method,
-          paymentDate: dto.payment_date,
-          receiptNumber: sharedReceiptNumber,
-          remarks: dto.remarks ?? null,
-        });
+        const payment = await this.applyPayment(
+          client,
+          tenantId,
+          actorUserId,
+          now,
+          {
+            invoiceId: entry.invoice_id,
+            amount: entry.amount,
+            paymentMethod: dto.payment_method,
+            paymentDate: dto.payment_date,
+            receiptNumber: sharedReceiptNumber,
+            remarks: dto.remarks ?? null,
+          },
+          branchId,
+        );
         payments.push(payment);
       }
 
@@ -938,6 +1074,7 @@ export class FeesService {
     now: Date,
     original: { id: string; invoiceId: string; amount: number; paymentMethod: string },
     reason: string,
+    branchId?: string | null,
   ) {
     await insertRow(client, "fee_payments", tenantId, {
       invoice_id: original.invoiceId,
@@ -949,17 +1086,24 @@ export class FeesService {
       updated_at: now,
     });
 
-    const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, original.invoiceId);
+    const invoice = await findOneForTenant<FeeInvoiceRow>(client, "fee_invoices", tenantId, original.invoiceId, branchId);
     if (!invoice) {
       throw new NotFoundException("invoice not found");
     }
     const newPaid = invoice.amount_paid - original.amount;
 
-    await updateRow<FeeInvoiceRow>(client, "fee_invoices", tenantId, original.invoiceId, {
-      amount_paid: newPaid,
-      status: invoiceStatus(invoice.amount_due, newPaid),
-      updated_at: now,
-    });
+    await updateRow<FeeInvoiceRow>(
+      client,
+      "fee_invoices",
+      tenantId,
+      original.invoiceId,
+      {
+        amount_paid: newPaid,
+        status: invoiceStatus(invoice.amount_due, newPaid),
+        updated_at: now,
+      },
+      branchId,
+    );
 
     await this.audit.record(client, {
       tenantId,
@@ -971,8 +1115,11 @@ export class FeesService {
     });
   }
 
-  async reversePayment(tenantId: string, actorUserId: string, paymentId: string, reason: string) {
+  async reversePayment(tenantId: string, actorUserId: string, paymentId: string, reason: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
+      // fee_payments has no branch_id column of its own -- it inherits branch
+      // isolation via its invoice, enforced by reversePaymentTx's branchId-
+      // scoped findOneForTenant on fee_invoices below.
       const original = await findOneForTenant<FeePaymentRow>(client, "fee_payments", tenantId, paymentId);
       if (!original) {
         throw new NotFoundException("payment not found");
@@ -985,6 +1132,7 @@ export class FeesService {
         new Date(),
         { id: original.id, invoiceId: original.invoice_id, amount: original.amount, paymentMethod: original.payment_method },
         reason,
+        branchId,
       );
     });
   }
@@ -992,7 +1140,7 @@ export class FeesService {
   // Implemented as reverse-then-reapply in one transaction -- the
   // corrected row keeps the original receipt_number, so a reprint after an
   // edit still shows one consistent receipt.
-  async editPayment(tenantId: string, actorUserId: string, paymentId: string, dto: EditPaymentDto) {
+  async editPayment(tenantId: string, actorUserId: string, paymentId: string, dto: EditPaymentDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const original = await findOneForTenant<FeePaymentRow>(client, "fee_payments", tenantId, paymentId);
       if (!original) {
@@ -1010,16 +1158,24 @@ export class FeesService {
         now,
         { id: original.id, invoiceId: original.invoice_id, amount: original.amount, paymentMethod: original.payment_method },
         `Correcting payment (${dto.reason})`,
+        branchId,
       );
 
-      const corrected = await this.applyPayment(client, tenantId, actorUserId, now, {
-        invoiceId: original.invoice_id,
-        amount: dto.amount,
-        paymentMethod: dto.payment_method,
-        paymentDate: dto.payment_date,
-        receiptNumber: original.receipt_number,
-        remarks: dto.remarks ?? original.remarks,
-      });
+      const corrected = await this.applyPayment(
+        client,
+        tenantId,
+        actorUserId,
+        now,
+        {
+          invoiceId: original.invoice_id,
+          amount: dto.amount,
+          paymentMethod: dto.payment_method,
+          paymentDate: dto.payment_date,
+          receiptNumber: original.receipt_number,
+          remarks: dto.remarks ?? original.remarks,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -1037,7 +1193,7 @@ export class FeesService {
   // Every payment sharing a receipt number, joined with its invoice --
   // backs both the original print and a later reprint. Reversal rows never
   // carry a receipt_number, so they're naturally excluded.
-  async getPaymentReceipt(tenantId: string, receiptNumber: string) {
+  async getPaymentReceipt(tenantId: string, receiptNumber: string, branchId?: string | null) {
     const payments = await this.db.query<FeePaymentRow>(
       tenantId,
       "SELECT * FROM fee_payments WHERE tenant_id = $1 AND receipt_number = $2 AND deleted_at IS NULL ORDER BY payment_date ASC",
@@ -1047,13 +1203,28 @@ export class FeesService {
       throw new NotFoundException("receipt not found");
     }
 
+    // fee_payments carries no branch_id of its own -- branch isolation is
+    // enforced here on the invoices it references instead: a branch-scoped
+    // caller only gets back invoice rows inside their own branch, and if
+    // that leaves any payment's invoice unresolved (this receipt actually
+    // belongs to another branch), the whole receipt 404s rather than
+    // partially rendering or crashing on the missing lookup below.
     const invoiceIds = [...new Set(payments.map((p) => p.invoice_id))];
+    const invoiceConditions = ["fi.tenant_id = $1", "fi.id = ANY($2)"];
+    const invoiceValues: unknown[] = [tenantId, invoiceIds];
+    if (branchId) {
+      invoiceValues.push(branchId);
+      invoiceConditions.push(`fi.branch_id = $${invoiceValues.length}`);
+    }
     const invoiceRows = await this.db.query<FeeInvoiceListRow>(
       tenantId,
       `SELECT ${FeesService.INVOICE_LIST_SELECT}
-       WHERE fi.tenant_id = $1 AND fi.id = ANY($2)`,
-      [tenantId, invoiceIds],
+       WHERE ${invoiceConditions.join(" AND ")}`,
+      invoiceValues,
     );
+    if (invoiceRows.length < invoiceIds.length) {
+      throw new NotFoundException("receipt not found");
+    }
     const invoiceById = new Map(invoiceRows.map((i) => [i.id, i]));
     const guardianByStudent = await this.fetchPrimaryGuardianNames(
       tenantId,

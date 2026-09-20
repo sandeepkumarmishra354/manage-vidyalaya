@@ -403,3 +403,113 @@ describe("PayrollService.generatePayrollRun", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+// Phase 2: branch-scoped callers must not be able to view/update/delete a
+// same-tenant payroll_runs/salary_structures row (or reach a payslip
+// through one) belonging to a *different* branch -- a branch mismatch maps
+// to NotFoundException, exactly like a wrong id would.
+describe("PayrollService branch isolation (Phase 2)", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: PayrollService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new PayrollService(db, audit, makeSchoolCalendarMock());
+  });
+
+  describe("getPayrollRun", () => {
+    it("404s a run that belongs to a different branch", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // WHERE ... AND branch_id = $3 filtered it out
+
+      await expect(service.getPayrollRun("tenant-1", "run-1", "branch-mine")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      const [, text, params] = db.queryOne.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("returns a run that belongs to the caller's own branch", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "run-1", tenant_id: "tenant-1", branch_id: "branch-mine" });
+      db.query.mockResolvedValueOnce([]); // payslips
+
+      const result = await service.getPayrollRun("tenant-1", "run-1", "branch-mine");
+      expect(result.run.id).toBe("run-1");
+    });
+
+    it("adds no branch filter for an unscoped caller (branchId null)", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "run-1", tenant_id: "tenant-1" });
+      db.query.mockResolvedValueOnce([]);
+
+      await service.getPayrollRun("tenant-1", "run-1", null);
+
+      const [, text] = db.queryOne.mock.calls[0];
+      expect(text).not.toMatch(/branch_id/);
+    });
+  });
+
+  describe("finalizePayrollRun", () => {
+    it("404s a run that belongs to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // updateRow filtered out by branch_id
+
+      await expect(
+        service.finalizePayrollRun("tenant-1", "actor-1", "run-1", "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [text, params] = client.query.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+  });
+
+  describe("deletePayrollRun", () => {
+    it("404s a run that belongs to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant filtered out by branch_id
+
+      await expect(service.deletePayrollRun("tenant-1", "actor-1", "run-1", "branch-mine")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe("markPayslipPaid", () => {
+    it("404s when the payslip's own payroll run belongs to a different branch", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "payslip-1", tenant_id: "tenant-1", payroll_run_id: "run-1" }] }) // findOneForTenant payslip
+        .mockResolvedValueOnce({ rows: [] }); // findOneForTenant payroll_runs filtered out by branch_id
+
+      await expect(
+        service.markPayslipPaid("tenant-1", "actor-1", "payslip-1", "2026-05-01", "branch-mine"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [text, params] = client.query.mock.calls[1];
+      expect(text).toMatch(/FROM payroll_runs/);
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("marks a payslip paid when its run belongs to the caller's own branch", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "payslip-1", tenant_id: "tenant-1", payroll_run_id: "run-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "run-1", tenant_id: "tenant-1", branch_id: "branch-mine" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "payslip-1", tenant_id: "tenant-1", status: "paid" }] });
+
+      const result = await service.markPayslipPaid("tenant-1", "actor-1", "payslip-1", "2026-05-01", "branch-mine");
+      expect(result.id).toBe("payslip-1");
+    });
+
+    it("skips the parent-run check entirely for an unscoped caller", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "payslip-1", tenant_id: "tenant-1", payroll_run_id: "run-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "payslip-1", tenant_id: "tenant-1", status: "paid" }] });
+
+      await service.markPayslipPaid("tenant-1", "actor-1", "payslip-1", "2026-05-01", null);
+
+      expect(client.query).toHaveBeenCalledTimes(2); // no payroll_runs lookup at all
+    });
+  });
+});

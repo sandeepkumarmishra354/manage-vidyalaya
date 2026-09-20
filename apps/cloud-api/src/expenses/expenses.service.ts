@@ -113,11 +113,17 @@ export class ExpensesService {
     return rows.map(toListItem);
   }
 
-  private async findOwned(tenantId: string, id: string) {
+  private async findOwned(tenantId: string, id: string, branchId?: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [id, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const row = await this.db.queryOne<ExpenseRow>(
       tenantId,
-      "SELECT * FROM expenses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [id, tenantId],
+      `SELECT * FROM expenses WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!row) {
       throw new NotFoundException("expense not found");
@@ -125,20 +131,27 @@ export class ExpensesService {
     return row;
   }
 
-  async update(tenantId: string, actorUserId: string, id: string, dto: UpdateExpenseDto) {
-    const existing = await this.findOwned(tenantId, id);
+  async update(tenantId: string, actorUserId: string, id: string, dto: UpdateExpenseDto, branchId?: string | null) {
+    const existing = await this.findOwned(tenantId, id, branchId);
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<ExpenseRow>(client, "expenses", tenantId, id, {
-        category_id: dto.category_id ?? null,
-        description: dto.description,
-        amount: dto.amount,
-        expense_date: new Date(dto.expense_date),
-        payment_mode: dto.payment_mode ?? null,
-        vendor_name: dto.vendor_name ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<ExpenseRow>(
+        client,
+        "expenses",
+        tenantId,
+        id,
+        {
+          category_id: dto.category_id ?? null,
+          description: dto.description,
+          amount: dto.amount,
+          expense_date: new Date(dto.expense_date),
+          payment_mode: dto.payment_mode ?? null,
+          vendor_name: dto.vendor_name ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -154,15 +167,22 @@ export class ExpensesService {
     });
   }
 
-  async remove(tenantId: string, actorUserId: string, id: string) {
-    const existing = await this.findOwned(tenantId, id);
+  async remove(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
+    const existing = await this.findOwned(tenantId, id, branchId);
 
     await this.db.withTransaction(tenantId, async (client) => {
-      await updateRow<ExpenseRow>(client, "expenses", tenantId, id, {
-        deleted_at: new Date(),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<ExpenseRow>(
+        client,
+        "expenses",
+        tenantId,
+        id,
+        {
+          deleted_at: new Date(),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -182,24 +202,31 @@ export class ExpensesService {
     return { ok: true };
   }
 
-  async requestReceiptUploadUrl(tenantId: string, id: string, dto: RequestUploadUrlDto) {
-    await this.findOwned(tenantId, id);
+  async requestReceiptUploadUrl(tenantId: string, id: string, dto: RequestUploadUrlDto, branchId?: string | null) {
+    await this.findOwned(tenantId, id, branchId);
     const ext = sanitizeExtension(dto.file_name);
     const key = `receipt-${randomUUID()}${ext ? `.${ext}` : ""}`;
     const upload = await this.storage.createUploadUrl(key, dto.content_type);
     return { ...upload, storage_key: key };
   }
 
-  async attachReceipt(tenantId: string, actorUserId: string, id: string, storageKey: string) {
-    const existing = await this.findOwned(tenantId, id);
+  async attachReceipt(tenantId: string, actorUserId: string, id: string, storageKey: string, branchId?: string | null) {
+    const existing = await this.findOwned(tenantId, id, branchId);
     const previousKey = existing.receipt_storage_key;
 
     const updated = await this.db.withTransaction(tenantId, (client) =>
-      updateRow<ExpenseRow>(client, "expenses", tenantId, id, {
-        receipt_storage_key: storageKey,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      }),
+      updateRow<ExpenseRow>(
+        client,
+        "expenses",
+        tenantId,
+        id,
+        {
+          receipt_storage_key: storageKey,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      ),
     );
 
     if (previousKey && previousKey !== storageKey) {
@@ -209,8 +236,8 @@ export class ExpensesService {
     return toListItem(updated);
   }
 
-  async getReceiptDownloadUrl(tenantId: string, id: string) {
-    const existing = await this.findOwned(tenantId, id);
+  async getReceiptDownloadUrl(tenantId: string, id: string, branchId?: string | null) {
+    const existing = await this.findOwned(tenantId, id, branchId);
     if (!existing.receipt_storage_key) {
       throw new NotFoundException("no receipt attached to this expense");
     }

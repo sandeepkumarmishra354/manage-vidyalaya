@@ -45,13 +45,13 @@ export class FeeStructuresController {
   @Patch(":id")
   @RequirePermission("fees.manage_structures")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateFeeStructureDto) {
-    return this.feesService.updateFeeStructure(user.tenant_id, user.sub, id, dto);
+    return this.feesService.updateFeeStructure(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Post(":id/generate-invoices")
   @RequirePermission("fees.generate_invoices")
   async generateInvoices(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: GenerateInvoicesDto) {
-    const created = await this.feesService.generateInvoices(user.tenant_id, id, undefined, dto.up_to_period);
+    const created = await this.feesService.generateInvoices(user.tenant_id, id, undefined, dto.up_to_period, user.branch_id);
     return { created };
   }
 
@@ -77,7 +77,7 @@ export class FeeStructuresController {
   @Get(":id/student-assignments")
   @RequirePermission("fees.view")
   listAssignments(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.feesService.listStructureAssignments(user.tenant_id, id);
+    return this.feesService.listStructureAssignments(user.tenant_id, id, user.branch_id);
   }
 }
 
@@ -101,19 +101,19 @@ export class FeeInvoicesController {
   @Get("student/:studentId/summary")
   @RequirePermission("fees.view")
   summary(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.feesService.getStudentFeeSummary(user.tenant_id, studentId);
+    return this.feesService.getStudentFeeSummary(user.tenant_id, studentId, user.branch_id);
   }
 
   @Post(":id/void")
   @RequirePermission("fees.void_invoice")
   void_(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: VoidInvoiceDto) {
-    return this.feesService.voidInvoice(user.tenant_id, user.sub, id, dto.reason);
+    return this.feesService.voidInvoice(user.tenant_id, user.sub, id, dto.reason, user.branch_id);
   }
 
   @Patch(":id")
   @RequirePermission("fees.void_invoice")
   edit(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: EditInvoiceDto) {
-    return this.feesService.editInvoice(user.tenant_id, user.sub, id, dto);
+    return this.feesService.editInvoice(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
@@ -138,31 +138,31 @@ export class FeePaymentsController {
   @Get("receipt/:receiptNumber")
   @RequirePermission("fees.view")
   receipt(@CurrentUser() user: JwtPayload, @Param("receiptNumber") receiptNumber: string) {
-    return this.feesService.getPaymentReceipt(user.tenant_id, receiptNumber);
+    return this.feesService.getPaymentReceipt(user.tenant_id, receiptNumber, user.branch_id);
   }
 
   @Post()
   @RequirePermission("fees.record_payment")
   record(@CurrentUser() user: JwtPayload, @Body() dto: RecordPaymentDto) {
-    return this.feesService.recordPayment(user.tenant_id, user.sub, dto);
+    return this.feesService.recordPayment(user.tenant_id, user.sub, dto, user.branch_id);
   }
 
   @Post("batch")
   @RequirePermission("fees.record_payment")
   recordBatch(@CurrentUser() user: JwtPayload, @Body() dto: RecordPaymentBatchDto) {
-    return this.feesService.recordPaymentBatch(user.tenant_id, user.sub, dto);
+    return this.feesService.recordPaymentBatch(user.tenant_id, user.sub, dto, user.branch_id);
   }
 
   @Post(":id/reverse")
   @RequirePermission("fees.record_payment")
   reverse(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ReversePaymentDto) {
-    return this.feesService.reversePayment(user.tenant_id, user.sub, id, dto.reason);
+    return this.feesService.reversePayment(user.tenant_id, user.sub, id, dto.reason, user.branch_id);
   }
 
   @Patch(":id")
   @RequirePermission("fees.record_payment")
   edit(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: EditPaymentDto) {
-    return this.feesService.editPayment(user.tenant_id, user.sub, id, dto);
+    return this.feesService.editPayment(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
@@ -174,13 +174,13 @@ export class StudentFeeAssignmentsController {
   @Post()
   @RequirePermission("fees.manage_structures")
   create(@CurrentUser() user: JwtPayload, @Body() dto: SetStudentFeeAssignmentDto) {
-    return this.feesService.setStudentFeeAssignment(user.tenant_id, user.sub, dto);
+    return this.feesService.setStudentFeeAssignment(user.tenant_id, user.sub, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("fees.manage_structures")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.feesService.removeStudentFeeAssignment(user.tenant_id, user.sub, id);
+    return this.feesService.removeStudentFeeAssignment(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
@@ -192,6 +192,6 @@ export class StudentFeeAssignmentsQueryController {
   @Get(":id/fee-assignments")
   @RequirePermission("fees.view")
   list(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.feesService.listStudentFeeAssignments(user.tenant_id, id);
+    return this.feesService.listStudentFeeAssignments(user.tenant_id, id, user.branch_id);
   }
 }

@@ -167,4 +167,75 @@ describe("ExpensesService", () => {
       expect(result.url).toBe("http://x");
     });
   });
+
+  // Phase 2: branch-scoped callers must not be able to view/update/delete a
+  // same-tenant expense belonging to a *different* branch by passing its id
+  // directly -- findOwned maps a branch mismatch to NotFoundException,
+  // exactly like a wrong id would.
+  describe("branch isolation (Phase 2)", () => {
+    it("404s updating an expense that belongs to a different branch", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // WHERE ... AND branch_id = $3 filtered it out
+
+      await expect(
+        service.update(
+          "tenant-1",
+          "user-1",
+          "exp-1",
+          { description: "x", amount: 100, expense_date: "2026-04-01" },
+          "branch-mine",
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      const [, text, params] = db.queryOne.mock.calls[0];
+      expect(text).toMatch(/branch_id = \$/);
+      expect(params).toContain("branch-mine");
+    });
+
+    it("updates an expense that belongs to the caller's own branch", async () => {
+      db.queryOne.mockResolvedValueOnce({
+        id: "exp-1",
+        tenant_id: "tenant-1",
+        branch_id: "branch-mine",
+        receipt_storage_key: null,
+      });
+      client.query.mockResolvedValueOnce({
+        rows: [{ id: "exp-1", tenant_id: "tenant-1", branch_id: "branch-mine", description: "x", amount: 100 }],
+      });
+
+      const result = await service.update(
+        "tenant-1",
+        "user-1",
+        "exp-1",
+        { description: "x", amount: 100, expense_date: "2026-04-01" },
+        "branch-mine",
+      );
+      expect(result.id).toBe("exp-1");
+    });
+
+    it("404s removing an expense that belongs to a different branch, without touching storage", async () => {
+      db.queryOne.mockResolvedValueOnce(null);
+
+      await expect(service.remove("tenant-1", "user-1", "exp-1", "branch-mine")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it("404s requesting a receipt download URL for an expense in a different branch", async () => {
+      db.queryOne.mockResolvedValueOnce(null);
+
+      await expect(service.getReceiptDownloadUrl("tenant-1", "exp-1", "branch-mine")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("adds no branch filter for an unscoped caller (branchId null)", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "exp-1", tenant_id: "tenant-1", receipt_storage_key: null });
+
+      await service.getReceiptDownloadUrl("tenant-1", "exp-1", null).catch(() => {});
+
+      const [, text] = db.queryOne.mock.calls[0];
+      expect(text).not.toMatch(/branch_id/);
+    });
+  });
 });
