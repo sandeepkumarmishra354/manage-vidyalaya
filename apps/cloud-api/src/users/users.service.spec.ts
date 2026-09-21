@@ -366,11 +366,13 @@ describe("UsersService", () => {
         client.query
           .mockResolvedValueOnce({ rowCount: 1 }) // target holds roles.manage
           .mockResolvedValueOnce({ rowCount: 1 }) // actor holds it too
-          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", is_active: false }] });
+          .mockResolvedValueOnce({
+            rows: [{ id: "user-1", tenant_id: "tenant-a", full_name: "Super Two", email: "s2@example.com", is_active: false, password_hash: "$2b$10$leaked" }],
+          });
 
         const result = await service.setUserActive("tenant-a", "super-admin-1", "user-1", false);
 
-        expect(result).toEqual({ id: "user-1", tenant_id: "tenant-a", is_active: false });
+        expect(result).toEqual({ id: "user-1", full_name: "Super Two", email: "s2@example.com", is_active: false });
       });
     });
   });
@@ -392,6 +394,30 @@ describe("UsersService", () => {
       expect(sql).toContain("EXISTS");
       expect(sql).toContain("ILIKE");
       expect(params).toEqual(["tenant-a", "role-1", "%jane%"]);
+    });
+  });
+
+  describe("setUserActive response shape", () => {
+    it("never returns password_hash, even though the underlying UPDATE returns the full row", async () => {
+      client.query
+        .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "user-1",
+              tenant_id: "tenant-a",
+              full_name: "Jane Teacher",
+              email: "jane@example.com",
+              is_active: false,
+              password_hash: "$2b$10$shouldneverleave",
+            },
+          ],
+        });
+
+      const result = await service.setUserActive("tenant-a", "actor-1", "user-1", false);
+
+      expect(result).not.toHaveProperty("password_hash");
+      expect(result).toEqual({ id: "user-1", full_name: "Jane Teacher", email: "jane@example.com", is_active: false });
     });
   });
 });

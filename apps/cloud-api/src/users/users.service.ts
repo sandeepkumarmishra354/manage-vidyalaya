@@ -289,7 +289,12 @@ export class UsersService {
         summary: isActive ? "Reactivated user" : "Deactivated user",
       });
 
-      return updated;
+      // `updateRow` returns the full row, including password_hash --
+      // unlike every other users.* endpoint (login/me build an explicit
+      // safe shape, listUsers maps to one too), this was the one spot
+      // still handing the bcrypt hash back over the wire. Trim it down to
+      // the same shape listUsers already exposes.
+      return { id: updated.id, full_name: updated.full_name, email: updated.email, is_active: updated.is_active };
     });
   }
 
