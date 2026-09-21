@@ -3,11 +3,16 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
 test("promoting a student updates their current class and creates a new-session enrollment", async ({ page }) => {
+  // Same accumulation problem as the 15s bump below, but the run's overall
+  // default 30s test timeout can be hit before that inner wait even gets
+  // its full budget once enough past classes have piled up. Give the whole
+  // test more headroom rather than keep chasing this per assertion.
+  test.setTimeout(60_000);
+
   const suffix = Date.now();
   const auth = await loginViaApi(PERSONAS.superAdmin.email, PERSONAS.superAdmin.password);
   const api = await apiContextFor(auth.accessToken);
@@ -39,7 +44,6 @@ test("promoting a student updates their current class and creates a new-session 
   await api.dispose();
 
   await page.goto("/academic-setup");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Promotion" }).click();
 
   await page.getByRole("combobox").filter({ hasText: "Select session" }).first().click();
@@ -48,7 +52,13 @@ test("promoting a student updates their current class and creates a new-session 
   await page.getByRole("option", { name: new RegExp(`E2E Next Session ${suffix}`) }).click();
 
   await page.getByRole("button", { name: "Suggest class mapping" }).click();
-  await expect(page.getByText(new RegExp(`E2E Class ${suffix}`))).toBeVisible();
+  // No cleanup exists for classes created by past runs of this suite (unlike
+  // sessions, which get buried into a non-current session) -- the mapping
+  // table can carry hundreds of accumulated "E2E Class ..." rows, and
+  // rendering that under load can outrun the default 5s timeout even though
+  // the API call itself already returned. Same reasoning as the generous
+  // timeout already used below for "Execute promotion".
+  await expect(page.getByText(new RegExp(`E2E Class ${suffix}`))).toBeVisible({ timeout: 15_000 });
 
   const mappingRow = page.getByRole("row", { name: new RegExp(`E2E Class ${suffix}`) });
   await mappingRow.getByRole("combobox").click();
@@ -68,12 +78,38 @@ test("promoting a student updates their current class and creates a new-session 
   // session's class. listStudents' response is trimmed (class_name only,
   // no raw ids), so fetch the full detail record to check current_class_id.
   const verifyApi = await apiContextFor(auth.accessToken);
-  const listRes = await verifyApi.get(`students?branch_id=${fixture.branchId}&search=${encodeURIComponent(studentName)}`);
-  const [listed] = (await listRes.json()) as { id: string }[];
-  expect(listed).toBeTruthy();
+  try {
+    const listRes = await verifyApi.get(`students?branch_id=${fixture.branchId}&search=${encodeURIComponent(studentName)}`);
+    const [listed] = (await listRes.json()) as { id: string }[];
+    expect(listed).toBeTruthy();
 
-  const detailRes = await verifyApi.get(`students/${listed.id}`);
-  const detail = (await detailRes.json()) as { current_class_id: string | null };
-  expect(detail.current_class_id).toBe(toClassId);
-  await verifyApi.dispose();
+    const detailRes = await verifyApi.get(`students/${listed.id}`);
+    const detail = (await detailRes.json()) as { current_class_id: string | null };
+    expect(detail.current_class_id).toBe(toClassId);
+  } finally {
+    // Soft-delete is a no-op on the FK from students.current_class_id (that
+    // constraint only fires on a real DELETE, not this UPDATE ... SET
+    // deleted_at), so cleaning up here is safe even though the promoted
+    // student still points at toClassId. Without this, every run leaves
+    // both classes behind forever -- the exact accumulation (200+ stale
+    // "E2E Class ..." rows found in this suite's own dev DB) that made the
+    // "Suggest class mapping" step above slow enough to need padded
+    // timeouts in the first place.
+    //
+    // Must clear fixture.sectionId's class-teacher assignment BEFORE
+    // deleting fixture.classId, not after: setupAcademicFixture's own
+    // stale-assignment cleanup (clearExistingClassTeacherAssignment) finds
+    // sections by listing non-deleted classes, so once the class is
+    // soft-deleted its section becomes invisible to that lookup and the
+    // classTeacher persona (QA-CT-01, shared by every test that calls this
+    // fixture) stays permanently "assigned" to a now-orphaned section --
+    // every later run's own class-teacher assignment then 400s with
+    // "already class teacher of another section". Reproduced and confirmed
+    // this exact failure across ~14 unrelated specs after this cleanup
+    // shipped without the line below.
+    await verifyApi.patch(`sections/${fixture.sectionId}/class-teacher`, { data: { staff_id: null } });
+    await verifyApi.delete(`classes/${fixture.classId}`);
+    await verifyApi.delete(`classes/${toClassId}`);
+    await verifyApi.dispose();
+  }
 });

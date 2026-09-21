@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -27,7 +26,6 @@ test("transport: create a route with a stop, assign a student, and see them on t
   const stopName = `E2EStop${suffix}`;
 
   await page.goto("/transport");
-  await switchBranch(page, "North Campus");
 
   await page.getByRole("button", { name: "New route" }).click();
   const newRouteDialog = page.getByRole("dialog", { name: "New route" });

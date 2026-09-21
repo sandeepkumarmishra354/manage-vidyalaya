@@ -9,7 +9,6 @@ import {
   loginViaApi,
 } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("accountant") });
 
@@ -56,7 +55,6 @@ test("invoice lifecycle: generate, partial pay, full pay, reverse, edit, void", 
   expect((await summary()).total_paid).toBe(0);
 
   await page.goto("/fees");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Invoices" }).click();
 
   const invoiceRow = page.getByRole("row", { name: new RegExp(studentName) });
@@ -83,11 +81,13 @@ test("invoice lifecycle: generate, partial pay, full pay, reverse, edit, void", 
   expect((await summary()).total_paid).toBe(500_000);
   expect((await summary()).outstanding).toBe(0);
 
-  // Reverse the second payment (₹3000) via the native prompt.
+  // Reverse the second payment (₹3000) via the native prompt. The list is
+  // sorted payment_date DESC (fees.service.ts's listPayments), so the most
+  // recently recorded payment -- this one -- is first, not last.
   await page.getByRole("tab", { name: "Payments" }).click();
   page.once("dialog", (dialog) => dialog.accept("no longer valid"));
   const paymentRows = page.getByRole("row", { name: new RegExp(studentName) });
-  await paymentRows.last().getByRole("button").last().click();
+  await paymentRows.first().getByRole("button").last().click();
 
   await expect(async () => {
     expect((await summary()).outstanding).toBe(300_000);

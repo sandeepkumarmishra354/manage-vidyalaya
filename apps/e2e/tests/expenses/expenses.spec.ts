@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 
 import { authFilePath } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("accountant") });
 
@@ -10,7 +9,6 @@ test("expense CRUD: add with receipt, appears in list and summary, then delete",
   const description = `E2EExpense${suffix}`;
 
   await page.goto("/expenses");
-  await switchBranch(page, "North Campus");
 
   await page.getByRole("button", { name: "Add expense" }).click();
   const dialog = page.getByRole("dialog", { name: "Add expense" });

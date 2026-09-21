@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -28,7 +27,6 @@ test("houses: assign a student to a house, award points, and see the leaderboard
   await api.dispose();
 
   await page.goto(`/students/${studentId}`);
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Academic" }).click();
 
   await page.getByRole("combobox").filter({ hasText: "Assign a house" }).click();
@@ -36,7 +34,6 @@ test("houses: assign a student to a house, award points, and see the leaderboard
   await expect(page.getByText(houseName).first()).toBeVisible();
 
   await page.goto("/houses");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Points" }).click();
 
   await page.getByRole("combobox").filter({ hasText: "Select house" }).click();

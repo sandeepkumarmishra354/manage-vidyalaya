@@ -267,33 +267,42 @@ describe("TimetableService.createPeriodSlot", () => {
     service = new TimetableService(db, audit, makeScopedAccessMock(), makeSchoolCalendarMock());
   });
 
-  it("assigns sort_order from the current count of non-deleted slots", async () => {
-    db.queryOne.mockResolvedValueOnce({ count: "1" }); // count
-    client.query.mockResolvedValueOnce({ rows: [{ id: "slot-2", tenant_id: "tenant-1", ...baseDto, sort_order: 1, period_type: "teaching" }] }); // insert
+  it("assigns sort_order from one past the highest sort_order ever used (not a count of survivors)", async () => {
+    db.queryOne.mockResolvedValueOnce({ max_sort_order: 5 }); // max, including soft-deleted rows
+    client.query.mockResolvedValueOnce({ rows: [{ id: "slot-2", tenant_id: "tenant-1", ...baseDto, sort_order: 6, period_type: "teaching" }] }); // insert
 
     const result = await service.createPeriodSlot("tenant-1", "actor-1", baseDto);
 
     const insertCall = client.query.mock.calls[0];
-    expect(insertCall[1]).toContain(1);
-    expect(result.sort_order).toBe(1);
+    expect(insertCall[1]).toContain(6);
+    expect(result.sort_order).toBe(6);
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
-  it("retries with the next sort_order on a unique-constraint clash (stale count or a soft-deleted slot's old value)", async () => {
-    db.queryOne.mockResolvedValueOnce({ count: "1" }); // count
-    client.query
-      .mockRejectedValueOnce(uniqueViolationError())
-      .mockRejectedValueOnce(uniqueViolationError())
-      .mockResolvedValueOnce({ rows: [{ id: "slot-2", tenant_id: "tenant-1", ...baseDto, sort_order: 3, period_type: "teaching" }] });
+  it("starts at 0 when no period slots (including soft-deleted ones) exist yet", async () => {
+    db.queryOne.mockResolvedValueOnce({ max_sort_order: null });
+    client.query.mockResolvedValueOnce({ rows: [{ id: "slot-1", tenant_id: "tenant-1", ...baseDto, sort_order: 0, period_type: "teaching" }] });
 
     const result = await service.createPeriodSlot("tenant-1", "actor-1", baseDto);
 
-    expect(result.sort_order).toBe(3);
+    expect(result.sort_order).toBe(0);
+  });
+
+  it("retries with the next sort_order on a unique-constraint clash (a genuine concurrent insert)", async () => {
+    db.queryOne.mockResolvedValueOnce({ max_sort_order: 5 });
+    client.query
+      .mockRejectedValueOnce(uniqueViolationError())
+      .mockRejectedValueOnce(uniqueViolationError())
+      .mockResolvedValueOnce({ rows: [{ id: "slot-2", tenant_id: "tenant-1", ...baseDto, sort_order: 8, period_type: "teaching" }] });
+
+    const result = await service.createPeriodSlot("tenant-1", "actor-1", baseDto);
+
+    expect(result.sort_order).toBe(8);
     expect(client.query).toHaveBeenCalledTimes(3);
   });
 
   it("propagates a non-unique-constraint error immediately without retrying", async () => {
-    db.queryOne.mockResolvedValueOnce({ count: "0" });
+    db.queryOne.mockResolvedValueOnce({ max_sort_order: null });
     const otherError = new Error("connection lost");
     client.query.mockRejectedValueOnce(otherError);
 
@@ -302,7 +311,7 @@ describe("TimetableService.createPeriodSlot", () => {
   });
 
   it("gives up with a ConflictException once every attempt clashes", async () => {
-    db.queryOne.mockResolvedValueOnce({ count: "0" });
+    db.queryOne.mockResolvedValueOnce({ max_sort_order: null });
     client.query.mockRejectedValue(uniqueViolationError());
 
     await expect(service.createPeriodSlot("tenant-1", "actor-1", baseDto)).rejects.toBeInstanceOf(ConflictException);

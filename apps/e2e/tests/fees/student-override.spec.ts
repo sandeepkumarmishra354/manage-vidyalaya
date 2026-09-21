@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("accountant") });
 
@@ -62,7 +61,6 @@ test("including a student in a session-unscoped fee structure via override does 
   // fails and throws -- an assertion failure must never skip cleanup.
   try {
     await page.goto("/fees");
-    await switchBranch(page, "North Campus");
     await page.getByRole("tab", { name: "Fee Structures" }).click();
 
     const structureRow = page.getByRole("row", { name: new RegExp(structureName) });
@@ -80,8 +78,13 @@ test("including a student in a session-unscoped fee structure via override does 
     await dialog.getByRole("button", { name: "Add" }).click();
 
     // The bug manifested as an unhandled 500 -- the dialog's error state
-    // would render this exact text instead of the assignment succeeding.
-    await expect(dialog.getByText(/error|failed|500/i)).not.toBeVisible();
+    // renders a `p.text-destructive` with the error text instead of the
+    // assignment succeeding. Scoped to that element specifically (not a
+    // broad text regex over the whole dialog): the still-open student
+    // <select>'s options list every previously-created test student, whose
+    // Date.now()-based names can coincidentally contain "500" and falsely
+    // match a loose /error|failed|500/i search.
+    await expect(dialog.locator("p.text-destructive")).not.toBeVisible();
     await expect(dialog.getByText(studentName).first()).toBeVisible();
     await expect(dialog.getByText("include", { exact: true })).toBeVisible();
 

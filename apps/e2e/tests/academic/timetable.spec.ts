@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 // branch_admin holds timetable.manage.
 test.use({ storageState: authFilePath("branchAdmin") });
@@ -13,7 +12,6 @@ test.describe("timetable", () => {
     const suffix = Date.now();
 
     await page.goto("/timetable");
-    await switchBranch(page, "North Campus");
     await page.getByRole("tab", { name: "Manage Periods" }).click();
 
     for (const name of [`E2EPeriod${suffix}A`, `E2EPeriod${suffix}B`]) {
@@ -33,7 +31,6 @@ test.describe("timetable", () => {
     const secondName = `E2EPeriodDel${suffix}B`;
 
     await page.goto("/timetable");
-    await switchBranch(page, "North Campus");
     await page.getByRole("tab", { name: "Manage Periods" }).click();
 
     await page.getByLabel("Name").fill(firstName);
@@ -104,7 +101,6 @@ test.describe("timetable", () => {
     // renders the assignment, proving the save flowed through to the read
     // path too, not just the write.
     await page.goto("/timetable");
-    await switchBranch(page, "North Campus");
     await page.getByRole("tab", { name: "Grid Editor" }).click();
     await page.getByRole("combobox").filter({ hasText: "Select class" }).click();
     await page.getByRole("option", { name: new RegExp(`E2E Class ${suffix}`) }).click();

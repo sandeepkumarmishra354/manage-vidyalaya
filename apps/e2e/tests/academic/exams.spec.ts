@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 // The subject teacher persona has no flat exams.enter_marks... it does
 // hold exams.enter_marks (part of the `teacher` role), but is only
@@ -36,7 +35,6 @@ test("a subject-assigned teacher can enter marks for their own subject", async (
   await api.dispose();
 
   await page.goto("/exams");
-  await switchBranch(page, "North Campus");
   await page.getByText(examName).click();
 
   await page.getByRole("tab", { name: "Enter marks" }).click();
