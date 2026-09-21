@@ -78,12 +78,25 @@ test("promoting a student updates their current class and creates a new-session 
   // session's class. listStudents' response is trimmed (class_name only,
   // no raw ids), so fetch the full detail record to check current_class_id.
   const verifyApi = await apiContextFor(auth.accessToken);
-  const listRes = await verifyApi.get(`students?branch_id=${fixture.branchId}&search=${encodeURIComponent(studentName)}`);
-  const [listed] = (await listRes.json()) as { id: string }[];
-  expect(listed).toBeTruthy();
+  try {
+    const listRes = await verifyApi.get(`students?branch_id=${fixture.branchId}&search=${encodeURIComponent(studentName)}`);
+    const [listed] = (await listRes.json()) as { id: string }[];
+    expect(listed).toBeTruthy();
 
-  const detailRes = await verifyApi.get(`students/${listed.id}`);
-  const detail = (await detailRes.json()) as { current_class_id: string | null };
-  expect(detail.current_class_id).toBe(toClassId);
-  await verifyApi.dispose();
+    const detailRes = await verifyApi.get(`students/${listed.id}`);
+    const detail = (await detailRes.json()) as { current_class_id: string | null };
+    expect(detail.current_class_id).toBe(toClassId);
+  } finally {
+    // Soft-delete is a no-op on the FK from students.current_class_id (that
+    // constraint only fires on a real DELETE, not this UPDATE ... SET
+    // deleted_at), so cleaning up here is safe even though the promoted
+    // student still points at toClassId. Without this, every run leaves
+    // both classes behind forever -- the exact accumulation (200+ stale
+    // "E2E Class ..." rows found in this suite's own dev DB) that made the
+    // "Suggest class mapping" step above slow enough to need padded
+    // timeouts in the first place.
+    await verifyApi.delete(`classes/${fixture.classId}`);
+    await verifyApi.delete(`classes/${toClassId}`);
+    await verifyApi.dispose();
+  }
 });
