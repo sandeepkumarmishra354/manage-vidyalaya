@@ -56,19 +56,22 @@ export class AcademicService {
   // to add a branch at all; only scripts/create-tenant.ts created the
   // first one, by hand.
   async createBranch(tenantId: string, actorUserId: string, dto: CreateBranchDto) {
-    const [{ count }] = await this.db.query<{ count: string }>(
-      tenantId,
-      "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
-      [tenantId],
-    );
-    await this.planLimits.assertUnderLimit(
-      tenantId,
-      "max_branches",
-      Number(count),
-      "This school's plan allows at most that many branches.",
-    );
+    // Count + insert share one locked transaction (withTenantLock) rather
+    // than two separate ones -- a plain count-then-insert across disjoint
+    // transactions lets two concurrent requests both read the same
+    // pre-insert count and both pass, exceeding max_branches.
+    return this.db.withTenantLock(tenantId, "max_branches", async (client) => {
+      const countResult = await client.query<{ count: string }>(
+        "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
+        [tenantId],
+      );
+      await this.planLimits.assertUnderLimit(
+        tenantId,
+        "max_branches",
+        Number(countResult.rows[0]?.count ?? 0),
+        "This school's plan allows at most that many branches.",
+      );
 
-    return this.db.withTransaction(tenantId, async (client) => {
       let branch: BranchRow;
       try {
         branch = await insertRow<BranchRow>(client, "branches", tenantId, {

@@ -80,34 +80,39 @@ export class TenantsService {
 
   private async getUsageCounts(tenantId: string): Promise<UsageCounts> {
     return this.db.withTenant(tenantId, async (client) => {
-      const [branches, superAdmins, branchAdmins, students, staff] = await Promise.all([
-        client.query<{ count: string }>(
-          "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
-          [tenantId],
-        ),
-        client.query<{ count: string }>(
-          `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
-           JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
-           JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
-           WHERE ur.tenant_id = $1 AND r.name = 'super_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
-          [tenantId],
-        ),
-        client.query<{ count: string }>(
-          `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
-           JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
-           JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
-           WHERE ur.tenant_id = $1 AND r.name = 'branch_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
-          [tenantId],
-        ),
-        client.query<{ count: string }>(
-          "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
-          [tenantId],
-        ),
-        client.query<{ count: string }>(
-          "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
-          [tenantId],
-        ),
-      ]);
+      // Sequential, not Promise.all -- these all run on the one PoolClient
+      // withTenant hands back, and a single pg connection can't service
+      // concurrent queries (unlike cloud-api's identical-shaped
+      // PlanLimitsService.getPlanUsage, which calls this.db.query(tenantId,
+      // ...) per query, each opening its own separate connection). Firing
+      // them concurrently here only ever appeared to work via a deprecated
+      // internal pg queue slated for removal in pg@9.
+      const branches = await client.query<{ count: string }>(
+        "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
+        [tenantId],
+      );
+      const superAdmins = await client.query<{ count: string }>(
+        `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+         JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
+         WHERE ur.tenant_id = $1 AND r.name = 'super_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
+        [tenantId],
+      );
+      const branchAdmins = await client.query<{ count: string }>(
+        `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+         JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
+         WHERE ur.tenant_id = $1 AND r.name = 'branch_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
+        [tenantId],
+      );
+      const students = await client.query<{ count: string }>(
+        "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
+        [tenantId],
+      );
+      const staff = await client.query<{ count: string }>(
+        "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
+        [tenantId],
+      );
       return {
         branches: Number(branches.rows[0]?.count ?? 0),
         super_admins: Number(superAdmins.rows[0]?.count ?? 0),

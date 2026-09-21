@@ -17,12 +17,14 @@ function makeDbMock() {
   const client: FakeClient = { query: vi.fn() };
   const db = {
     withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    withTenantLock: vi.fn(async (_tenantId: string, _lockKey: string, fn: (client: FakeClient) => unknown) => fn(client)),
     query: vi.fn(),
     queryOne: vi.fn(),
   } as unknown as DbService & {
     query: ReturnType<typeof vi.fn>;
     queryOne: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
+    withTenantLock: ReturnType<typeof vi.fn>;
   };
   return { db, client };
 }
@@ -68,11 +70,27 @@ function uniqueViolationError() {
 // control statements, and to cycle through `outcomes` in order for every
 // other (real) query -- matching confirmAdmission's SAVEPOINT-per-attempt
 // retry loop.
-function scriptClientQueries(client: FakeClient, outcomes: Array<"ok" | "conflict">) {
+// enrolledCount/sequenceCount: confirmAdmission's max_students headcount
+// check and admission-number sequence count now both run as client.query
+// calls (inside the locked transaction), before the SAVEPOINT-wrapped
+// retry loop -- matched here by SQL text so they don't consume an entry
+// from `outcomes`, which is reserved for the UPDATE attempts themselves.
+function scriptClientQueries(
+  client: FakeClient,
+  outcomes: Array<"ok" | "conflict">,
+  counts: { enrolledCount?: number; sequenceCount?: number } = {},
+) {
+  const { enrolledCount = 5, sequenceCount = 0 } = counts;
   let i = 0;
   client.query.mockImplementation(async (text: unknown) => {
     if (typeof text === "string" && /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) {
       return { rows: [] };
+    }
+    if (typeof text === "string" && text.includes("status = 'enrolled'")) {
+      return { rows: [{ count: String(enrolledCount) }] };
+    }
+    if (typeof text === "string" && text.includes("admission_number LIKE")) {
+      return { rows: [{ count: String(sequenceCount) }] };
     }
     const outcome = outcomes[i++];
     if (outcome === "conflict") {
@@ -121,10 +139,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("assigns branch+year-scoped sequential number 0001 when no prior students exist", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
-    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
-    scriptClientQueries(client, ["ok", "ok"]);
+    scriptClientQueries(client, ["ok", "ok"], { enrolledCount: 5, sequenceCount: 0 });
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
@@ -135,10 +151,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("continues the sequence from the existing count", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
-    db.query.mockResolvedValueOnce([{ count: "41" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
-    scriptClientQueries(client, ["ok", "ok"]);
+    scriptClientQueries(client, ["ok", "ok"], { enrolledCount: 5, sequenceCount: 41 });
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
@@ -148,10 +162,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("retries with the next sequence number on a unique-constraint clash (same-request race)", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
-    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
-    scriptClientQueries(client, ["conflict", "conflict", "ok", "ok"]);
+    scriptClientQueries(client, ["conflict", "conflict", "ok", "ok"], { enrolledCount: 5, sequenceCount: 0 });
 
     const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
@@ -161,12 +173,13 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("propagates a non-unique-constraint error immediately without retrying", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
-    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     const otherError = new Error("connection lost");
     client.query.mockImplementation(async (text: unknown) => {
       if (typeof text === "string" && /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) {
         return { rows: [] };
+      }
+      if (typeof text === "string" && text.includes("status = 'enrolled'")) {
+        return { rows: [{ count: "5" }] };
       }
       throw otherError;
     });
@@ -179,12 +192,12 @@ describe("StudentsService.confirmAdmission", () => {
     const planLimits = makePlanLimitsMock();
     planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
     const limitedService = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), makeStorageMock(), planLimits as any);
-    db.query.mockResolvedValueOnce([{ count: "2000" }]); // at the plan's limit
+    client.query.mockResolvedValueOnce({ rows: [{ count: "2000" }] }); // at the plan's limit
 
     await expect(limitedService.confirmAdmission("tenant-a", "actor-1", "admission-1", null)).rejects.toThrow(
       "plan limit reached",
     );
-    expect(db.query).toHaveBeenCalledTimes(1); // never reaches the admission-number sequence query
+    expect(client.query).toHaveBeenCalledTimes(1); // never reaches the admission-number sequence query
   });
 });
 
@@ -638,30 +651,87 @@ describe("StudentsService branch isolation", () => {
     const dto = { first_name: "Ravi" } as UpdateStudentDto;
 
     it("folds a branch_id condition into the UPDATE when the caller is branch-scoped", async () => {
-      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a", status: "enrolled" }] }) // pre-fetch
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] }); // update
 
       await service.updateStudent("tenant-a", "actor-1", "student-1", dto, "branch-1");
 
-      const [sql, params] = client.query.mock.calls[0];
+      const [sql, params] = client.query.mock.calls[1];
       expect(sql).toContain("branch_id = $");
       expect(params).toContain("branch-1");
     });
 
-    it("throws NotFoundException when the row is outside the caller's branch (updateRow finds no match)", async () => {
-      client.query.mockResolvedValueOnce({ rows: [] });
+    it("throws NotFoundException when the row is outside the caller's branch (pre-fetch finds no match)", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // pre-fetch
 
       await expect(
         service.updateStudent("tenant-a", "actor-1", "student-1", dto, "branch-1"),
       ).rejects.toBeInstanceOf(NotFoundException);
+      expect(client.query).toHaveBeenCalledTimes(1); // never reaches the UPDATE
     });
 
     it("succeeds without a branch_id condition for an unscoped caller", async () => {
-      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a", status: "enrolled" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
 
       await service.updateStudent("tenant-a", "actor-1", "student-1", dto, null);
 
-      const [sql] = client.query.mock.calls[0];
+      const [sql] = client.query.mock.calls[1];
       expect(sql).not.toContain("branch_id");
+    });
+
+    it("re-checks max_students when setting status back to 'enrolled' from a non-enrolled state", async () => {
+      const planLimits = makePlanLimitsMock();
+      planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
+      const limitedService = new StudentsService(
+        db,
+        makeAuditMock(),
+        makeFeesMock(),
+        new QrTokenService(),
+        makeStorageMock(),
+        planLimits as any,
+      );
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a", status: "withdrawn" }] }) // pre-fetch
+        .mockResolvedValueOnce({ rows: [{ count: "2000" }] }); // headcount check, at the plan's limit
+
+      await expect(
+        limitedService.updateStudent(
+          "tenant-a",
+          "actor-1",
+          "student-1",
+          { ...dto, status: "enrolled" } as UpdateStudentDto,
+          null,
+        ),
+      ).rejects.toThrow("plan limit reached");
+      expect(client.query).toHaveBeenCalledTimes(2); // pre-fetch + count, never reaches the UPDATE
+    });
+
+    it("does not re-check max_students for a status change that isn't a transition into 'enrolled'", async () => {
+      const planLimits = makePlanLimitsMock();
+      const unlimitedService = new StudentsService(
+        db,
+        makeAuditMock(),
+        makeFeesMock(),
+        new QrTokenService(),
+        makeStorageMock(),
+        planLimits as any,
+      );
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a", status: "enrolled" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+
+      await unlimitedService.updateStudent(
+        "tenant-a",
+        "actor-1",
+        "student-1",
+        { ...dto, status: "withdrawn" } as UpdateStudentDto,
+        null,
+      );
+
+      expect(planLimits.assertUnderLimit).not.toHaveBeenCalled();
     });
   });
 

@@ -15,12 +15,14 @@ function makeDbMock() {
   const client: FakeClient = { query: vi.fn() };
   const db = {
     withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    withTenantLock: vi.fn(async (_tenantId: string, _lockKey: string, fn: (client: FakeClient) => unknown) => fn(client)),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn(),
   } as unknown as DbService & {
     query: ReturnType<typeof vi.fn>;
     queryOne: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
+    withTenantLock: ReturnType<typeof vi.fn>;
   };
   return { db, client };
 }
@@ -209,44 +211,44 @@ describe("StaffService.createStaff", () => {
   });
 
   it("uses the supplied employee_code as-is without touching branch/count", async () => {
-    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
+    client.query.mockResolvedValueOnce({ rows: [{ count: "3" }] }); // active-staff headcount check, now inside insertStaff's locked tx
 
     await service.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, employee_code: "CUSTOM-1" });
 
     expect(db.queryOne).not.toHaveBeenCalled();
-    expect(db.query).toHaveBeenCalledTimes(1); // just the headcount check -- branch/count lookup is skipped
-    const [, params] = client.query.mock.calls[0];
+    expect(db.query).not.toHaveBeenCalled(); // branch/count lookup is skipped; headcount check runs via client.query instead
+    const [, params] = client.query.mock.calls[1]; // [0] is the headcount count, [1] is the insert
     expect(params).toContain("CUSTOM-1");
   });
 
   it("auto-generates {branch code}-{count+1} when employee_code is blank", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
     db.query.mockResolvedValueOnce([{ count: "7" }]); // branch employee-code sequence
+    client.query.mockResolvedValueOnce({ rows: [{ count: "3" }] }); // active-staff headcount check
 
     await service.createStaff("tenant-1", "actor-1", baseCreateStaffDto);
 
-    const [, params] = client.query.mock.calls[0];
+    const [, params] = client.query.mock.calls[1];
     expect(params).toContain("MAIN-0008");
   });
 
   it("retries with the next sequence number on a unique-constraint clash", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
     db.query.mockResolvedValueOnce([{ count: "7" }]); // branch employee-code sequence
     client.query
-      .mockRejectedValueOnce(uniqueViolationError())
-      .mockResolvedValueOnce({ rows: [{ id: "staff-1", employee_code: "MAIN-0009" }] });
+      .mockResolvedValueOnce({ rows: [{ count: "3" }] }) // headcount check, attempt 1
+      .mockRejectedValueOnce(uniqueViolationError()) // insert, attempt 1
+      .mockResolvedValueOnce({ rows: [{ count: "3" }] }) // headcount check, attempt 2
+      .mockResolvedValueOnce({ rows: [{ id: "staff-1", employee_code: "MAIN-0009" }] }); // insert, attempt 2
 
     const result = await service.createStaff("tenant-1", "actor-1", baseCreateStaffDto);
 
     expect(result).toEqual({ id: "staff-1", employee_code: "MAIN-0009" });
-    expect(client.query.mock.calls[0][1]).toContain("MAIN-0008");
-    expect(client.query.mock.calls[1][1]).toContain("MAIN-0009");
+    expect(client.query.mock.calls[1][1]).toContain("MAIN-0008");
+    expect(client.query.mock.calls[3][1]).toContain("MAIN-0009");
   });
 
   it("404s when the target branch doesn't exist in this tenant", async () => {
-    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
     db.queryOne.mockResolvedValueOnce(null);
 
     await expect(service.createStaff("tenant-1", "actor-1", baseCreateStaffDto)).rejects.toBeInstanceOf(
@@ -267,12 +269,12 @@ describe("StaffService.createStaff", () => {
     const planLimits = makePlanLimitsMock();
     planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
     const limitedService = new StaffService(db, audit, new QrTokenService(), makeStorageMock(), planLimits as any);
-    db.query.mockResolvedValueOnce([{ count: "30" }]); // at the plan's limit
+    client.query.mockResolvedValueOnce({ rows: [{ count: "30" }] }); // at the plan's limit
 
     await expect(
       limitedService.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, employee_code: "CUSTOM-1" }),
     ).rejects.toThrow("plan limit reached");
-    expect(client.query).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1); // only the count, never the insert
   });
 });
 
@@ -546,30 +548,61 @@ describe("StaffService branch isolation", () => {
 
   describe("setStaffStatus", () => {
     it("folds a branch_id condition into the UPDATE when branch-scoped", async () => {
-      client.query.mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a", status: "active" }] }) // pre-fetch
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] }); // update
 
       await service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, "branch-1");
 
-      const [sql, params] = client.query.mock.calls[0];
+      const [sql, params] = client.query.mock.calls[1];
       expect(sql).toContain("branch_id = $");
       expect(params).toContain("branch-1");
     });
 
     it("throws NotFoundException for a different-branch staff member", async () => {
-      client.query.mockResolvedValueOnce({ rows: [] });
+      client.query.mockResolvedValueOnce({ rows: [] }); // pre-fetch finds nothing
 
       await expect(
         service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, "branch-1"),
       ).rejects.toBeInstanceOf(NotFoundException);
+      expect(client.query).toHaveBeenCalledTimes(1); // never reaches the UPDATE
     });
 
     it("succeeds without a branch_id condition for an unscoped caller", async () => {
-      client.query.mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a", status: "active" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
 
       await service.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "inactive" }, null);
 
-      const [sql] = client.query.mock.calls[0];
+      const [sql] = client.query.mock.calls[1];
       expect(sql).not.toContain("branch_id");
+    });
+
+    it("re-checks max_staff when reactivating a relieved staff member", async () => {
+      const planLimits = makePlanLimitsMock();
+      planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
+      const limitedService = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock(), planLimits as any);
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a", status: "relieved" }] }) // pre-fetch
+        .mockResolvedValueOnce({ rows: [{ count: "30" }] }); // headcount check, at the plan's limit
+
+      await expect(
+        limitedService.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "active" }, null),
+      ).rejects.toThrow("plan limit reached");
+      expect(client.query).toHaveBeenCalledTimes(2); // pre-fetch + count, never reaches the UPDATE
+    });
+
+    it("does not re-check max_staff for a transition that doesn't cross into the counted set", async () => {
+      const planLimits = makePlanLimitsMock();
+      const unlimitedService = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock(), planLimits as any);
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a", status: "active" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "staff-1", tenant_id: "tenant-a" }] });
+
+      await unlimitedService.setStaffStatus("tenant-a", "actor-1", "staff-1", { status: "on_leave" }, null);
+
+      expect(planLimits.assertUnderLimit).not.toHaveBeenCalled();
     });
   });
 

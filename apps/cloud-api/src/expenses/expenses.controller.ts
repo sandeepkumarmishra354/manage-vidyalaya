@@ -4,7 +4,9 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { BranchScopeGuard } from "../common/branch-scope.guard.js";
+import { ModuleAccessGuard } from "../common/module-access.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
+import { RequireModule } from "../common/require-module.decorator.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { RequestUploadUrlDto } from "../documents/dto/request-upload-url.dto.js";
 import { AttachReceiptDto } from "./dto/attach-receipt.dto.js";
@@ -13,7 +15,8 @@ import { UpdateExpenseDto } from "./dto/update-expense.dto.js";
 import { ExpensesService } from "./expenses.service.js";
 
 @Controller("expenses")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("expenses")
 export class ExpensesController {
   constructor(private readonly expenses: ExpensesService) {}
 

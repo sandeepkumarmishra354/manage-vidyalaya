@@ -219,7 +219,14 @@ export class UsersService {
     roleId: string,
     branchId?: string | null,
   ) {
-    await this.db.withTransaction(tenantId, async (client) => {
+    // Locked (withTenantLock) rather than a plain transaction -- the lock
+    // is acquired as the very first statement, before
+    // assertUnderRoleHeadcountLimit's own "already assigned" pre-check, so
+    // two concurrent grants of the same role to two different users can't
+    // both pass that check and both pass the headcount count before either
+    // commits (the TOCTOU window a plain same-transaction check alone
+    // doesn't close under READ COMMITTED).
+    await this.db.withTenantLock(tenantId, "admin_headcount", async (client) => {
       // A user cannot change their own role assignments -- self-service
       // escalation (granting yourself a broader role) and self-service
       // demotion (accidentally locking yourself out) both go through

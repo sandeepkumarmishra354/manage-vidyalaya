@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
 
 import { DbService } from "../db/db.service.js";
+import type { ToggleableModule } from "./permission-catalog.js";
 import { PLAN_LIMITS, type PlanLimits, type PlanTier } from "./plan-catalog.js";
 
 interface TenantPlanRow {
@@ -124,6 +125,40 @@ export class PlanLimitsService {
         staff: { count: Number(staff[0]?.count ?? 0), limit: limits.max_staff },
       },
     };
+  }
+
+  // Which toggleable modules the tenant's plan tier makes available at all
+  // -- the ceiling ModuleSettingsService.getModuleSettings intersects with
+  // the tenant's own per-branch module_settings toggle. Factored out here
+  // (rather than duplicated) so isModuleEnabled below and
+  // ModuleAccessGuard can share it without a circular dependency on
+  // ModuleSettingsService.
+  async getEligibleModules(tenantId: string): Promise<Set<ToggleableModule>> {
+    const tier = await this.getPlanTier(tenantId);
+    return new Set(PLAN_LIMITS[tier].modules);
+  }
+
+  // Backend enforcement gate for ModuleAccessGuard -- mirrors
+  // getModuleSettings's own eligible-tier-AND-branch-toggle logic exactly,
+  // so a module hidden from the nav is also actually blocked at the API.
+  // `branchId: null` means "tenant-wide caller, no branch context" -- in
+  // that case only the tier ceiling is checked (a Silver tenant's
+  // `modules: []` already blocks everything regardless of branch), since
+  // there's no single branch's module_settings row to consult.
+  async isModuleEnabled(tenantId: string, branchId: string | null, moduleKey: ToggleableModule): Promise<boolean> {
+    const eligible = await this.getEligibleModules(tenantId);
+    if (!eligible.has(moduleKey)) {
+      return false;
+    }
+    if (!branchId) {
+      return true;
+    }
+    const row = await this.db.queryOne<{ is_enabled: boolean }>(
+      tenantId,
+      "SELECT is_enabled FROM module_settings WHERE tenant_id = $1 AND branch_id = $2 AND module_key = $3 AND deleted_at IS NULL",
+      [tenantId, branchId, moduleKey],
+    );
+    return row?.is_enabled ?? true;
   }
 
   async getTenantPlanRow(tenantId: string): Promise<TenantPlanRow> {

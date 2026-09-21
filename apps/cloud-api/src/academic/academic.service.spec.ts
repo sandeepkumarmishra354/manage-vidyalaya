@@ -13,12 +13,14 @@ function makeDbMock() {
   const client: FakeClient = { query: vi.fn() };
   const db = {
     withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    withTenantLock: vi.fn(async (_tenantId: string, _lockKey: string, fn: (client: FakeClient) => unknown) => fn(client)),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn(),
   } as unknown as DbService & {
     query: ReturnType<typeof vi.fn>;
     queryOne: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
+    withTenantLock: ReturnType<typeof vi.fn>;
   };
   return { db, client };
 }
@@ -181,8 +183,9 @@ describe("AcademicService.createBranch", () => {
   it("creates a branch once the plan's limit allows it", async () => {
     const planLimits = { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
     const service = new AcademicService(db, audit, planLimits as any);
-    db.query.mockResolvedValueOnce([{ count: "1" }]);
-    client.query.mockResolvedValueOnce({ rows: [{ id: "branch-new", tenant_id: "tenant-1", name: "North Campus" }] });
+    client.query
+      .mockResolvedValueOnce({ rows: [{ count: "1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "branch-new", tenant_id: "tenant-1", name: "North Campus" }] });
 
     const result = await service.createBranch("tenant-1", "actor-1", dto);
 
@@ -194,16 +197,16 @@ describe("AcademicService.createBranch", () => {
   it("rejects once the plan's branch limit is reached, before ever inserting", async () => {
     const planLimits = { assertUnderLimit: vi.fn().mockRejectedValueOnce(new Error("plan limit reached")) };
     const service = new AcademicService(db, audit, planLimits as any);
-    db.query.mockResolvedValueOnce([{ count: "5" }]);
+    client.query.mockResolvedValueOnce({ rows: [{ count: "5" }] });
 
     await expect(service.createBranch("tenant-1", "actor-1", dto)).rejects.toThrow("plan limit reached");
-    expect(client.query).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1); // only the count, never the insert
   });
 
   it("turns a duplicate branch code into a ConflictException", async () => {
     const planLimits = { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
     const service = new AcademicService(db, audit, planLimits as any);
-    db.query.mockResolvedValueOnce([{ count: "1" }]);
+    client.query.mockResolvedValueOnce({ rows: [{ count: "1" }] });
     const err = new Error('duplicate key value violates unique constraint "branches_tenant_id_code_key"') as Error & {
       code: string;
     };

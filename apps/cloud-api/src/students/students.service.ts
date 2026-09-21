@@ -764,30 +764,35 @@ export class StudentsService {
     if (!branch) {
       throw new NotFoundException("branch not found");
     }
-    const enrolledCountRows = await this.db.query<{ count: string }>(
-      tenantId,
-      "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
-      [tenantId],
-    );
-    await this.planLimits.assertUnderLimit(
-      tenantId,
-      "max_students",
-      Number(enrolledCountRows[0]?.count ?? 0),
-      "This school's plan allows at most that many enrolled students.",
-    );
-
     const year = new Date().getUTCFullYear().toString();
     const prefix = `${branch.code}-${year}-`;
-
-    const [{ count }] = await this.db.query<{ count: string }>(
-      tenantId,
-      "SELECT count(*) FROM students WHERE tenant_id = $1 AND admission_number LIKE $2",
-      [tenantId, `${prefix}%`],
-    );
-    let nextSeq = Number(count) + 1;
     let admissionNumber: string | undefined;
 
-    await this.db.withTransaction(tenantId, async (client) => {
+    // max_students count + assertUnderLimit run as the very first thing
+    // inside this locked transaction (withTenantLock), before ever
+    // allocating an admission number -- not as a separate pre-check in a
+    // disjoint transaction, which closes the TOCTOU window where two
+    // concurrent admissions could both read the same pre-update count and
+    // both pass, exceeding max_students. The admission-number sequence
+    // count moves into the same transaction too, for the same reason.
+    await this.db.withTenantLock(tenantId, "max_students", async (client) => {
+      const enrolledCountRows = await client.query<{ count: string }>(
+        "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
+        [tenantId],
+      );
+      await this.planLimits.assertUnderLimit(
+        tenantId,
+        "max_students",
+        Number(enrolledCountRows.rows[0]?.count ?? 0),
+        "This school's plan allows at most that many enrolled students.",
+      );
+
+      const sequenceCountRows = await client.query<{ count: string }>(
+        "SELECT count(*) FROM students WHERE tenant_id = $1 AND admission_number LIKE $2",
+        [tenantId, `${prefix}%`],
+      );
+      let nextSeq = Number(sequenceCountRows.rows[0]?.count ?? 0) + 1;
+
       for (let attempt = 1; attempt <= MAX_ADMISSION_NUMBER_ATTEMPTS; attempt++) {
         const candidate = `${prefix}${String(nextSeq).padStart(4, "0")}`;
         try {
@@ -901,6 +906,29 @@ export class StudentsService {
     branchId: string | null,
   ) {
     return this.db.withTransaction(tenantId, async (client) => {
+      const current = await findOneForTenant<StudentRow>(client, "students", tenantId, id, branchId);
+      if (!current) {
+        throw new NotFoundException("student not found");
+      }
+
+      // max_students counts status='enrolled' -- setting status directly
+      // back to 'enrolled' from withdrawn/alumni/etc. re-enters the counted
+      // set, exactly like confirmAdmission's own check, so it must be
+      // re-checked here too (see that method's identical count query) --
+      // this is a status-update path that otherwise bypasses it entirely.
+      if (dto.status === "enrolled" && current.status !== "enrolled") {
+        const enrolledCountRows = await client.query<{ count: string }>(
+          "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
+          [tenantId],
+        );
+        await this.planLimits.assertUnderLimit(
+          tenantId,
+          "max_students",
+          Number(enrolledCountRows.rows[0]?.count ?? 0),
+          "This school's plan allows at most that many enrolled students.",
+        );
+      }
+
       const updated = await updateRow<StudentRow>(
         client,
         "students",

@@ -32,6 +32,21 @@ export class DbService implements OnModuleDestroy {
     }
   }
 
+  // Closes the TOCTOU window between a plan-limit count and the insert it
+  // gates: acquires a transaction-scoped Postgres advisory lock (keyed by
+  // tenant + resource, e.g. "tenant-abc:max_staff") as the very first
+  // statement, before `fn` does its own count-then-write. Transaction-scoped
+  // (`_xact_`) means it auto-releases on commit/rollback -- no explicit
+  // unlock, no leak risk if `fn` throws. Keying by tenant+resource (not
+  // tenant alone) means an unrelated limit check on the same tenant (e.g.
+  // max_branches while this one checks max_staff) never blocks behind it.
+  async withTenantLock<T>(tenantId: string, lockKey: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    return this.withTransaction(tenantId, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${tenantId}:${lockKey}`]);
+      return fn(client);
+    });
+  }
+
   async query<T extends QueryResultRow>(tenantId: string, text: string, params: unknown[] = []): Promise<T[]> {
     return this.withTransaction(tenantId, async (client) => {
       const result = await client.query<T>(text, params);

@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 
 import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { TOGGLEABLE_MODULES } from "../common/permission-catalog.js";
-import { PLAN_LIMITS } from "../common/plan-catalog.js";
 import { DbService } from "../db/db.service.js";
 
 @Injectable()
@@ -21,8 +20,7 @@ export class ModuleSettingsService {
   // should hide it immediately without needing to touch every branch's
   // rows.
   async getModuleSettings(tenantId: string, branchId: string) {
-    const tier = await this.planLimits.getPlanTier(tenantId);
-    const eligible = new Set(PLAN_LIMITS[tier].modules);
+    const eligible = await this.planLimits.getEligibleModules(tenantId);
 
     const rows = await this.db.query<{ module_key: string; is_enabled: boolean }>(
       tenantId,

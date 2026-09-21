@@ -204,18 +204,10 @@ export class StaffService {
       throw new BadRequestException("Consent is required to add a staff member");
     }
 
-    const activeStaffCountRows = await this.db.query<{ count: string }>(
-      tenantId,
-      "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
-      [tenantId],
-    );
-    await this.planLimits.assertUnderLimit(
-      tenantId,
-      "max_staff",
-      Number(activeStaffCountRows[0]?.count ?? 0),
-      "This school's plan allows at most that many staff members.",
-    );
-
+    // max_staff is now counted + enforced inside insertStaff's own locked
+    // transaction (see that method) rather than here as a separate,
+    // disjoint-transaction pre-check -- closes the TOCTOU window where two
+    // concurrent requests could both read the same pre-insert count.
     const now = new Date();
     const suppliedCode = dto.employee_code?.trim();
     if (suppliedCode) {
@@ -259,7 +251,18 @@ export class StaffService {
     employeeCode: string,
     now: Date,
   ) {
-    return this.db.withTransaction(tenantId, async (client) => {
+    return this.db.withTenantLock(tenantId, "max_staff", async (client) => {
+      const activeStaffCountRows = await client.query<{ count: string }>(
+        "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
+        [tenantId],
+      );
+      await this.planLimits.assertUnderLimit(
+        tenantId,
+        "max_staff",
+        Number(activeStaffCountRows.rows[0]?.count ?? 0),
+        "This school's plan allows at most that many staff members.",
+      );
+
       const staff = await insertRow<StaffRow>(client, "staff", tenantId, {
         branch_id: dto.branch_id,
         employee_code: employeeCode,
@@ -423,6 +426,28 @@ export class StaffService {
     branchId: string | null,
   ) {
     return this.db.withTransaction(tenantId, async (client) => {
+      const current = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId, branchId);
+      if (!current) {
+        throw new NotFoundException("staff member not found");
+      }
+
+      // max_staff counts every status except 'relieved' -- reactivating a
+      // relieved staff member re-enters the counted set, exactly like
+      // createStaff's own check, so it must be re-checked here too (see
+      // that method's identical count query).
+      if (current.status === "relieved" && dto.status !== "relieved") {
+        const activeStaffCountRows = await client.query<{ count: string }>(
+          "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
+          [tenantId],
+        );
+        await this.planLimits.assertUnderLimit(
+          tenantId,
+          "max_staff",
+          Number(activeStaffCountRows.rows[0]?.count ?? 0),
+          "This school's plan allows at most that many staff members.",
+        );
+      }
+
       const updated = await updateRow<StaffRow>(
         client,
         "staff",

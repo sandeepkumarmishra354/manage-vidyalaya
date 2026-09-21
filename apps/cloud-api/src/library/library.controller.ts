@@ -4,7 +4,9 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { BranchScopeGuard } from "../common/branch-scope.guard.js";
+import { ModuleAccessGuard } from "../common/module-access.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
+import { RequireModule } from "../common/require-module.decorator.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateBookDto } from "./dto/create-book.dto.js";
 import { IssueBookDto } from "./dto/issue-book.dto.js";
@@ -12,7 +14,8 @@ import { UpdateBookDto } from "./dto/update-book.dto.js";
 import { LibraryService } from "./library.service.js";
 
 @Controller("library/books")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("library")
 export class LibraryBooksController {
   constructor(private readonly libraryService: LibraryService) {}
 
@@ -36,7 +39,8 @@ export class LibraryBooksController {
 }
 
 @Controller("library/issues")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("library")
 export class LibraryIssuesController {
   constructor(private readonly libraryService: LibraryService) {}
 
@@ -67,7 +71,8 @@ export class LibraryIssuesController {
 }
 
 @Controller("library/stats")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("library")
 export class LibraryStatsController {
   constructor(private readonly libraryService: LibraryService) {}
 

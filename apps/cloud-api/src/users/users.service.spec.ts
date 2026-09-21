@@ -13,9 +13,14 @@ function makeDbMock() {
   const client: FakeClient = { query: vi.fn() };
   const db = {
     withTransaction: vi.fn(async (_tenantId: string, fn: (client: FakeClient) => unknown) => fn(client)),
+    withTenantLock: vi.fn(async (_tenantId: string, _lockKey: string, fn: (client: FakeClient) => unknown) => fn(client)),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn(),
-  } as unknown as DbService & { query: ReturnType<typeof vi.fn>; queryOne: ReturnType<typeof vi.fn> };
+  } as unknown as DbService & {
+    query: ReturnType<typeof vi.fn>;
+    queryOne: ReturnType<typeof vi.fn>;
+    withTenantLock: ReturnType<typeof vi.fn>;
+  };
   return { db, client };
 }
 

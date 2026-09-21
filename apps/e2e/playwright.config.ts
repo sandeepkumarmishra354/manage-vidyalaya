@@ -2,10 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { API_BASE_URL } from "./fixtures/api-url.js";
 import { getSandboxChromiumExecutablePath } from "./fixtures/chromium-executable.js";
+import { VENDOR_API_BASE_URL } from "./fixtures/vendor-api-url.js";
 
 const executablePath = getSandboxChromiumExecutablePath();
 
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:5173";
+const VENDOR_WEB_URL = process.env.E2E_VENDOR_WEB_URL ?? "http://localhost:5175";
 
 export default defineConfig({
   testDir: "./tests",
@@ -55,6 +57,24 @@ export default defineConfig({
       command: "pnpm --filter web dev -- --port 5173",
       cwd: "../..",
       url: WEB_URL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command: "pnpm --filter vendor-admin-api dev",
+      cwd: "../..",
+      url: `${VENDOR_API_BASE_URL}health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command: "pnpm --filter vendor-admin-web dev",
+      cwd: "../..",
+      url: VENDOR_WEB_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: "pipe",

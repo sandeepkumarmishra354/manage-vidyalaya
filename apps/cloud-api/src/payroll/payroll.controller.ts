@@ -5,7 +5,9 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
 import { BranchScopeGuard } from "../common/branch-scope.guard.js";
+import { ModuleAccessGuard } from "../common/module-access.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
+import { RequireModule } from "../common/require-module.decorator.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
 import { GeneratePayrollRunDto } from "./dto/generate-payroll-run.dto.js";
@@ -18,7 +20,8 @@ class MarkPaidDto {
 }
 
 @Controller("salary-structures")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("payroll")
 export class SalaryStructuresController {
   constructor(private readonly payrollService: PayrollService) {}
 
@@ -42,7 +45,8 @@ export class SalaryStructuresController {
 }
 
 @Controller("payroll-runs")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("payroll")
 export class PayrollRunsController {
   constructor(private readonly payrollService: PayrollService) {}
 
@@ -96,7 +100,8 @@ export class PayrollRunsController {
 }
 
 @Controller("payslips")
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard, ModuleAccessGuard)
+@RequireModule("payroll")
 export class PayslipsController {
   constructor(private readonly payrollService: PayrollService) {}
 
