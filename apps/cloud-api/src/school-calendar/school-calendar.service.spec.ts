@@ -300,3 +300,70 @@ describe("SchoolCalendarService.updateHoliday / deleteHoliday", () => {
     await expect(service.deleteHoliday("tenant-1", "actor-1", "missing")).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+// Phase 2 branch scoping: calendar_holidays carries no branch_id of its
+// own, so the by-id lookup joins through its parent school_calendar's
+// branch_id instead -- a mismatched branch comes back "not found" exactly
+// like a wrong id would.
+describe("SchoolCalendarService.updateHoliday / deleteHoliday branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+  let service: SchoolCalendarService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+    service = new SchoolCalendarService(db, audit);
+  });
+
+  it("404s updating a holiday whose calendar belongs to a different branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      service.updateHoliday(
+        "tenant-1",
+        "actor-1",
+        "holiday-1",
+        { date: "2026-01-01", name: "X", type: "holiday" },
+        "branch-a",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updates a holiday whose calendar belongs to the caller's own branch", async () => {
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "holiday-1", tenant_id: "tenant-1", school_calendar_id: "cal-1", name: "Old", type: "holiday" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "holiday-1", tenant_id: "tenant-1" }] });
+
+    await expect(
+      service.updateHoliday(
+        "tenant-1",
+        "actor-1",
+        "holiday-1",
+        { date: "2026-01-01", name: "X", type: "holiday" },
+        "branch-a",
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("404s deleting a holiday whose calendar belongs to a different branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.deleteHoliday("tenant-1", "actor-1", "holiday-1", "branch-a")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "holiday-1", tenant_id: "tenant-1", school_calendar_id: "cal-1", name: "Old", type: "holiday" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "holiday-1", tenant_id: "tenant-1" }] });
+
+    await expect(service.deleteHoliday("tenant-1", "actor-1", "holiday-1", null)).resolves.toBeDefined();
+  });
+});

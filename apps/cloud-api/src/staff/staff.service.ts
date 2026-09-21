@@ -172,11 +172,17 @@ export class StaffService {
     }));
   }
 
-  async getStaff(tenantId: string, id: string) {
+  async getStaff(tenantId: string, id: string, branchId: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [id, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [id, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -292,7 +298,13 @@ export class StaffService {
     });
   }
 
-  async updateStaff(tenantId: string, actorUserId: string, id: string, dto: UpdateStaffDto) {
+  async updateStaff(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateStaffDto,
+    branchId: string | null,
+  ) {
     const now = new Date();
 
     return this.db.withTransaction(tenantId, async (client) => {
@@ -307,41 +319,48 @@ export class StaffService {
         );
       }
 
-      const updated = await updateRow<StaffRow>(client, "staff", tenantId, id, {
-        employee_code: dto.employee_code,
-        first_name: dto.first_name,
-        last_name: dto.last_name ?? null,
-        date_of_birth: toDateOrNull(dto.date_of_birth),
-        gender: dto.gender ?? null,
-        phone: dto.phone ?? null,
-        personal_email: dto.personal_email ?? null,
-        address: dto.address ?? null,
-        city: dto.city ?? null,
-        state: dto.state ?? null,
-        pincode: dto.pincode ?? null,
-        designation: dto.designation,
-        category_id: dto.category_id ?? null,
-        department: dto.department ?? null,
-        employment_type: dto.employment_type,
-        date_of_joining: new Date(dto.date_of_joining),
-        qualification: dto.qualification ?? null,
-        blood_group: dto.blood_group ?? null,
-        signature_url: dto.signature_url ?? null,
-        is_principal: dto.is_principal ?? false,
-        pan_number: dto.pan_number ?? null,
-        aadhaar_number: dto.aadhaar_number ?? null,
-        bank_account_number: dto.bank_account_number ?? null,
-        bank_ifsc: dto.bank_ifsc ?? null,
-        bank_name: dto.bank_name ?? null,
-        pf_number: dto.pf_number ?? null,
-        esi_number: dto.esi_number ?? null,
-        uan_number: dto.uan_number ?? null,
-        emergency_contact_name: dto.emergency_contact_name ?? null,
-        emergency_contact_phone: dto.emergency_contact_phone ?? null,
-        notes: dto.notes ?? null,
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        id,
+        {
+          employee_code: dto.employee_code,
+          first_name: dto.first_name,
+          last_name: dto.last_name ?? null,
+          date_of_birth: toDateOrNull(dto.date_of_birth),
+          gender: dto.gender ?? null,
+          phone: dto.phone ?? null,
+          personal_email: dto.personal_email ?? null,
+          address: dto.address ?? null,
+          city: dto.city ?? null,
+          state: dto.state ?? null,
+          pincode: dto.pincode ?? null,
+          designation: dto.designation,
+          category_id: dto.category_id ?? null,
+          department: dto.department ?? null,
+          employment_type: dto.employment_type,
+          date_of_joining: new Date(dto.date_of_joining),
+          qualification: dto.qualification ?? null,
+          blood_group: dto.blood_group ?? null,
+          signature_url: dto.signature_url ?? null,
+          is_principal: dto.is_principal ?? false,
+          pan_number: dto.pan_number ?? null,
+          aadhaar_number: dto.aadhaar_number ?? null,
+          bank_account_number: dto.bank_account_number ?? null,
+          bank_ifsc: dto.bank_ifsc ?? null,
+          bank_name: dto.bank_name ?? null,
+          pf_number: dto.pf_number ?? null,
+          esi_number: dto.esi_number ?? null,
+          uan_number: dto.uan_number ?? null,
+          emergency_contact_name: dto.emergency_contact_name ?? null,
+          emergency_contact_phone: dto.emergency_contact_phone ?? null,
+          notes: dto.notes ?? null,
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -382,14 +401,27 @@ export class StaffService {
 
   // Deactivates (or reactivates) a staff member -- the soft-delete
   // equivalent for HR records; employment history is preserved.
-  async setStaffStatus(tenantId: string, actorUserId: string, staffId: string, dto: SetStaffStatusDto) {
+  async setStaffStatus(
+    tenantId: string,
+    actorUserId: string,
+    staffId: string,
+    dto: SetStaffStatusDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
-        status: dto.status,
-        date_of_leaving: toDateOrNull(dto.date_of_leaving),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        staffId,
+        {
+          status: dto.status,
+          date_of_leaving: toDateOrNull(dto.date_of_leaving),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -410,25 +442,38 @@ export class StaffService {
   // Sets status to "relieved", which every active-staff selection query in
   // this codebase (attendance roster, payroll generation, class-teacher
   // picker) already filters on status "active" and so excludes automatically.
-  async issueExperienceLetter(tenantId: string, actorUserId: string, staffId: string, dto: IssueExperienceLetterDto) {
+  async issueExperienceLetter(
+    tenantId: string,
+    actorUserId: string,
+    staffId: string,
+    dto: IssueExperienceLetterDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId, branchId);
       if (!staff) {
         throw new NotFoundException("staff member not found");
       }
       const now = new Date();
       const letterNumber = staff.experience_letter_number ?? generateExperienceLetterNumber(staff.branch_id);
 
-      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
-        reason_for_leaving: dto.reason_for_leaving,
-        date_of_leaving: new Date(dto.date_of_leaving),
-        conduct_remark: dto.conduct_remark ?? null,
-        experience_letter_number: letterNumber,
-        experience_letter_issue_date: staff.experience_letter_issue_date ?? now,
-        status: "relieved",
-        updated_at: now,
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        staffId,
+        {
+          reason_for_leaving: dto.reason_for_leaving,
+          date_of_leaving: new Date(dto.date_of_leaving),
+          conduct_remark: dto.conduct_remark ?? null,
+          experience_letter_number: letterNumber,
+          experience_letter_issue_date: staff.experience_letter_issue_date ?? now,
+          status: "relieved",
+          updated_at: now,
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -444,11 +489,17 @@ export class StaffService {
     });
   }
 
-  async getExperienceLetter(tenantId: string, staffId: string) {
+  async getExperienceLetter(tenantId: string, staffId: string, branchId: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [staffId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [staffId, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -470,11 +521,17 @@ export class StaffService {
     };
   }
 
-  async getQrCode(tenantId: string, staffId: string) {
+  async getQrCode(tenantId: string, staffId: string, branchId: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [staffId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [staffId, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -485,18 +542,25 @@ export class StaffService {
   // Bumping qr_code_version instantly invalidates every previously-printed
   // code for this staff member -- see Student.qrCodeVersion for the same
   // scheme on the student side.
-  async reissueQrCode(tenantId: string, actorUserId: string, staffId: string) {
+  async reissueQrCode(tenantId: string, actorUserId: string, staffId: string, branchId: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId, branchId);
       if (!staff) {
         throw new NotFoundException("staff member not found");
       }
 
-      const updated = await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
-        qr_code_version: staff.qr_code_version + 1,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        staffId,
+        {
+          qr_code_version: staff.qr_code_version + 1,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -512,11 +576,17 @@ export class StaffService {
     });
   }
 
-  async getQrCodesBulk(tenantId: string, ids: string[]) {
+  async getQrCodesBulk(tenantId: string, ids: string[], branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = ANY($2)", "deleted_at IS NULL"];
+    const values: unknown[] = [tenantId, ids];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.query<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL",
-      [tenantId, ids],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     return staff.map((s) => ({
       staff_id: s.id,
@@ -524,11 +594,17 @@ export class StaffService {
     }));
   }
 
-  async getPhotoUploadUrl(tenantId: string, staffId: string, fileName: string, contentType: string) {
+  async getPhotoUploadUrl(tenantId: string, staffId: string, fileName: string, contentType: string, branchId: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [staffId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [staffId, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -540,18 +616,25 @@ export class StaffService {
   }
 
   // Single slot, not a list -- see StudentsService.setPhoto for the same pattern.
-  async setPhoto(tenantId: string, actorUserId: string, staffId: string, storageKey: string) {
+  async setPhoto(tenantId: string, actorUserId: string, staffId: string, storageKey: string, branchId: string | null) {
     const previousPath = await this.db.withTransaction(tenantId, async (client) => {
-      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId, branchId);
       if (!staff) {
         throw new NotFoundException("staff member not found");
       }
 
-      await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
-        photo_path: storageKey,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        staffId,
+        {
+          photo_path: storageKey,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -573,11 +656,17 @@ export class StaffService {
     return { ok: true };
   }
 
-  async getPhotoUrl(tenantId: string, staffId: string) {
+  async getPhotoUrl(tenantId: string, staffId: string, branchId: string | null) {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [staffId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.queryOne<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [staffId, tenantId],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!staff) {
       throw new NotFoundException("staff member not found");
@@ -588,9 +677,9 @@ export class StaffService {
     return this.storage.createDownloadUrl(staff.photo_path);
   }
 
-  async deletePhoto(tenantId: string, actorUserId: string, staffId: string) {
+  async deletePhoto(tenantId: string, actorUserId: string, staffId: string, branchId: string | null) {
     const previousPath = await this.db.withTransaction(tenantId, async (client) => {
-      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId);
+      const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, staffId, branchId);
       if (!staff) {
         throw new NotFoundException("staff member not found");
       }
@@ -598,11 +687,18 @@ export class StaffService {
         return null;
       }
 
-      await updateRow<StaffRow>(client, "staff", tenantId, staffId, {
-        photo_path: null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<StaffRow>(
+        client,
+        "staff",
+        tenantId,
+        staffId,
+        {
+          photo_path: null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -624,11 +720,17 @@ export class StaffService {
     return { ok: true };
   }
 
-  async getPhotoUrlsBulk(tenantId: string, ids: string[]) {
+  async getPhotoUrlsBulk(tenantId: string, ids: string[], branchId: string | null) {
+    const conditions = ["tenant_id = $1", "id = ANY($2)", "deleted_at IS NULL", "photo_path IS NOT NULL"];
+    const values: unknown[] = [tenantId, ids];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const staff = await this.db.query<StaffRow>(
       tenantId,
-      "SELECT * FROM staff WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND photo_path IS NOT NULL",
-      [tenantId, ids],
+      `SELECT * FROM staff WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     const entries = await Promise.all(
       staff.map(async (s) => ({ staff_id: s.id, ...(await this.storage.createDownloadUrl(s.photo_path!)) })),
@@ -711,7 +813,7 @@ export class StaffService {
     });
   }
 
-  async deleteTeacherAssignment(tenantId: string, actorUserId: string, id: string) {
+  async deleteTeacherAssignment(tenantId: string, actorUserId: string, id: string, branchId: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
       const deleted = await softDeleteRow<TeacherAssignmentRow>(
         client,
@@ -719,6 +821,7 @@ export class StaffService {
         tenantId,
         id,
         actorUserId,
+        branchId,
       );
 
       await this.audit.record(client, {
@@ -734,9 +837,24 @@ export class StaffService {
     });
   }
 
-  async setClassTeacher(tenantId: string, actorUserId: string, sectionId: string, dto: SetClassTeacherDto) {
+  async setClassTeacher(
+    tenantId: string,
+    actorUserId: string,
+    sectionId: string,
+    dto: SetClassTeacherDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
       if (dto.staff_id) {
+        // `sections` itself carries no branch_id (it's scoped indirectly via
+        // its class), but `staff` does -- reject assigning a class teacher
+        // from outside the caller's branch here, since nothing else in this
+        // method checks it.
+        const staff = await findOneForTenant<StaffRow>(client, "staff", tenantId, dto.staff_id, branchId);
+        if (!staff) {
+          throw new NotFoundException("staff member not found");
+        }
+
         const conflictResult = await client.query<{ id: string; class_name: string; name: string }>(
           `SELECT s.id, c.name AS class_name, s.name
            FROM sections s

@@ -3,6 +3,7 @@ import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { DbService } from "../db/db.service.js";
@@ -10,7 +11,7 @@ import { DbService } from "../db/db.service.js";
 const PAGE_SIZE = 100;
 
 @Controller("audit-log")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AuditLogController {
   constructor(private readonly db: DbService) {}
 
@@ -28,6 +29,14 @@ export class AuditLogController {
 
     const conditions = ["al.tenant_id = $1"];
     const values: unknown[] = [user.tenant_id];
+    // A branch-scoped caller only ever sees audit entries recorded against
+    // their own branch -- consistent with the by-id branch checks
+    // elsewhere, this is the only read path audit_log has (there's no
+    // single-record by-id lookup for it), so the filter lives here.
+    if (user.branch_id) {
+      values.push(user.branch_id);
+      conditions.push(`al.branch_id = $${values.length}`);
+    }
     if (entityTable) {
       values.push(entityTable);
       conditions.push(`al.entity_table = $${values.length}`);

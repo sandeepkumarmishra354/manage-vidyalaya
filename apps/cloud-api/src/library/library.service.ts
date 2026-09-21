@@ -52,9 +52,15 @@ export class LibraryService {
 
   // Books can't have their total_copies edited below however many are
   // currently on loan -- that would make available_copies negative.
-  async updateBook(tenantId: string, actorUserId: string, id: string, dto: UpdateBookDto) {
+  async updateBook(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateBookDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, id);
+      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, id, branchId);
       if (!book) {
         throw new NotFoundException("book not found");
       }
@@ -64,16 +70,23 @@ export class LibraryService {
       }
       const newAvailable = dto.total_copies - onLoan;
 
-      const updated = await updateRow<LibraryBookRow>(client, "library_books", tenantId, id, {
-        title: dto.title,
-        author: dto.author ?? null,
-        isbn: dto.isbn ?? null,
-        category: dto.category ?? null,
-        total_copies: dto.total_copies,
-        available_copies: newAvailable,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<LibraryBookRow>(
+        client,
+        "library_books",
+        tenantId,
+        id,
+        {
+          title: dto.title,
+          author: dto.author ?? null,
+          isbn: dto.isbn ?? null,
+          category: dto.category ?? null,
+          total_copies: dto.total_copies,
+          available_copies: newAvailable,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -105,9 +118,9 @@ export class LibraryService {
 
   // Issues a copy of a book to a student: decrements available_copies and
   // creates an issue record, refusing if no copies are available.
-  async issueBook(tenantId: string, actorUserId: string, dto: IssueBookDto) {
+  async issueBook(tenantId: string, actorUserId: string, dto: IssueBookDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, dto.book_id);
+      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, dto.book_id, branchId);
       if (!book) {
         throw new NotFoundException("book not found");
       }
@@ -116,10 +129,17 @@ export class LibraryService {
       }
 
       const now = new Date();
-      await updateRow<LibraryBookRow>(client, "library_books", tenantId, dto.book_id, {
-        available_copies: book.available_copies - 1,
-        updated_at: now,
-      });
+      await updateRow<LibraryBookRow>(
+        client,
+        "library_books",
+        tenantId,
+        dto.book_id,
+        {
+          available_copies: book.available_copies - 1,
+          updated_at: now,
+        },
+        branchId,
+      );
 
       return insertRow<LibraryIssueRow>(client, "library_issues", tenantId, {
         branch_id: book.branch_id,
@@ -134,26 +154,40 @@ export class LibraryService {
     });
   }
 
-  async returnBook(tenantId: string, issueId: string) {
+  async returnBook(tenantId: string, issueId: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const issue = await findOneForTenant<LibraryIssueRow>(client, "library_issues", tenantId, issueId);
+      const issue = await findOneForTenant<LibraryIssueRow>(client, "library_issues", tenantId, issueId, branchId);
       if (!issue) {
         throw new NotFoundException("issue not found");
       }
 
       const now = new Date();
-      const updated = await updateRow<LibraryIssueRow>(client, "library_issues", tenantId, issueId, {
-        status: "returned",
-        returned_date: now,
-        updated_at: now,
-      });
-
-      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, issue.book_id);
-      if (book) {
-        await updateRow<LibraryBookRow>(client, "library_books", tenantId, issue.book_id, {
-          available_copies: book.available_copies + 1,
+      const updated = await updateRow<LibraryIssueRow>(
+        client,
+        "library_issues",
+        tenantId,
+        issueId,
+        {
+          status: "returned",
+          returned_date: now,
           updated_at: now,
-        });
+        },
+        branchId,
+      );
+
+      const book = await findOneForTenant<LibraryBookRow>(client, "library_books", tenantId, issue.book_id, branchId);
+      if (book) {
+        await updateRow<LibraryBookRow>(
+          client,
+          "library_books",
+          tenantId,
+          issue.book_id,
+          {
+            available_copies: book.available_copies + 1,
+            updated_at: now,
+          },
+          branchId,
+        );
       }
 
       return updated;

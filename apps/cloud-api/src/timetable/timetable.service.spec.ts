@@ -57,6 +57,116 @@ function makeSchoolCalendarMock() {
   } as unknown as SchoolCalendarService & { getCalendar: ReturnType<typeof vi.fn> };
 }
 
+// Phase 2 branch scoping: sections carries no branch_id of its own, so the
+// section-by-id lookups here join through the parent class's branch_id
+// instead -- a mismatched branch comes back "not found" exactly like a
+// wrong id would.
+describe("TimetableService.getSectionTimetable branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let schoolCalendar: ReturnType<typeof makeSchoolCalendarMock>;
+  let service: TimetableService;
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    schoolCalendar = makeSchoolCalendarMock();
+    service = new TimetableService(db, makeAuditMock(), makeScopedAccessMock(), schoolCalendar);
+  });
+
+  it("404s for a section whose class belongs to a different branch", async () => {
+    db.queryOne.mockResolvedValueOnce(null);
+
+    await expect(
+      service.getSectionTimetable("tenant-1", "section-1", "session-1", "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns the timetable for a section whose class belongs to the caller's own branch", async () => {
+    db.queryOne.mockResolvedValueOnce({ id: "section-1", class_id: "class-1", branch_id: "branch-a" });
+    db.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await expect(
+      service.getSectionTimetable("tenant-1", "section-1", "session-1", "branch-a"),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("TimetableService.saveSectionTimetable branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let service: TimetableService;
+
+  const baseDto = {
+    branch_id: "branch-a",
+    class_id: "class-1",
+    academic_session_id: "session-1",
+    entries: [] as { day_of_week: number; period_slot_id: string; subject_id: string; staff_id: string }[],
+  };
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    service = new TimetableService(db, makeAuditMock(), makeScopedAccessMock(), makeSchoolCalendarMock());
+  });
+
+  it("404s saving a timetable for a section whose class belongs to a different branch", async () => {
+    db.queryOne.mockResolvedValueOnce(null);
+
+    await expect(
+      service.saveSectionTimetable("tenant-1", "actor-1", "section-1", baseDto, "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("TimetableService.updatePeriodSlot branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: TimetableService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new TimetableService(db, makeAuditMock(), makeScopedAccessMock(), makeSchoolCalendarMock());
+  });
+
+  it("404s updating a period slot outside the caller's branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      service.updatePeriodSlot("tenant-1", "actor-1", "slot-1", { name: "Period 1", sort_order: 0, start_time: "09:00", end_time: "09:45" }, "branch-a"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updates a period slot within the caller's own branch", async () => {
+    client.query
+      .mockResolvedValueOnce({
+        rows: [{ id: "slot-1", tenant_id: "tenant-1", branch_id: "branch-a", period_type: "teaching" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: "slot-1", tenant_id: "tenant-1", branch_id: "branch-a", period_type: "teaching", name: "Period 1" }],
+      });
+
+    await expect(
+      service.updatePeriodSlot("tenant-1", "actor-1", "slot-1", { name: "Period 1", sort_order: 0, start_time: "09:00", end_time: "09:45" }, "branch-a"),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("TimetableService.deletePeriodSlot branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: TimetableService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new TimetableService(db, makeAuditMock(), makeScopedAccessMock(), makeSchoolCalendarMock());
+  });
+
+  it("404s deleting a period slot outside the caller's branch", async () => {
+    client.query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.deletePeriodSlot("tenant-1", "actor-1", "slot-1", "branch-a")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
+
 describe("TimetableService.saveSectionTimetable", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let client: FakeClient;

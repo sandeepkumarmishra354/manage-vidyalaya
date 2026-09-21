@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { CreateStaffDto } from "./dto/create-staff.dto.js";
@@ -15,7 +16,7 @@ import { UpdateStaffDto } from "./dto/update-staff.dto.js";
 import { StaffService } from "./staff.service.js";
 
 @Controller("staff")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffController {
   constructor(private readonly staffService: StaffService) {}
 
@@ -60,6 +61,7 @@ export class StaffController {
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean),
+      user.branch_id,
     );
   }
 
@@ -72,13 +74,14 @@ export class StaffController {
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean),
+      user.branch_id,
     );
   }
 
   @Get(":id")
   @RequirePermission("staff.view")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.getStaff(user.tenant_id, id);
+    return this.staffService.getStaff(user.tenant_id, id, user.branch_id);
   }
 
   @Get(":id/signature")
@@ -95,37 +98,37 @@ export class StaffController {
   @Patch(":id")
   @RequirePermission("staff.manage_profile")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStaffDto) {
-    return this.staffService.updateStaff(user.tenant_id, user.sub, id, dto);
+    return this.staffService.updateStaff(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Post(":id/status")
   @RequirePermission("staff.manage_profile")
   setStatus(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetStaffStatusDto) {
-    return this.staffService.setStaffStatus(user.tenant_id, user.sub, id, dto);
+    return this.staffService.setStaffStatus(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":id/experience-letter")
   @RequirePermission("staff.view")
   getExperienceLetter(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.getExperienceLetter(user.tenant_id, id);
+    return this.staffService.getExperienceLetter(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/experience-letter")
   @RequirePermission("staff.manage_profile")
   issueExperienceLetter(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: IssueExperienceLetterDto) {
-    return this.staffService.issueExperienceLetter(user.tenant_id, user.sub, id, dto);
+    return this.staffService.issueExperienceLetter(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":id/qr-code")
   @RequirePermission("staff.view")
   getQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.getQrCode(user.tenant_id, id);
+    return this.staffService.getQrCode(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/qr-code/reissue")
   @RequirePermission("staff.manage_profile")
   reissueQrCode(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.reissueQrCode(user.tenant_id, user.sub, id);
+    return this.staffService.reissueQrCode(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Get(":id/photo/upload-url")
@@ -136,30 +139,30 @@ export class StaffController {
     @Query("file_name") fileName: string,
     @Query("content_type") contentType: string,
   ) {
-    return this.staffService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType);
+    return this.staffService.getPhotoUploadUrl(user.tenant_id, id, fileName, contentType, user.branch_id);
   }
 
   @Patch(":id/photo")
   @RequirePermission("staff.manage_profile")
   setPhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetPhotoDto) {
-    return this.staffService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key);
+    return this.staffService.setPhoto(user.tenant_id, user.sub, id, dto.storage_key, user.branch_id);
   }
 
   @Get(":id/photo-url")
   @RequirePermission("staff.view")
   getPhotoUrl(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.getPhotoUrl(user.tenant_id, id);
+    return this.staffService.getPhotoUrl(user.tenant_id, id, user.branch_id);
   }
 
   @Delete(":id/photo")
   @RequirePermission("staff.manage_profile")
   deletePhoto(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.deletePhoto(user.tenant_id, user.sub, id);
+    return this.staffService.deletePhoto(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
 @Controller("teacher-assignments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TeacherAssignmentsController {
   constructor(private readonly staffService: StaffService) {}
 
@@ -178,7 +181,7 @@ export class TeacherAssignmentsController {
   @Delete(":id")
   @RequirePermission("staff.manage_assignments")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffService.deleteTeacherAssignment(user.tenant_id, user.sub, id);
+    return this.staffService.deleteTeacherAssignment(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
@@ -186,13 +189,13 @@ export class TeacherAssignmentsController {
 // staff.manage_assignments (a staffing decision), unlike the rest of
 // /sections's CRUD in AcademicModule which is gated by academic_setup keys.
 @Controller("sections")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SectionClassTeacherController {
   constructor(private readonly staffService: StaffService) {}
 
   @Patch(":sectionId/class-teacher")
   @RequirePermission("staff.manage_assignments")
   setClassTeacher(@CurrentUser() user: JwtPayload, @Param("sectionId") sectionId: string, @Body() dto: SetClassTeacherDto) {
-    return this.staffService.setClassTeacher(user.tenant_id, user.sub, sectionId, dto);
+    return this.staffService.setClassTeacher(user.tenant_id, user.sub, sectionId, dto, user.branch_id);
   }
 }

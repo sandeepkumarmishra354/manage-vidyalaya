@@ -3,13 +3,14 @@ import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { UpdateRetentionPolicyDto } from "./dto/update-retention-policy.dto.js";
 import { RetentionService } from "./retention.service.js";
 
 @Controller("retention-policies")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class RetentionController {
   constructor(private readonly retentionService: RetentionService) {}
 

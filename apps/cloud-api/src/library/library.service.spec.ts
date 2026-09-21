@@ -169,6 +169,136 @@ describe("LibraryService.listIssues", () => {
   });
 });
 
+describe("LibraryService branch isolation", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: LibraryService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new LibraryService(db, makeAuditMock());
+  });
+
+  describe("updateBook", () => {
+    it("throws NotFoundException for a same-tenant, different-branch book", async () => {
+      // findOneForTenant's own branch_id condition means a mismatched
+      // branch never comes back as a row.
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.updateBook("tenant-1", "actor-1", "book-1", { title: "New", total_copies: 5 }, "branch-other"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds for the caller's own-branch book and threads branchId into the UPDATE", async () => {
+      client.query
+        .mockResolvedValueOnce({
+          rows: [{ id: "book-1", tenant_id: "tenant-1", branch_id: "branch-a", total_copies: 5, available_copies: 5 }],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", branch_id: "branch-a" }] });
+
+      await service.updateBook("tenant-1", "actor-1", "book-1", { title: "New", total_copies: 5 }, "branch-a");
+
+      const [updateSql, updateParams] = client.query.mock.calls[1];
+      expect(updateSql).toMatch(/branch_id = \$\d/);
+      expect(updateParams).toContain("branch-a");
+    });
+
+    it("an unscoped caller (branchId: null) is unaffected", async () => {
+      client.query
+        .mockResolvedValueOnce({
+          rows: [{ id: "book-1", tenant_id: "tenant-1", branch_id: "branch-a", total_copies: 5, available_copies: 5 }],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1" }] });
+
+      await service.updateBook("tenant-1", "actor-1", "book-1", { title: "New", total_copies: 5 }, null);
+
+      const [findSql] = client.query.mock.calls[0];
+      const [updateSql] = client.query.mock.calls[1];
+      expect(findSql).not.toMatch(/branch_id/);
+      expect(updateSql).not.toMatch(/branch_id/);
+    });
+  });
+
+  describe("issueBook", () => {
+    it("throws NotFoundException issuing a book that belongs to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.issueBook(
+          "tenant-1",
+          "actor-1",
+          { book_id: "book-1", student_id: "student-1", due_date: "2026-02-01" },
+          "branch-other",
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds and threads branchId through when issuing the caller's own-branch book", async () => {
+      client.query
+        .mockResolvedValueOnce({
+          rows: [{ id: "book-1", tenant_id: "tenant-1", branch_id: "branch-a", total_copies: 2, available_copies: 1 }],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", available_copies: 0 }] })
+        .mockResolvedValueOnce({ rows: [{ id: "issue-1", tenant_id: "tenant-1" }] });
+
+      await service.issueBook(
+        "tenant-1",
+        "actor-1",
+        { book_id: "book-1", student_id: "student-1", due_date: "2026-02-01" },
+        "branch-a",
+      );
+
+      const [findSql] = client.query.mock.calls[0];
+      const [updateSql, updateParams] = client.query.mock.calls[1];
+      expect(findSql).toMatch(/branch_id = \$\d/);
+      expect(updateSql).toMatch(/branch_id = \$\d/);
+      expect(updateParams).toContain("branch-a");
+    });
+  });
+
+  describe("returnBook", () => {
+    it("throws NotFoundException returning an issue that belongs to a different branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(service.returnBook("tenant-1", "issue-1", "branch-other")).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds and threads branchId through both the issue and the book updates for the caller's own branch", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "issue-1", tenant_id: "tenant-1", branch_id: "branch-a", book_id: "book-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "issue-1", tenant_id: "tenant-1", status: "returned" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", branch_id: "branch-a", available_copies: 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", available_copies: 2 }] });
+
+      await service.returnBook("tenant-1", "issue-1", "branch-a");
+
+      const [findIssueSql] = client.query.mock.calls[0];
+      const [updateIssueSql] = client.query.mock.calls[1];
+      const [findBookSql] = client.query.mock.calls[2];
+      const [updateBookSql] = client.query.mock.calls[3];
+      expect(findIssueSql).toMatch(/branch_id = \$\d/);
+      expect(updateIssueSql).toMatch(/branch_id = \$\d/);
+      expect(findBookSql).toMatch(/branch_id = \$\d/);
+      expect(updateBookSql).toMatch(/branch_id = \$\d/);
+    });
+
+    it("an unscoped caller (branchId: null) is unaffected", async () => {
+      client.query
+        .mockResolvedValueOnce({ rows: [{ id: "issue-1", tenant_id: "tenant-1", book_id: "book-1" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "issue-1", tenant_id: "tenant-1", status: "returned" }] })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", available_copies: 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: "book-1", tenant_id: "tenant-1", available_copies: 2 }] });
+
+      await service.returnBook("tenant-1", "issue-1", null);
+
+      for (const call of client.query.mock.calls) {
+        expect(call[0]).not.toMatch(/branch_id/);
+      }
+    });
+  });
+});
+
 describe("LibraryService.getLibraryStats", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let service: LibraryService;

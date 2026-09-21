@@ -6,6 +6,7 @@ import type { DbService } from "../db/db.service.js";
 import type { FeesService } from "../fees/fees.service.js";
 import { QrTokenService } from "../qr/qr-token.service.js";
 import type { StorageService } from "../storage/storage.service.js";
+import type { UpdateStudentDto } from "./dto/update-student.dto.js";
 import { StudentsService } from "./students.service.js";
 
 interface FakeClient {
@@ -110,7 +111,7 @@ describe("StudentsService.confirmAdmission", () => {
   it("throws NotFoundException when the admission doesn't exist", async () => {
     db.queryOne.mockResolvedValueOnce(null);
 
-    await expect(service.confirmAdmission("tenant-a", "actor-1", "missing")).rejects.toBeInstanceOf(
+    await expect(service.confirmAdmission("tenant-a", "actor-1", "missing", null)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -121,7 +122,7 @@ describe("StudentsService.confirmAdmission", () => {
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["ok", "ok"]);
 
-    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
+    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
     const year = new Date().getUTCFullYear();
     expect(result.admission_number).toBe(`MAIN-${year}-0001`);
@@ -134,7 +135,7 @@ describe("StudentsService.confirmAdmission", () => {
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["ok", "ok"]);
 
-    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
+    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
     const year = new Date().getUTCFullYear();
     expect(result.admission_number).toBe(`MAIN-${year}-0042`);
@@ -146,7 +147,7 @@ describe("StudentsService.confirmAdmission", () => {
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["conflict", "conflict", "ok", "ok"]);
 
-    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1");
+    const result = await service.confirmAdmission("tenant-a", "actor-1", "admission-1", null);
 
     const year = new Date().getUTCFullYear();
     expect(result.admission_number).toBe(`MAIN-${year}-0003`);
@@ -163,7 +164,7 @@ describe("StudentsService.confirmAdmission", () => {
       throw otherError;
     });
 
-    await expect(service.confirmAdmission("tenant-a", "actor-1", "admission-1")).rejects.toBe(otherError);
+    await expect(service.confirmAdmission("tenant-a", "actor-1", "admission-1", null)).rejects.toBe(otherError);
   });
 });
 
@@ -190,7 +191,7 @@ describe("StudentsService.electSubject", () => {
   it("throws NotFoundException when the student doesn't exist", async () => {
     client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant: student
 
-    await expect(service.electSubject("tenant-a", "actor-1", "missing", dto)).rejects.toBeInstanceOf(
+    await expect(service.electSubject("tenant-a", "actor-1", "missing", dto, null)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -200,7 +201,7 @@ describe("StudentsService.electSubject", () => {
       .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", current_class_id: "class-1" }] })
       .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-2" }] });
 
-    await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto)).rejects.toBeInstanceOf(
+    await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto, null)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -211,7 +212,7 @@ describe("StudentsService.electSubject", () => {
       .mockResolvedValueOnce({ rows: [{ id: "group-1", class_id: "class-1" }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto)).rejects.toBeInstanceOf(
+    await expect(service.electSubject("tenant-a", "actor-1", "student-1", dto, null)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -223,7 +224,7 @@ describe("StudentsService.electSubject", () => {
       .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
       .mockResolvedValueOnce({ rows: [{ id: "choice-1" }] });
 
-    const result = await service.electSubject("tenant-a", "actor-1", "student-1", dto);
+    const result = await service.electSubject("tenant-a", "actor-1", "student-1", dto, null);
     expect(result).toEqual({ id: "choice-1" });
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
@@ -246,7 +247,7 @@ describe("StudentsService.getGuardian", () => {
 
   it("throws when the guardian doesn't exist or is soft-deleted", async () => {
     db.queryOne.mockResolvedValueOnce(null);
-    await expect(service.getGuardian("tenant-a", "guardian-1")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getGuardian("tenant-a", "guardian-1", null)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("returns the guardian's profile plus every linked child, regardless of enrollment status", async () => {
@@ -283,7 +284,7 @@ describe("StudentsService.getGuardian", () => {
       },
     ]);
 
-    const result = await service.getGuardian("tenant-a", "guardian-1");
+    const result = await service.getGuardian("tenant-a", "guardian-1", null);
 
     expect(result.full_name).toBe("Asha Rao");
     expect(result.children).toEqual([
@@ -335,10 +336,16 @@ describe("StudentsService.issueTransferCertificate", () => {
   it("404s for a student outside the tenant", async () => {
     client.query.mockResolvedValueOnce({ rows: [] });
     await expect(
-      service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
-        reason_for_leaving: "Relocation",
-        date_of_leaving: "2026-04-01",
-      }),
+      service.issueTransferCertificate(
+        "tenant-a",
+        "user-1",
+        "student-1",
+        {
+          reason_for_leaving: "Relocation",
+          date_of_leaving: "2026-04-01",
+        },
+        null,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -349,10 +356,16 @@ describe("StudentsService.issueTransferCertificate", () => {
       })
       .mockResolvedValueOnce({ rows: [{ id: "student-1", tc_number: "TC-BRAN-20260401-ABCD" }] });
 
-    await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
-      reason_for_leaving: "Relocation",
-      date_of_leaving: "2026-04-01",
-    });
+    await service.issueTransferCertificate(
+      "tenant-a",
+      "user-1",
+      "student-1",
+      {
+        reason_for_leaving: "Relocation",
+        date_of_leaving: "2026-04-01",
+      },
+      null,
+    );
 
     const [updateSql, updateParams] = client.query.mock.calls[1]!;
     expect(updateSql).toContain("UPDATE students");
@@ -377,11 +390,17 @@ describe("StudentsService.issueTransferCertificate", () => {
       })
       .mockResolvedValueOnce({ rows: [{ id: "student-1" }] });
 
-    await service.issueTransferCertificate("tenant-a", "user-1", "student-1", {
-      reason_for_leaving: "Graduated",
-      date_of_leaving: "2026-04-01",
-      conduct_remark: "Excellent",
-    });
+    await service.issueTransferCertificate(
+      "tenant-a",
+      "user-1",
+      "student-1",
+      {
+        reason_for_leaving: "Graduated",
+        date_of_leaving: "2026-04-01",
+        conduct_remark: "Excellent",
+      },
+      null,
+    );
 
     const [, updateParams] = client.query.mock.calls[1]!;
     expect(updateParams).toContain("alumni");
@@ -459,7 +478,7 @@ describe("StudentsService photo upload", () => {
       expires_at: "2026-01-01T00:00:00.000Z",
     });
 
-    const result = await service.getPhotoUploadUrl("tenant-1", "student-1", "photo.PNG", "image/png");
+    const result = await service.getPhotoUploadUrl("tenant-1", "student-1", "photo.PNG", "image/png", null);
 
     expect(result.storage_key).toMatch(/^photo-student-.+\.png$/);
     expect(storage.createUploadUrl).toHaveBeenCalledWith(result.storage_key, "image/png");
@@ -470,7 +489,7 @@ describe("StudentsService photo upload", () => {
       .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: "old-key" }] })
       .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: "new-key" }] });
 
-    await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key");
+    await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key", null);
 
     const [updateSql, updateParams] = client.query.mock.calls[1]!;
     expect(updateSql).toContain("UPDATE students");
@@ -484,7 +503,7 @@ describe("StudentsService photo upload", () => {
       .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: null }] })
       .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: "new-key" }] });
 
-    await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key");
+    await service.setPhoto("tenant-1", "actor-1", "student-1", "new-key", null);
 
     expect(storage.deleteObject).not.toHaveBeenCalled();
   });
@@ -492,7 +511,7 @@ describe("StudentsService photo upload", () => {
   it("getPhotoUrl returns null when no photo is set, without calling storage", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "student-1", photo_path: null });
 
-    const result = await service.getPhotoUrl("tenant-1", "student-1");
+    const result = await service.getPhotoUrl("tenant-1", "student-1", null);
 
     expect(result).toEqual({ url: null });
     expect(storage.createDownloadUrl).not.toHaveBeenCalled();
@@ -503,7 +522,7 @@ describe("StudentsService photo upload", () => {
       .mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: "old-key" }] })
       .mockResolvedValueOnce({ rows: [{ id: "student-1", photo_path: null }] });
 
-    await service.deletePhoto("tenant-1", "actor-1", "student-1");
+    await service.deletePhoto("tenant-1", "actor-1", "student-1", null);
 
     const [updateSql] = client.query.mock.calls[1]!;
     expect(updateSql).toContain("UPDATE students");
@@ -513,7 +532,7 @@ describe("StudentsService photo upload", () => {
   it("deletePhoto is a no-op when no photo is set", async () => {
     client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", branch_id: "branch-1", photo_path: null }] });
 
-    await service.deletePhoto("tenant-1", "actor-1", "student-1");
+    await service.deletePhoto("tenant-1", "actor-1", "student-1", null);
 
     expect(client.query).toHaveBeenCalledTimes(1);
     expect(storage.deleteObject).not.toHaveBeenCalled();
@@ -526,7 +545,7 @@ describe("StudentsService photo upload", () => {
       expires_at: "2026-01-01T00:00:00.000Z",
     });
 
-    const result = await service.getPhotoUrlsBulk("tenant-1", ["student-1", "student-2"]);
+    const result = await service.getPhotoUrlsBulk("tenant-1", ["student-1", "student-2"], null);
 
     expect(db.query).toHaveBeenCalledWith(
       "tenant-1",
@@ -534,5 +553,161 @@ describe("StudentsService photo upload", () => {
       ["tenant-1", ["student-1", "student-2"]],
     );
     expect(result).toEqual([{ student_id: "student-1", url: "https://download", expires_at: "2026-01-01T00:00:00.000Z" }]);
+  });
+});
+
+// Phase 2: branch isolation for single-record by-id access. `students`
+// carries its own branch_id, so every by-id lookup/update/delete below
+// should fold a branch_id condition into its SQL when the caller is
+// branch-scoped (branchId non-null), and read as "not found" when the row
+// doesn't match -- never leak that it exists in another branch. An unscoped
+// caller (branchId: null) is unaffected, matching today's behavior.
+describe("StudentsService branch isolation", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let service: StudentsService;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    service = new StudentsService(
+      db,
+      makeAuditMock(),
+      makeFeesMock(),
+      new QrTokenService(),
+      makeStorageMock(),
+    );
+  });
+
+  describe("getStudent", () => {
+    it("folds a branch_id condition into the query when the caller is branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-1" });
+      db.query.mockResolvedValueOnce([]); // guardians
+
+      await service.getStudent("tenant-a", "student-1", "branch-1");
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).toContain("s.branch_id = $3");
+      expect(params).toEqual(["tenant-a", "student-1", "branch-1"]);
+    });
+
+    it("404s (not leaking existence) when the row doesn't match the caller's branch", async () => {
+      db.queryOne.mockResolvedValueOnce(null); // simulates a real DB filtering out a different-branch row
+
+      await expect(service.getStudent("tenant-a", "student-1", "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("succeeds for the caller's own-branch record", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-1" });
+      db.query.mockResolvedValueOnce([]); // guardians
+
+      const result = await service.getStudent("tenant-a", "student-1", "branch-1");
+
+      expect(result.id).toBe("student-1");
+    });
+
+    it("adds no branch_id condition for an unscoped caller (branchId: null)", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "student-1", branch_id: "branch-2" });
+      db.query.mockResolvedValueOnce([]); // guardians
+
+      await service.getStudent("tenant-a", "student-1", null);
+
+      const [, sql, params] = db.queryOne.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+      expect(params).toEqual(["tenant-a", "student-1"]);
+    });
+  });
+
+  describe("updateStudent", () => {
+    const dto = { first_name: "Ravi" } as UpdateStudentDto;
+
+    it("folds a branch_id condition into the UPDATE when the caller is branch-scoped", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+
+      await service.updateStudent("tenant-a", "actor-1", "student-1", dto, "branch-1");
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).toContain("branch_id = $");
+      expect(params).toContain("branch-1");
+    });
+
+    it("throws NotFoundException when the row is outside the caller's branch (updateRow finds no match)", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.updateStudent("tenant-a", "actor-1", "student-1", dto, "branch-1"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("succeeds without a branch_id condition for an unscoped caller", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+
+      await service.updateStudent("tenant-a", "actor-1", "student-1", dto, null);
+
+      const [sql] = client.query.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+    });
+  });
+
+  describe("deleteStudent", () => {
+    it("folds a branch_id condition into the soft-delete UPDATE when branch-scoped", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+
+      await service.deleteStudent("tenant-a", "actor-1", "student-1", "branch-1");
+
+      const [sql, params] = client.query.mock.calls[0];
+      expect(sql).toContain("branch_id = $");
+      expect(params).toContain("branch-1");
+    });
+
+    it("404s when the row is outside the caller's branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] });
+
+      await expect(service.deleteStudent("tenant-a", "actor-1", "student-1", "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("succeeds without a branch_id condition for an unscoped caller", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a" }] });
+
+      await service.deleteStudent("tenant-a", "actor-1", "student-1", null);
+
+      const [sql] = client.query.mock.calls[0];
+      expect(sql).not.toContain("branch_id");
+    });
+  });
+
+  describe("getSiblings", () => {
+    it("verifies the student belongs to the caller's branch before looking up siblings", async () => {
+      client.query.mockResolvedValueOnce({ rows: [] }); // findOneForTenant: student not found in this branch
+
+      await expect(service.getSiblings("tenant-a", "student-1", "branch-1")).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("proceeds to look up siblings once the parent student is confirmed in-branch", async () => {
+      client.query.mockResolvedValueOnce({ rows: [{ id: "student-1", tenant_id: "tenant-a", branch_id: "branch-1" }] });
+      db.query.mockResolvedValueOnce([]); // no shared guardians
+
+      const result = await service.getSiblings("tenant-a", "student-1", "branch-1");
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("getGuardian", () => {
+    it("filters the children list to the caller's branch when branch-scoped", async () => {
+      db.queryOne.mockResolvedValueOnce({ id: "guardian-1", full_name: "Asha Rao" });
+      db.query.mockResolvedValueOnce([]);
+
+      await service.getGuardian("tenant-a", "guardian-1", "branch-1");
+
+      const [, sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain("s.branch_id = $3");
+      expect(params).toEqual(["tenant-a", "guardian-1", "branch-1"]);
+    });
   });
 });

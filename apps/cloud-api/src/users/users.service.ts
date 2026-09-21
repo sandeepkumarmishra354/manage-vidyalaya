@@ -52,15 +52,21 @@ export class UsersService {
     });
   }
 
-  async resetPassword(tenantId: string, actorUserId: string, userId: string, newPassword: string): Promise<void> {
+  async resetPassword(
+    tenantId: string,
+    actorUserId: string,
+    userId: string,
+    newPassword: string,
+    branchId?: string | null,
+  ): Promise<void> {
     return this.db.withTransaction(tenantId, async (client) => {
-      const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId);
+      const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId, branchId);
       if (!user) {
         throw new NotFoundException("user not found");
       }
 
       const passwordHash = await bcrypt.hash(newPassword, 10);
-      await updateRow<UserRow>(client, "users", tenantId, userId, { password_hash: passwordHash });
+      await updateRow<UserRow>(client, "users", tenantId, userId, { password_hash: passwordHash }, branchId);
 
       await this.audit.record(client, {
         tenantId,
@@ -107,8 +113,19 @@ export class UsersService {
     }));
   }
 
-  async assignUserRole(tenantId: string, actorUserId: string, userId: string, roleId: string) {
+  async assignUserRole(
+    tenantId: string,
+    actorUserId: string,
+    userId: string,
+    roleId: string,
+    branchId?: string | null,
+  ) {
     await this.db.withTransaction(tenantId, async (client) => {
+      const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId, branchId);
+      if (!user) {
+        throw new NotFoundException("user not found");
+      }
+
       await client.query(
         `INSERT INTO user_roles (id, tenant_id, user_id, role_id, updated_at)
          VALUES ($1, $2, $3, $4, $5)
@@ -127,8 +144,19 @@ export class UsersService {
     });
   }
 
-  async removeUserRole(tenantId: string, actorUserId: string, userId: string, roleId: string) {
+  async removeUserRole(
+    tenantId: string,
+    actorUserId: string,
+    userId: string,
+    roleId: string,
+    branchId?: string | null,
+  ) {
     await this.db.withTransaction(tenantId, async (client) => {
+      const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId, branchId);
+      if (!user) {
+        throw new NotFoundException("user not found");
+      }
+
       await client.query("DELETE FROM user_roles WHERE tenant_id = $1 AND user_id = $2 AND role_id = $3", [
         tenantId,
         userId,
@@ -146,13 +174,26 @@ export class UsersService {
     });
   }
 
-  async setUserActive(tenantId: string, actorUserId: string, userId: string, isActive: boolean) {
+  async setUserActive(
+    tenantId: string,
+    actorUserId: string,
+    userId: string,
+    isActive: boolean,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
-      const updated = await updateRow<UserRow>(client, "users", tenantId, userId, {
-        is_active: isActive,
-        updated_at: now,
-      });
+      const updated = await updateRow<UserRow>(
+        client,
+        "users",
+        tenantId,
+        userId,
+        {
+          is_active: isActive,
+          updated_at: now,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

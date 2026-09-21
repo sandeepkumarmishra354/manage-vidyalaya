@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { CreateMasterDataItemDto } from "./dto/create-master-data-item.dto.js";
 import { UpdateMasterDataItemDto } from "./dto/update-master-data-item.dto.js";
@@ -12,7 +13,7 @@ import { MasterDataService } from "./master-data.service.js";
 // (dropdown data), and write permission depends on the per-request `type`,
 // which MasterDataService checks dynamically (see assertCanManage).
 @Controller("master-data")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class MasterDataController {
   constructor(private readonly masterDataService: MasterDataService) {}
 

@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@ne
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignHouseDto } from "./dto/assign-house.dto.js";
@@ -12,7 +13,7 @@ import { UpdateHouseDto } from "./dto/update-house.dto.js";
 import { HousesService } from "./houses.service.js";
 
 @Controller("houses")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class HousesController {
   constructor(private readonly housesService: HousesService) {}
 
@@ -31,7 +32,7 @@ export class HousesController {
   @Patch(":id")
   @RequirePermission("houses.manage_teams")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateHouseDto) {
-    return this.housesService.updateHouse(user.tenant_id, user.sub, id, dto);
+    return this.housesService.updateHouse(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get("leaderboard")
@@ -62,6 +63,6 @@ export class HousesController {
 
   @Get("student/:studentId")
   studentHouse(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.housesService.getStudentHouse(user.tenant_id, studentId);
+    return this.housesService.getStudentHouse(user.tenant_id, studentId, user.branch_id);
   }
 }

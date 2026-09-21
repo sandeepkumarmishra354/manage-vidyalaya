@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
 import { DbService } from "../db/db.service.js";
-import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
+import { insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateHolidayDto } from "./dto/create-holiday.dto.js";
 import type { CreateHolidayRangeDto } from "./dto/create-holiday-range.dto.js";
@@ -84,6 +84,36 @@ export class SchoolCalendarService {
       weekly_half_days: calendar.weekly_half_days,
       holidays,
     };
+  }
+
+  // calendar_holidays itself carries no branch_id -- the branch check has to
+  // go through its parent school_calendar instead, so a branch-scoped
+  // caller can't reach another branch's holiday by id. Runs on the same
+  // client/transaction as the caller so the subsequent update/delete stays
+  // atomic with this check.
+  private async findHolidayOrThrow(
+    client: PoolClient,
+    tenantId: string,
+    id: string,
+    branchId?: string | null,
+  ): Promise<CalendarHolidayRow> {
+    const conditions = ["h.id = $1", "h.tenant_id = $2", "h.deleted_at IS NULL"];
+    const values: unknown[] = [id, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`sc.branch_id = $${values.length}`);
+    }
+    const result = await client.query<CalendarHolidayRow>(
+      `SELECT h.* FROM calendar_holidays h
+       JOIN school_calendars sc ON sc.id = h.school_calendar_id
+       WHERE ${conditions.join(" AND ")}`,
+      values,
+    );
+    const holiday = result.rows[0];
+    if (!holiday) {
+      throw new NotFoundException("holiday not found");
+    }
+    return holiday;
   }
 
   private async getOrCreateCalendar(
@@ -221,12 +251,9 @@ export class SchoolCalendarService {
     });
   }
 
-  async updateHoliday(tenantId: string, actorUserId: string, id: string, dto: UpdateHolidayDto) {
+  async updateHoliday(tenantId: string, actorUserId: string, id: string, dto: UpdateHolidayDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id);
-      if (!existing) {
-        throw new NotFoundException("holiday not found");
-      }
+      await this.findHolidayOrThrow(client, tenantId, id, branchId);
 
       const updated = await updateRow<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id, {
         date: new Date(dto.date),
@@ -249,12 +276,9 @@ export class SchoolCalendarService {
     });
   }
 
-  async deleteHoliday(tenantId: string, actorUserId: string, id: string) {
+  async deleteHoliday(tenantId: string, actorUserId: string, id: string, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const existing = await findOneForTenant<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id);
-      if (!existing) {
-        throw new NotFoundException("holiday not found");
-      }
+      const existing = await this.findHolidayOrThrow(client, tenantId, id, branchId);
 
       const deleted = await updateRow<CalendarHolidayRow>(client, "calendar_holidays", tenantId, id, {
         deleted_at: new Date(),

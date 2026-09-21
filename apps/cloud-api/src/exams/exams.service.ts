@@ -71,14 +71,27 @@ export class ExamsService {
     });
   }
 
-  async updateSubject(tenantId: string, actorUserId: string, id: string, dto: UpdateSubjectDto) {
+  async updateSubject(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateSubjectDto,
+    branchId: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<SubjectRow>(client, "subjects", tenantId, id, {
-        name: dto.name,
-        code: dto.code ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<SubjectRow>(
+        client,
+        "subjects",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          code: dto.code ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -91,6 +104,25 @@ export class ExamsService {
 
       return updated;
     });
+  }
+
+  // Shared by every by-id exam lookup below (backpaper roster, marks-entry
+  // authorization, teaching assignments, submission status, publish/reopen)
+  // -- when branchId is given (a branch-scoped caller), an exam that exists
+  // but belongs to another branch comes back as "not found" exactly like a
+  // wrong id would, matching findOneForTenant's convention in tenant-repo.ts.
+  private async findExamOrThrow(tenantId: string, examId: string, branchId?: string | null): Promise<ExamRow> {
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [examId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
+    const exam = await this.db.queryOne<ExamRow>(tenantId, `SELECT * FROM exams WHERE ${conditions.join(" AND ")}`, values);
+    if (!exam) {
+      throw new NotFoundException("exam not found");
+    }
+    return exam;
   }
 
   listExams(tenantId: string, branchId: string, classId?: string, academicSessionId?: string) {
@@ -127,15 +159,22 @@ export class ExamsService {
     });
   }
 
-  async updateExam(tenantId: string, actorUserId: string, id: string, dto: UpdateExamDto) {
+  async updateExam(tenantId: string, actorUserId: string, id: string, dto: UpdateExamDto, branchId?: string | null) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<ExamRow>(client, "exams", tenantId, id, {
-        name: dto.name,
-        exam_date: dto.exam_date ? new Date(dto.exam_date) : null,
-        passing_percentage: dto.passing_percentage,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<ExamRow>(
+        client,
+        "exams",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          exam_date: dto.exam_date ? new Date(dto.exam_date) : null,
+          passing_percentage: dto.passing_percentage,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -152,15 +191,8 @@ export class ExamsService {
 
   // Students who failed (or were absent for) a subject on this exam -- the
   // roster to pre-fill when creating a back-paper exam for that exam+subject.
-  async listStudentsPendingBackpaper(tenantId: string, examId: string, subjectId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  async listStudentsPendingBackpaper(tenantId: string, examId: string, subjectId: string, branchId?: string | null) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
 
     const marks = await this.db.query<ExamMarkRow & { first_name: string; last_name: string | null }>(
       tenantId,
@@ -194,15 +226,14 @@ export class ExamsService {
   // their assignment is section-scoped (not the "any section" sectionId:
   // null convention), the returned sectionId narrows the roster/edits to
   // that section only.
-  private async resolveMarksEntryAccess(tenantId: string, userId: string, examId: string, subjectId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  private async resolveMarksEntryAccess(
+    tenantId: string,
+    userId: string,
+    examId: string,
+    subjectId: string,
+    branchId?: string | null,
+  ) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
 
     if (await this.scopedAccess.hasPermission(tenantId, userId, "exams.enter_marks")) {
       return { exam, sectionId: null as string | null };
@@ -210,11 +241,23 @@ export class ExamsService {
 
     const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
     if (staff) {
+      const conditions = [
+        "tenant_id = $1",
+        "staff_id = $2",
+        "class_id = $3",
+        "subject_id = $4",
+        "academic_session_id = $5",
+        "deleted_at IS NULL",
+      ];
+      const values: unknown[] = [tenantId, (staff as { id: string }).id, exam.class_id, subjectId, exam.academic_session_id];
+      if (branchId) {
+        values.push(branchId);
+        conditions.push(`branch_id = $${values.length}`);
+      }
       const assignment = await this.db.queryOne<{ section_id: string | null }>(
         tenantId,
-        `SELECT section_id FROM teacher_subject_assignments
-         WHERE tenant_id = $1 AND staff_id = $2 AND class_id = $3 AND subject_id = $4 AND academic_session_id = $5 AND deleted_at IS NULL`,
-        [tenantId, (staff as { id: string }).id, exam.class_id, subjectId, exam.academic_session_id],
+        `SELECT section_id FROM teacher_subject_assignments WHERE ${conditions.join(" AND ")}`,
+        values,
       );
       if (assignment) {
         return { exam, sectionId: assignment.section_id };
@@ -228,28 +271,33 @@ export class ExamsService {
   // class+session, regardless of whether they hold the broad
   // exams.enter_marks permission -- lets the frontend restrict a
   // non-broad-permission teacher's subject dropdown to their own subjects.
-  async getMyTeachingAssignments(tenantId: string, userId: string, examId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  async getMyTeachingAssignments(tenantId: string, userId: string, examId: string, branchId?: string | null) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
 
     const staff = await this.scopedAccess.getActingStaff(tenantId, userId);
     if (!staff) {
       return [];
     }
 
+    const conditions = [
+      "ta.tenant_id = $1",
+      "ta.staff_id = $2",
+      "ta.class_id = $3",
+      "ta.academic_session_id = $4",
+      "ta.deleted_at IS NULL",
+    ];
+    const values: unknown[] = [tenantId, (staff as { id: string }).id, exam.class_id, exam.academic_session_id];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`ta.branch_id = $${values.length}`);
+    }
     const assignments = await this.db.query<{ subject_id: string; subject_name: string }>(
       tenantId,
       `SELECT ta.subject_id, sub.name AS subject_name
        FROM teacher_subject_assignments ta
        JOIN subjects sub ON sub.id = ta.subject_id
-       WHERE ta.tenant_id = $1 AND ta.staff_id = $2 AND ta.class_id = $3 AND ta.academic_session_id = $4 AND ta.deleted_at IS NULL`,
-      [tenantId, (staff as { id: string }).id, exam.class_id, exam.academic_session_id],
+       WHERE ${conditions.join(" AND ")}`,
+      values,
     );
 
     const bySubject = new Map<string, { subject_id: string; subject_name: string }>();
@@ -263,8 +311,8 @@ export class ExamsService {
   // assigned section, if their marks-entry access is section-scoped), with
   // whatever marks already exist for this exam+subject, so the UI can
   // render a marks-entry roster in one call.
-  async getMarksRoster(tenantId: string, userId: string, examId: string, subjectId: string) {
-    const { exam, sectionId } = await this.resolveMarksEntryAccess(tenantId, userId, examId, subjectId);
+  async getMarksRoster(tenantId: string, userId: string, examId: string, subjectId: string, branchId?: string | null) {
+    const { exam, sectionId } = await this.resolveMarksEntryAccess(tenantId, userId, examId, subjectId, branchId);
 
     const conditions = ["tenant_id = $1", "current_class_id = $2", "deleted_at IS NULL", "status = 'enrolled'"];
     const values: unknown[] = [tenantId, exam.class_id];
@@ -324,8 +372,8 @@ export class ExamsService {
     return percentage >= passingPercentage ? "pass" : "fail";
   }
 
-  async saveMarks(tenantId: string, actorUserId: string, dto: SaveMarksDto) {
-    const { exam, sectionId } = await this.resolveMarksEntryAccess(tenantId, actorUserId, dto.exam_id, dto.subject_id);
+  async saveMarks(tenantId: string, actorUserId: string, dto: SaveMarksDto, branchId?: string | null) {
+    const { exam, sectionId } = await this.resolveMarksEntryAccess(tenantId, actorUserId, dto.exam_id, dto.subject_id, branchId);
 
     if (exam.results_published_at) {
       throw new BadRequestException("results have been published for this exam; reopen results before editing marks");
@@ -372,16 +420,26 @@ export class ExamsService {
     });
   }
 
-  async getReportCard(tenantId: string, studentId: string, examId: string) {
+  async getReportCard(tenantId: string, studentId: string, examId: string, branchId?: string | null) {
+    const examConditions = ["id = $1", "tenant_id = $2"];
+    const examValues: unknown[] = [examId, tenantId];
+    if (branchId) {
+      examValues.push(branchId);
+      examConditions.push(`branch_id = $${examValues.length}`);
+    }
+    const studentConditions = ["id = $1", "tenant_id = $2"];
+    const studentValues: unknown[] = [studentId, tenantId];
+    if (branchId) {
+      studentValues.push(branchId);
+      studentConditions.push(`branch_id = $${studentValues.length}`);
+    }
     const [student, exam] = await Promise.all([
-      this.db.queryOne<StudentRow>(tenantId, "SELECT * FROM students WHERE id = $1 AND tenant_id = $2", [
-        studentId,
+      this.db.queryOne<StudentRow>(
         tenantId,
-      ]),
-      this.db.queryOne<ExamRow>(tenantId, "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2", [
-        examId,
-        tenantId,
-      ]),
+        `SELECT * FROM students WHERE ${studentConditions.join(" AND ")}`,
+        studentValues,
+      ),
+      this.db.queryOne<ExamRow>(tenantId, `SELECT * FROM exams WHERE ${examConditions.join(" AND ")}`, examValues),
     ]);
     if (!student) {
       throw new NotFoundException("student not found");
@@ -490,15 +548,8 @@ export class ExamsService {
   // mark entered against how many are expected, and names the responsible
   // teacher(s) via TeacherSubjectAssignment. Backs both the "pending
   // submissions" view and the publish-results completeness gate.
-  async getSubmissionStatus(tenantId: string, examId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  async getSubmissionStatus(tenantId: string, examId: string, branchId?: string | null) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
 
     const students = await this.db.query<StudentRow>(
       tenantId,
@@ -536,13 +587,19 @@ export class ExamsService {
       enteredBySubject.set(mark.subject_id, set);
     }
 
+    const assignmentConditions = ["ta.tenant_id = $1", "ta.class_id = $2", "ta.academic_session_id = $3", "ta.deleted_at IS NULL"];
+    const assignmentValues: unknown[] = [tenantId, exam.class_id, exam.academic_session_id];
+    if (branchId) {
+      assignmentValues.push(branchId);
+      assignmentConditions.push(`ta.branch_id = $${assignmentValues.length}`);
+    }
     const assignments = await this.db.query<{ subject_id: string; first_name: string; last_name: string | null }>(
       tenantId,
       `SELECT ta.subject_id, s.first_name, s.last_name
        FROM teacher_subject_assignments ta
        JOIN staff s ON s.id = ta.staff_id
-       WHERE ta.tenant_id = $1 AND ta.class_id = $2 AND ta.academic_session_id = $3 AND ta.deleted_at IS NULL`,
-      [tenantId, exam.class_id, exam.academic_session_id],
+       WHERE ${assignmentConditions.join(" AND ")}`,
+      assignmentValues,
     );
     const teachersBySubject = new Map<string, Set<string>>();
     for (const a of assignments) {
@@ -565,20 +622,13 @@ export class ExamsService {
     });
   }
 
-  async publishExamResults(tenantId: string, actorUserId: string, examId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  async publishExamResults(tenantId: string, actorUserId: string, examId: string, branchId?: string | null) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
     if (exam.results_published_at) {
       throw new BadRequestException("results are already published for this exam");
     }
 
-    const status = await this.getSubmissionStatus(tenantId, examId);
+    const status = await this.getSubmissionStatus(tenantId, examId, branchId);
     const incomplete = status.filter((s) => !s.is_complete);
     if (incomplete.length > 0) {
       throw new BadRequestException(
@@ -587,11 +637,18 @@ export class ExamsService {
     }
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<ExamRow>(client, "exams", tenantId, examId, {
-        results_published_at: new Date(),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<ExamRow>(
+        client,
+        "exams",
+        tenantId,
+        examId,
+        {
+          results_published_at: new Date(),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -606,25 +663,25 @@ export class ExamsService {
     });
   }
 
-  async reopenExamResults(tenantId: string, actorUserId: string, examId: string) {
-    const exam = await this.db.queryOne<ExamRow>(
-      tenantId,
-      "SELECT * FROM exams WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
-      [examId, tenantId],
-    );
-    if (!exam) {
-      throw new NotFoundException("exam not found");
-    }
+  async reopenExamResults(tenantId: string, actorUserId: string, examId: string, branchId?: string | null) {
+    const exam = await this.findExamOrThrow(tenantId, examId, branchId);
     if (!exam.results_published_at) {
       throw new BadRequestException("results are not published for this exam");
     }
 
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<ExamRow>(client, "exams", tenantId, examId, {
-        results_published_at: null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<ExamRow>(
+        client,
+        "exams",
+        tenantId,
+        examId,
+        {
+          results_published_at: null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

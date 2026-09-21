@@ -65,12 +65,23 @@ export class DocumentsService {
     private readonly audit: AuditService,
   ) {}
 
-  private async resolveOwner(tenantId: string, ownerType: DocumentOwnerType, ownerId: string) {
+  private async resolveOwner(
+    tenantId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    branchId: string | null,
+  ) {
     const table = ownerType === "student" ? "students" : "staff";
+    const conditions = ["id = $1", "tenant_id = $2", "deleted_at IS NULL"];
+    const values: unknown[] = [ownerId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const owner = await this.db.queryOne<{ id: string; branch_id: string }>(
       tenantId,
-      `SELECT id, branch_id FROM ${table} WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-      [ownerId, tenantId],
+      `SELECT id, branch_id FROM ${table} WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!owner) {
       throw new NotFoundException(`${ownerType} not found`);
@@ -78,16 +89,29 @@ export class DocumentsService {
     return owner;
   }
 
-  async requestUploadUrl(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, dto: RequestUploadUrlDto) {
-    await this.resolveOwner(tenantId, ownerType, ownerId);
+  async requestUploadUrl(
+    tenantId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    dto: RequestUploadUrlDto,
+    branchId: string | null,
+  ) {
+    await this.resolveOwner(tenantId, ownerType, ownerId, branchId);
     const ext = sanitizeExtension(dto.file_name);
     const key = `doc-${randomUUID()}${ext ? `.${ext}` : ""}`;
     const upload = await this.storage.createUploadUrl(key, dto.content_type);
     return { ...upload, storage_key: key };
   }
 
-  async create(tenantId: string, actorUserId: string, ownerType: DocumentOwnerType, ownerId: string, dto: CreateDocumentDto) {
-    const owner = await this.resolveOwner(tenantId, ownerType, ownerId);
+  async create(
+    tenantId: string,
+    actorUserId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    dto: CreateDocumentDto,
+    branchId: string | null,
+  ) {
+    const owner = await this.resolveOwner(tenantId, ownerType, ownerId, branchId);
 
     return this.db.withTransaction(tenantId, async (client) => {
       const now = new Date();
@@ -119,8 +143,8 @@ export class DocumentsService {
     });
   }
 
-  async list(tenantId: string, ownerType: DocumentOwnerType, ownerId: string) {
-    await this.resolveOwner(tenantId, ownerType, ownerId);
+  async list(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, branchId: string | null) {
+    await this.resolveOwner(tenantId, ownerType, ownerId, branchId);
     const rows = await this.db.query<DocumentRow>(
       tenantId,
       `SELECT * FROM ${ownerTable(ownerType)} WHERE ${ownerColumn(ownerType)} = $1 AND tenant_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC`,
@@ -129,11 +153,31 @@ export class DocumentsService {
     return rows.map(toListItem);
   }
 
-  private async findOwned(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
+  // student_documents/staff_documents carry their own branch_id (unlike the
+  // guardians/student_elective_choices "no branch_id" cases elsewhere), so
+  // it's filtered directly here rather than only via the parent owner.
+  private async findOwned(
+    tenantId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    docId: string,
+    branchId: string | null,
+  ) {
+    const conditions = [
+      "id = $1",
+      `${ownerColumn(ownerType)} = $2`,
+      "tenant_id = $3",
+      "deleted_at IS NULL",
+    ];
+    const values: unknown[] = [docId, ownerId, tenantId];
+    if (branchId) {
+      values.push(branchId);
+      conditions.push(`branch_id = $${values.length}`);
+    }
     const row = await this.db.queryOne<DocumentRow>(
       tenantId,
-      `SELECT * FROM ${ownerTable(ownerType)} WHERE id = $1 AND ${ownerColumn(ownerType)} = $2 AND tenant_id = $3 AND deleted_at IS NULL`,
-      [docId, ownerId, tenantId],
+      `SELECT * FROM ${ownerTable(ownerType)} WHERE ${conditions.join(" AND ")}`,
+      values,
     );
     if (!row) {
       throw new NotFoundException("document not found");
@@ -141,20 +185,40 @@ export class DocumentsService {
     return row;
   }
 
-  async getDownloadUrl(tenantId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
-    const row = await this.findOwned(tenantId, ownerType, ownerId, docId);
+  async getDownloadUrl(
+    tenantId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    docId: string,
+    branchId: string | null,
+  ) {
+    const row = await this.findOwned(tenantId, ownerType, ownerId, docId, branchId);
     return this.storage.createDownloadUrl(row.storage_key);
   }
 
-  async remove(tenantId: string, actorUserId: string, ownerType: DocumentOwnerType, ownerId: string, docId: string) {
-    const row = await this.findOwned(tenantId, ownerType, ownerId, docId);
+  async remove(
+    tenantId: string,
+    actorUserId: string,
+    ownerType: DocumentOwnerType,
+    ownerId: string,
+    docId: string,
+    branchId: string | null,
+  ) {
+    const row = await this.findOwned(tenantId, ownerType, ownerId, docId, branchId);
 
     await this.db.withTransaction(tenantId, async (client) => {
-      await updateRow<DocumentRow>(client, ownerTable(ownerType), tenantId, docId, {
-        deleted_at: new Date(),
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      await updateRow<DocumentRow>(
+        client,
+        ownerTable(ownerType),
+        tenantId,
+        docId,
+        {
+          deleted_at: new Date(),
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,

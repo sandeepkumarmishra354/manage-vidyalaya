@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@ne
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignTransportDto } from "./dto/assign-transport.dto.js";
@@ -13,7 +14,7 @@ import { UpdateStopDto } from "./dto/update-stop.dto.js";
 import { TransportService } from "./transport.service.js";
 
 @Controller("transport/routes")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportRoutesController {
   constructor(private readonly transportService: TransportService) {}
 
@@ -32,25 +33,25 @@ export class TransportRoutesController {
   @Patch(":id")
   @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateRouteDto) {
-    return this.transportService.updateRoute(user.tenant_id, user.sub, id, dto);
+    return this.transportService.updateRoute(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Get(":routeId/roster")
   @RequirePermission("transport.view")
   roster(@CurrentUser() user: JwtPayload, @Param("routeId") routeId: string) {
-    return this.transportService.listRouteRoster(user.tenant_id, routeId);
+    return this.transportService.listRouteRoster(user.tenant_id, routeId, user.branch_id);
   }
 }
 
 @Controller("transport/stops")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportStopsController {
   constructor(private readonly transportService: TransportService) {}
 
   @Get()
   @RequirePermission("transport.view")
   list(@CurrentUser() user: JwtPayload, @Query("route_id") routeId: string) {
-    return this.transportService.listStops(user.tenant_id, routeId);
+    return this.transportService.listStops(user.tenant_id, routeId, user.branch_id);
   }
 
   @Post()
@@ -62,12 +63,12 @@ export class TransportStopsController {
   @Patch(":id")
   @RequirePermission("transport.manage_routes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateStopDto) {
-    return this.transportService.updateStop(user.tenant_id, user.sub, id, dto);
+    return this.transportService.updateStop(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
 @Controller("transport/assignments")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class TransportAssignmentsController {
   constructor(private readonly transportService: TransportService) {}
 
@@ -80,6 +81,6 @@ export class TransportAssignmentsController {
   @Get("student/:studentId")
   @RequirePermission("transport.view")
   studentTransport(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.transportService.getStudentTransport(user.tenant_id, studentId);
+    return this.transportService.getStudentTransport(user.tenant_id, studentId, user.branch_id);
   }
 }

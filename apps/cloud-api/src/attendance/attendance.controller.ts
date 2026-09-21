@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/co
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AttendanceService } from "./attendance.service.js";
@@ -17,7 +18,7 @@ import { ScanAttendanceDto } from "./dto/scan-attendance.dto.js";
 // PermissionsGuard stays on the class for the routes that do use
 // @RequirePermission (it no-ops on handlers with no metadata).
 @Controller("attendance")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
@@ -69,13 +70,13 @@ export class AttendanceController {
   // the scanned student's own section), same additive pattern as mark/bulk.
   @Post("scan")
   async scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanAttendanceDto) {
-    return this.attendanceService.scanMark(user.tenant_id, user.sub, dto.token);
+    return this.attendanceService.scanMark(user.tenant_id, user.sub, dto.token, user.branch_id);
   }
 
   @Get("student/:studentId/history")
   @RequirePermission("attendance.view")
   history(@CurrentUser() user: JwtPayload, @Param("studentId") studentId: string) {
-    return this.attendanceService.getStudentHistory(user.tenant_id, studentId);
+    return this.attendanceService.getStudentHistory(user.tenant_id, studentId, user.branch_id);
   }
 
   @Get("report")

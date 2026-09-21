@@ -4,6 +4,7 @@ import { Throttle } from "@nestjs/throttler";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AssignRoleDto } from "./dto/assign-role.dto.js";
@@ -14,7 +15,7 @@ import { SetUserActiveDto } from "./dto/set-user-active.dto.js";
 import { UsersService } from "./users.service.js";
 
 @Controller("users")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -42,27 +43,27 @@ export class UsersController {
   // defense-in-depth on top of the flat permission check.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async resetPassword(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: ResetPasswordDto) {
-    await this.usersService.resetPassword(user.tenant_id, user.sub, id, dto.password);
+    await this.usersService.resetPassword(user.tenant_id, user.sub, id, dto.password, user.branch_id);
     return { ok: true };
   }
 
   @Post(":id/roles")
   @RequirePermission("users.manage")
   async assignRole(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AssignRoleDto) {
-    await this.usersService.assignUserRole(user.tenant_id, user.sub, id, dto.role_id);
+    await this.usersService.assignUserRole(user.tenant_id, user.sub, id, dto.role_id, user.branch_id);
     return { ok: true };
   }
 
   @Delete(":id/roles/:roleId")
   @RequirePermission("users.manage")
   async removeRole(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Param("roleId") roleId: string) {
-    await this.usersService.removeUserRole(user.tenant_id, user.sub, id, roleId);
+    await this.usersService.removeUserRole(user.tenant_id, user.sub, id, roleId, user.branch_id);
     return { ok: true };
   }
 
   @Post(":id/active")
   @RequirePermission("users.manage")
   setActive(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetUserActiveDto) {
-    return this.usersService.setUserActive(user.tenant_id, user.sub, id, dto.is_active);
+    return this.usersService.setUserActive(user.tenant_id, user.sub, id, dto.is_active, user.branch_id);
   }
 }

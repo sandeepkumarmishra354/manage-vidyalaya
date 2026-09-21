@@ -4,6 +4,7 @@ import { IsString } from "class-validator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { AdjustLineItemDto } from "./dto/adjust-line-item.dto.js";
@@ -17,20 +18,20 @@ class MarkPaidDto {
 }
 
 @Controller("salary-structures")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SalaryStructuresController {
   constructor(private readonly payrollService: PayrollService) {}
 
   @Get("staff/:staffId")
   @RequirePermission("payroll.view")
   get(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
-    return this.payrollService.getSalaryStructure(user.tenant_id, staffId);
+    return this.payrollService.getSalaryStructure(user.tenant_id, staffId, user.branch_id);
   }
 
   @Get("staff/:staffId/history")
   @RequirePermission("payroll.view")
   history(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
-    return this.payrollService.listSalaryHistory(user.tenant_id, staffId);
+    return this.payrollService.listSalaryHistory(user.tenant_id, staffId, user.branch_id);
   }
 
   @Post()
@@ -41,7 +42,7 @@ export class SalaryStructuresController {
 }
 
 @Controller("payroll-runs")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class PayrollRunsController {
   constructor(private readonly payrollService: PayrollService) {}
 
@@ -72,42 +73,42 @@ export class PayrollRunsController {
   @Get(":id")
   @RequirePermission("payroll.view")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.payrollService.getPayrollRun(user.tenant_id, id);
+    return this.payrollService.getPayrollRun(user.tenant_id, id, user.branch_id);
   }
 
   @Post(":id/finalize")
   @RequirePermission("payroll.finalize")
   finalize(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.payrollService.finalizePayrollRun(user.tenant_id, user.sub, id);
+    return this.payrollService.finalizePayrollRun(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("payroll.manage_runs")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.payrollService.deletePayrollRun(user.tenant_id, user.sub, id);
+    return this.payrollService.deletePayrollRun(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   @Post(":id/reopen")
   @RequirePermission("payroll.manage_runs")
   reopen(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.payrollService.reopenPayrollRun(user.tenant_id, user.sub, id);
+    return this.payrollService.reopenPayrollRun(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
 @Controller("payslips")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class PayslipsController {
   constructor(private readonly payrollService: PayrollService) {}
 
   @Post(":id/mark-paid")
   @RequirePermission("payroll.finalize")
   markPaid(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: MarkPaidDto) {
-    return this.payrollService.markPayslipPaid(user.tenant_id, user.sub, id, dto.paid_on);
+    return this.payrollService.markPayslipPaid(user.tenant_id, user.sub, id, dto.paid_on, user.branch_id);
   }
 
   @Post(":id/line-items")
   @RequirePermission("payroll.generate")
   adjustLineItem(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: AdjustLineItemDto) {
-    return this.payrollService.adjustLineItem(user.tenant_id, user.sub, id, dto);
+    return this.payrollService.adjustLineItem(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }

@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/co
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { ApplyStaffLeaveDto } from "./dto/apply-staff-leave.dto.js";
@@ -11,7 +12,7 @@ import { FileStaffLeaveDto } from "./dto/file-staff-leave.dto.js";
 import { StaffLeaveService } from "./staff-leave.service.js";
 
 @Controller("staff-leave")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffLeaveController {
   constructor(private readonly staffLeaveService: StaffLeaveService) {}
 
@@ -36,19 +37,19 @@ export class StaffLeaveController {
   @Get("balance/:staffId")
   @RequirePermission("staff_leave.manage")
   staffBalance(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
-    return this.staffLeaveService.staffBalance(user.tenant_id, staffId);
+    return this.staffLeaveService.staffBalance(user.tenant_id, staffId, user.branch_id);
   }
 
   @Post(":id/cancel")
   cancel(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.staffLeaveService.cancel(user.tenant_id, user.sub, id);
+    return this.staffLeaveService.cancel(user.tenant_id, user.sub, id, user.branch_id);
   }
 
   // HR/admin side.
   @Post()
   @RequirePermission("staff_leave.manage")
   file(@CurrentUser() user: JwtPayload, @Body() dto: FileStaffLeaveDto) {
-    return this.staffLeaveService.file(user.tenant_id, user.sub, dto);
+    return this.staffLeaveService.file(user.tenant_id, user.sub, dto, user.branch_id);
   }
 
   @Get()
@@ -60,6 +61,6 @@ export class StaffLeaveController {
   @Post(":id/decide")
   @RequirePermission("staff_leave.manage")
   decide(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: DecideStaffLeaveDto) {
-    return this.staffLeaveService.decide(user.tenant_id, user.sub, id, dto);
+    return this.staffLeaveService.decide(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }

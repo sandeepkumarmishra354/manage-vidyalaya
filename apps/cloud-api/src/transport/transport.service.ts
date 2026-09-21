@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditService } from "../audit/audit.service.js";
 import { DbService } from "../db/db.service.js";
-import { insertRow, updateRow } from "../db/tenant-repo.js";
+import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
 import type { AssignTransportDto } from "./dto/assign-transport.dto.js";
 import type { CreateRouteDto } from "./dto/create-route.dto.js";
@@ -55,17 +55,30 @@ export class TransportService {
     );
   }
 
-  async updateRoute(tenantId: string, actorUserId: string, id: string, dto: UpdateRouteDto) {
+  async updateRoute(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateRouteDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
-      const updated = await updateRow<TransportRouteRow>(client, "transport_routes", tenantId, id, {
-        name: dto.name,
-        vehicle_number: dto.vehicle_number ?? null,
-        driver_name: dto.driver_name ?? null,
-        driver_phone: dto.driver_phone ?? null,
-        capacity: dto.capacity ?? null,
-        updated_at: new Date(),
-        updated_by: actorUserId,
-      });
+      const updated = await updateRow<TransportRouteRow>(
+        client,
+        "transport_routes",
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          vehicle_number: dto.vehicle_number ?? null,
+          driver_name: dto.driver_name ?? null,
+          driver_phone: dto.driver_phone ?? null,
+          capacity: dto.capacity ?? null,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        },
+        branchId,
+      );
 
       await this.audit.record(client, {
         tenantId,
@@ -100,8 +113,35 @@ export class TransportService {
     );
   }
 
-  async updateStop(tenantId: string, actorUserId: string, id: string, dto: UpdateStopDto) {
+  // transport_stops itself has no branch_id column -- it's scoped through
+  // its parent route instead: when the caller is branch-scoped, we look the
+  // stop's route up first and 404 (rather than leak that the stop exists)
+  // if that route isn't in the caller's own branch.
+  async updateStop(
+    tenantId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdateStopDto,
+    branchId?: string | null,
+  ) {
     return this.db.withTransaction(tenantId, async (client) => {
+      if (branchId) {
+        const stop = await findOneForTenant<TransportStopRow>(client, "transport_stops", tenantId, id);
+        if (!stop) {
+          throw new NotFoundException(`transport_stops row ${id} not found`);
+        }
+        const route = await findOneForTenant<TransportRouteRow>(
+          client,
+          "transport_routes",
+          tenantId,
+          stop.route_id,
+          branchId,
+        );
+        if (!route) {
+          throw new NotFoundException(`transport_stops row ${id} not found`);
+        }
+      }
+
       const updated = await updateRow<TransportStopRow>(client, "transport_stops", tenantId, id, {
         name: dto.name,
         sequence: dto.sequence ?? 0,
@@ -123,7 +163,20 @@ export class TransportService {
     });
   }
 
-  listStops(tenantId: string, routeId: string) {
+  // branchId: when the caller is branch-scoped, a route_id belonging to
+  // another branch quietly yields no stops (like a route_id that doesn't
+  // exist at all) rather than leaking that route's stops.
+  async listStops(tenantId: string, routeId: string, branchId?: string | null) {
+    if (branchId) {
+      const route = await this.db.queryOne<TransportRouteRow>(
+        tenantId,
+        "SELECT * FROM transport_routes WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND deleted_at IS NULL",
+        [routeId, tenantId, branchId],
+      );
+      if (!route) {
+        return [];
+      }
+    }
     return this.db.query<TransportStopRow>(
       tenantId,
       "SELECT * FROM transport_stops WHERE tenant_id = $1 AND route_id = $2 AND deleted_at IS NULL ORDER BY sequence ASC",
@@ -162,19 +215,41 @@ export class TransportService {
     });
   }
 
-  async getStudentTransport(tenantId: string, studentId: string) {
+  // branchId: the join includes transport_routes (branch-scoped), so a
+  // student whose assigned route belongs to another branch comes back as
+  // null, same as "not assigned to transport at all".
+  async getStudentTransport(tenantId: string, studentId: string, branchId?: string | null) {
+    const values: unknown[] = [tenantId, studentId];
+    let branchCondition = "";
+    if (branchId) {
+      values.push(branchId);
+      branchCondition = `AND r.branch_id = $${values.length}`;
+    }
     return this.db.queryOne<{ route_name: string; stop_name: string; pickup_time: string | null }>(
       tenantId,
       `SELECT r.name AS route_name, s.name AS stop_name, s.pickup_time
        FROM student_transport st
        JOIN transport_routes r ON r.id = st.route_id
        JOIN transport_stops s ON s.id = st.stop_id
-       WHERE st.tenant_id = $1 AND st.student_id = $2 AND st.deleted_at IS NULL`,
-      [tenantId, studentId],
+       WHERE st.tenant_id = $1 AND st.student_id = $2 AND st.deleted_at IS NULL ${branchCondition}`,
+      values,
     );
   }
 
-  async listRouteRoster(tenantId: string, routeId: string) {
+  // branchId: a route_id belonging to another branch quietly yields an
+  // empty roster rather than leaking that route's students.
+  async listRouteRoster(tenantId: string, routeId: string, branchId?: string | null) {
+    if (branchId) {
+      const route = await this.db.queryOne<TransportRouteRow>(
+        tenantId,
+        "SELECT * FROM transport_routes WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND deleted_at IS NULL",
+        [routeId, tenantId, branchId],
+      );
+      if (!route) {
+        return [];
+      }
+    }
+
     const rows = await this.db.query<{
       student_id: string;
       first_name: string;

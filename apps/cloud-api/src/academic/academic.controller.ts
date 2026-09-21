@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
@@ -28,7 +29,7 @@ import { UpdateSectionDto } from "./dto/update-section.dto.js";
 // `academic_setup.view` from using features that have nothing to do with
 // academic setup administration.
 @Controller("branches")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class BranchesController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -40,12 +41,12 @@ export class BranchesController {
   @Patch(":id")
   @RequirePermission("academic_setup.manage_school_details")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateBranchDto) {
-    return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto);
+    return this.academicService.updateBranch(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 }
 
 @Controller("academic-sessions")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class AcademicSessionsController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -68,7 +69,7 @@ export class AcademicSessionsController {
 }
 
 @Controller("classes")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class ClassesController {
   constructor(private readonly academicService: AcademicService) {}
 
@@ -86,18 +87,18 @@ export class ClassesController {
   @Patch(":id")
   @RequirePermission("academic_setup.manage_classes")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateClassDto) {
-    return this.academicService.updateClass(user.tenant_id, user.sub, id, dto);
+    return this.academicService.updateClass(user.tenant_id, user.sub, id, dto, user.branch_id);
   }
 
   @Delete(":id")
   @RequirePermission("academic_setup.manage_classes")
   remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.academicService.deleteClass(user.tenant_id, user.sub, id);
+    return this.academicService.deleteClass(user.tenant_id, user.sub, id, user.branch_id);
   }
 }
 
 @Controller("sections")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class SectionsController {
   constructor(private readonly academicService: AcademicService) {}
 

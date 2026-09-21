@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/co
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { CurrentUser } from "../common/current-user.decorator.js";
+import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
 import { RequirePermission } from "../common/require-permission.decorator.js";
 import { StaffAttendanceService } from "./staff-attendance.service.js";
@@ -11,7 +12,7 @@ import { MarkStaffAttendanceDto } from "./dto/mark-staff-attendance.dto.js";
 import { ScanStaffAttendanceDto } from "./dto/scan-staff-attendance.dto.js";
 
 @Controller("staff-attendance")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class StaffAttendanceController {
   constructor(private readonly staffAttendanceService: StaffAttendanceService) {}
 
@@ -51,13 +52,13 @@ export class StaffAttendanceController {
   @Post("scan")
   @RequirePermission("staff_attendance.mark")
   scan(@CurrentUser() user: JwtPayload, @Body() dto: ScanStaffAttendanceDto) {
-    return this.staffAttendanceService.scanMark(user.tenant_id, user.sub, dto.token);
+    return this.staffAttendanceService.scanMark(user.tenant_id, user.sub, dto.token, user.branch_id);
   }
 
   @Get("staff/:staffId/history")
   @RequirePermission("staff_attendance.view")
   history(@CurrentUser() user: JwtPayload, @Param("staffId") staffId: string) {
-    return this.staffAttendanceService.getStaffHistory(user.tenant_id, staffId);
+    return this.staffAttendanceService.getStaffHistory(user.tenant_id, staffId, user.branch_id);
   }
 
   @Get("report")
