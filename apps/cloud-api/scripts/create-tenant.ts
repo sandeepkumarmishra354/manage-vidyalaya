@@ -16,6 +16,7 @@ import * as bcrypt from "bcryptjs";
 import pg from "pg";
 
 import { SYSTEM_ROLE_PERMISSIONS } from "../src/common/permission-catalog.js";
+import { PLAN_TIERS, TRIAL_PERIOD_DAYS, type PlanTier } from "../src/common/plan-catalog.js";
 import { FEE_TYPES } from "../src/fees/fee-type.js";
 import { DEFAULT_LEAVE_TYPES } from "../src/leave-types/default-leave-types.js";
 import { DEFAULT_RETENTION_POLICIES } from "../src/retention/retention-categories.js";
@@ -30,15 +31,20 @@ interface Args {
   adminName: string;
   adminEmail: string;
   adminPassword?: string;
+  planTier: PlanTier;
 }
 
 function usage(): never {
   console.error(
     `Usage: pnpm create-tenant --school-name="Greenwood International" --subdomain=greenwood \\
     --branch-name="Main Campus" --branch-code=MAIN \\
-    --admin-name="Jane Doe" --admin-email=admin@greenwood.example [--admin-password=...]
+    --admin-name="Jane Doe" --admin-email=admin@greenwood.example [--admin-password=...] [--plan=trial|silver|gold]
 
-If --admin-password is omitted, a random one is generated and printed once.`,
+If --admin-password is omitted, a random one is generated and printed once.
+If --plan is omitted, defaults to "trial" (${TRIAL_PERIOD_DAYS} days of full Gold-tier access).
+
+Superseded for day-to-day onboarding by the vendor-admin app (apps/vendor-admin-api/web);
+kept working here as a fallback.`,
   );
   process.exit(1);
 }
@@ -66,6 +72,12 @@ function parseArgs(): Args {
     process.exit(1);
   }
 
+  const planArg = values.get("plan") ?? "trial";
+  if (!(PLAN_TIERS as readonly string[]).includes(planArg)) {
+    console.error(`Invalid --plan "${planArg}": must be one of ${PLAN_TIERS.join(", ")}.`);
+    process.exit(1);
+  }
+
   return {
     schoolName,
     subdomain,
@@ -74,6 +86,7 @@ function parseArgs(): Args {
     adminName,
     adminEmail,
     adminPassword: values.get("admin-password"),
+    planTier: planArg as PlanTier,
   };
 }
 
@@ -135,6 +148,8 @@ async function main() {
   const tenantId = randomUUID();
   const branchId = randomUUID();
   const adminPassword = args.adminPassword ?? generatePassword();
+  const trialEndsAt =
+    args.planTier === "trial" ? new Date(now.getTime() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000) : null;
 
   // One client held for the whole script so the transaction-local RLS
   // session variable applies to every statement -- same pattern as
@@ -155,9 +170,17 @@ async function main() {
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
 
     await client.query(
-      `INSERT INTO tenants (id, name, subdomain, subscription_status, updated_at)
-       VALUES ($1, $2, $3, 'trial', $4)`,
-      [tenantId, args.schoolName, args.subdomain, now],
+      `INSERT INTO tenants (id, name, subdomain, subscription_status, plan_tier, trial_ends_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        tenantId,
+        args.schoolName,
+        args.subdomain,
+        args.planTier === "trial" ? "trial" : "active",
+        args.planTier,
+        trialEndsAt,
+        now,
+      ],
     );
 
     await client.query(
@@ -258,6 +281,7 @@ async function main() {
     console.log("  School:     ", args.schoolName);
     console.log("  Subdomain:  ", args.subdomain);
     console.log("  Branch:     ", args.branchName, `(${args.branchCode})`);
+    console.log("  Plan:       ", args.planTier, trialEndsAt ? `(trial ends ${trialEndsAt.toISOString()})` : "");
     console.log("  Admin login:", args.adminEmail);
     console.log("  Admin pass: ", adminPassword);
     console.log("Hand these credentials to the school and have them change the password after first login.");
