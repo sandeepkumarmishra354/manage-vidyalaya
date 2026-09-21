@@ -79,22 +79,34 @@ export class TimetableService {
     return slots.map(toPeriodSlot);
   }
 
-  // Same "count, attempt, retry-on-clash" scheme as
+  // Same "compute a starting point, attempt, retry-on-clash" scheme as
   // StudentsService.confirmAdmission's admissionNumber assignment -- the
   // server derives sort_order itself rather than trusting a client-computed
   // value, so it can't collide from a stale client-side count (a rapid
-  // second "Add" before the list refresh lands) or from a soft-deleted
-  // slot that's still occupying its old value in the unique
-  // (branch_id, academic_session_id, sort_order) index.
+  // second "Add" before the list refresh lands).
+  //
+  // The (branch_id, academic_session_id, sort_order) unique index is NOT
+  // partial on deleted_at -- a soft-deleted slot's sort_order is gone for
+  // good, not reusable. Starting from a *count* of non-deleted rows was
+  // wrong for exactly that reason: once enough slots have been created and
+  // deleted over a session's life that the count of survivors sits well
+  // below the highest sort_order ever issued, every one of the 20 retry
+  // attempts (which only walks forward from that undercounted starting
+  // point) can land on an already-used value, and creation fails with
+  // "could not allocate a period slot order" even though slots are nowhere
+  // near exhausted. MAX(sort_order) + 1 across all rows (not just
+  // non-deleted ones) is the actual next free value in one query; the
+  // retry loop below still matters for a genuine concurrent-insert race,
+  // just no longer as a substitute for computing the right starting point.
   async createPeriodSlot(tenantId: string, actorUserId: string, dto: CreatePeriodSlotDto) {
     const now = new Date();
 
-    const countRow = await this.db.queryOne<{ count: string }>(
+    const maxRow = await this.db.queryOne<{ max_sort_order: number | null }>(
       tenantId,
-      "SELECT COUNT(*)::text AS count FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3 AND deleted_at IS NULL",
+      "SELECT MAX(sort_order) AS max_sort_order FROM period_slots WHERE tenant_id = $1 AND branch_id = $2 AND academic_session_id = $3",
       [tenantId, dto.branch_id, dto.academic_session_id],
     );
-    let sortOrder = Number(countRow?.count ?? "0");
+    let sortOrder = (maxRow?.max_sort_order ?? -1) + 1;
     let created: PeriodSlotRow | undefined;
 
     // Each attempt runs in its own transaction (rather than one shared
