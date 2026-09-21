@@ -46,7 +46,13 @@ test("promoting a student updates their current class and creates a new-session 
   await page.getByRole("option", { name: new RegExp(`E2E Next Session ${suffix}`) }).click();
 
   await page.getByRole("button", { name: "Suggest class mapping" }).click();
-  await expect(page.getByText(new RegExp(`E2E Class ${suffix}`))).toBeVisible();
+  // No cleanup exists for classes created by past runs of this suite (unlike
+  // sessions, which get buried into a non-current session) -- the mapping
+  // table can carry hundreds of accumulated "E2E Class ..." rows, and
+  // rendering that under load can outrun the default 5s timeout even though
+  // the API call itself already returned. Same reasoning as the generous
+  // timeout already used below for "Execute promotion".
+  await expect(page.getByText(new RegExp(`E2E Class ${suffix}`))).toBeVisible({ timeout: 15_000 });
 
   const mappingRow = page.getByRole("row", { name: new RegExp(`E2E Class ${suffix}`) });
   await mappingRow.getByRole("combobox").click();

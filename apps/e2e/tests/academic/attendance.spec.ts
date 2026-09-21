@@ -34,8 +34,11 @@ test("a class teacher (no flat attendance.mark) can mark attendance for their ow
   await page.getByRole("combobox").filter({ hasText: /section/i }).click();
   await page.getByRole("option", { name: "A", exact: true }).click();
 
+  // The roster renders twice in the DOM (a desktop table + a mobile card
+  // list, toggled with responsive `hidden` classes rather than removed) --
+  // .first() picks whichever one the viewport shows.
   const dailyPanel = page.getByRole("tabpanel", { name: "Daily" });
-  await expect(dailyPanel.getByText(studentName)).toBeVisible();
+  await expect(dailyPanel.getByText(studentName).first()).toBeVisible();
   await page.getByRole("button", { name: "Mark all present" }).click();
   await page.getByRole("button", { name: "Save attendance" }).click();
 

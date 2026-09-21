@@ -19,6 +19,9 @@ test("create an admission and confirm it", async ({ page }) => {
   await page.getByRole("tab", { name: "Guardian" }).click();
   await page.getByLabel("Full name").fill(`${studentName} Guardian`);
 
+  await page.getByRole("tab", { name: "Consent" }).click();
+  await page.getByRole("checkbox").check();
+
   await page.getByRole("button", { name: "Save admission" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
