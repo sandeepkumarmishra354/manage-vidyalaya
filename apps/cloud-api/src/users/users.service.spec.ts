@@ -23,16 +23,23 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+function makePlanLimitsMock() {
+  return { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+}
+
 describe("UsersService", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let client: FakeClient;
   let audit: ReturnType<typeof makeAuditMock>;
+  let planLimits: ReturnType<typeof makePlanLimitsMock>;
   let service: UsersService;
 
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new UsersService(db, audit);
+    planLimits = makePlanLimitsMock();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    service = new UsersService(db, audit, planLimits as any);
   });
 
   describe("createUser", () => {
@@ -237,11 +244,12 @@ describe("UsersService", () => {
           .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
           .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
           .mockResolvedValueOnce({ rowCount: 0 }) // role being granted doesn't carry roles.manage
+          .mockResolvedValueOnce({ rows: [{ name: "accountant" }] }) // getRoleName -- not headcount-limited
           .mockResolvedValueOnce({ rows: [] }); // INSERT INTO user_roles
 
         await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-a");
 
-        expect(client.query).toHaveBeenCalledTimes(4);
+        expect(client.query).toHaveBeenCalledTimes(5);
       });
 
       it("an unscoped caller (branchId: null) is unaffected", async () => {
@@ -249,6 +257,7 @@ describe("UsersService", () => {
           .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] })
           .mockResolvedValueOnce({ rowCount: 0 })
           .mockResolvedValueOnce({ rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [{ name: "accountant" }] }) // getRoleName -- not headcount-limited
           .mockResolvedValueOnce({ rows: [] });
 
         await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", null);
@@ -323,11 +332,64 @@ describe("UsersService", () => {
           .mockResolvedValueOnce({ rowCount: 0 }) // target not yet protected
           .mockResolvedValueOnce({ rowCount: 1 }) // role carries roles.manage
           .mockResolvedValueOnce({ rowCount: 1 }) // actor holds roles.manage
+          .mockResolvedValueOnce({ rows: [{ name: "super_admin" }] }) // getRoleName
+          .mockResolvedValueOnce({ rows: [] }) // alreadyAssigned check -- not yet assigned
+          .mockResolvedValueOnce({ rows: [{ count: "1" }] }) // current super_admin headcount
           .mockResolvedValueOnce({ rows: [] }); // INSERT
 
         await service.assignUserRole("tenant-a", "super-admin-1", "user-1", "super-admin-role");
 
+        expect(client.query).toHaveBeenCalledTimes(8);
+        expect(planLimits.assertUnderLimit).toHaveBeenCalledWith("tenant-a", "max_super_admins", 1, expect.any(String));
+      });
+    });
+
+    describe("role headcount limits", () => {
+      it("skips the headcount check entirely for a role that isn't super_admin/branch_admin", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rowCount: 0 }) // role doesn't carry roles.manage
+          .mockResolvedValueOnce({ rows: [{ name: "teacher" }] }) // getRoleName
+          .mockResolvedValueOnce({ rows: [] }); // INSERT
+
+        await service.assignUserRole("tenant-a", "actor-1", "user-1", "teacher-role");
+
         expect(client.query).toHaveBeenCalledTimes(5);
+        expect(planLimits.assertUnderLimit).not.toHaveBeenCalled();
+      });
+
+      it("skips the headcount check when the user already holds the role (idempotent re-assignment)", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rowCount: 1 }) // role carries roles.manage
+          .mockResolvedValueOnce({ rowCount: 1 }) // actor holds roles.manage
+          .mockResolvedValueOnce({ rows: [{ name: "super_admin" }] }) // getRoleName
+          .mockResolvedValueOnce({ rowCount: 1, rows: [{ x: 1 }] }) // alreadyAssigned -- already holds it
+          .mockResolvedValueOnce({ rows: [] }); // INSERT (ON CONFLICT DO NOTHING)
+
+        await service.assignUserRole("tenant-a", "super-admin-1", "user-1", "super-admin-role");
+
+        expect(planLimits.assertUnderLimit).not.toHaveBeenCalled();
+      });
+
+      it("rejects assigning a headcount-limited role once the plan's limit is reached", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rowCount: 1 }) // role carries roles.manage
+          .mockResolvedValueOnce({ rowCount: 1 }) // actor holds roles.manage
+          .mockResolvedValueOnce({ rows: [{ name: "super_admin" }] }) // getRoleName
+          .mockResolvedValueOnce({ rows: [] }) // not yet assigned
+          .mockResolvedValueOnce({ rows: [{ count: "2" }] }); // already at the plan's limit
+        planLimits.assertUnderLimit.mockRejectedValueOnce(new ForbiddenException("plan limit reached"));
+
+        await expect(
+          service.assignUserRole("tenant-a", "super-admin-1", "user-1", "super-admin-role"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        // never reaches the INSERT
+        expect(client.query).toHaveBeenCalledTimes(7);
       });
     });
 

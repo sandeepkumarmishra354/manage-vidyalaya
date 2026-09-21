@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 
 import { AuditService } from "../audit/audit.service.js";
 import { CONSENT_VERSION } from "../common/consent.js";
+import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { DbService } from "../db/db.service.js";
 import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
@@ -114,6 +115,7 @@ export class StudentsService {
     private readonly feesService: FeesService,
     private readonly qrToken: QrTokenService,
     private readonly storage: StorageService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   async listStudents(
@@ -762,6 +764,18 @@ export class StudentsService {
     if (!branch) {
       throw new NotFoundException("branch not found");
     }
+    const enrolledCountRows = await this.db.query<{ count: string }>(
+      tenantId,
+      "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
+      [tenantId],
+    );
+    await this.planLimits.assertUnderLimit(
+      tenantId,
+      "max_students",
+      Number(enrolledCountRows[0]?.count ?? 0),
+      "This school's plan allows at most that many enrolled students.",
+    );
+
     const year = new Date().getUTCFullYear().toString();
     const prefix = `${branch.code}-${year}-`;
 

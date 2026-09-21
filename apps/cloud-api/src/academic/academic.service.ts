@@ -1,11 +1,14 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
+import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { DbService } from "../db/db.service.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
 import { findManyForTenant, findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
 import type { CreateAcademicSessionDto } from "./dto/create-academic-session.dto.js";
+import type { CreateBranchDto } from "./dto/create-branch.dto.js";
 import type { CreateClassDto } from "./dto/create-class.dto.js";
 import type { CreateSectionDto } from "./dto/create-section.dto.js";
 import type { UpdateAcademicSessionDto } from "./dto/update-academic-session.dto.js";
@@ -39,12 +42,67 @@ export class AcademicService {
   constructor(
     private readonly db: DbService,
     private readonly audit: AuditService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   listBranches(tenantId: string) {
     return this.db.withTransaction(tenantId, (client) =>
       findManyForTenant<BranchRow>(client, "branches", tenantId, {}, "name ASC"),
     );
+  }
+
+  // Self-service branch creation, capped by the tenant's plan (see
+  // plan-catalog.ts's max_branches) -- there was previously no in-app way
+  // to add a branch at all; only scripts/create-tenant.ts created the
+  // first one, by hand.
+  async createBranch(tenantId: string, actorUserId: string, dto: CreateBranchDto) {
+    const [{ count }] = await this.db.query<{ count: string }>(
+      tenantId,
+      "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
+      [tenantId],
+    );
+    await this.planLimits.assertUnderLimit(
+      tenantId,
+      "max_branches",
+      Number(count),
+      "This school's plan allows at most that many branches.",
+    );
+
+    return this.db.withTransaction(tenantId, async (client) => {
+      let branch: BranchRow;
+      try {
+        branch = await insertRow<BranchRow>(client, "branches", tenantId, {
+          name: dto.name,
+          code: dto.code,
+          address: dto.address ?? null,
+          city: dto.city ?? null,
+          state: dto.state ?? null,
+          pincode: dto.pincode ?? null,
+          phone: dto.phone ?? null,
+          email: dto.email ?? null,
+          is_active: true,
+          updated_at: new Date(),
+          updated_by: actorUserId,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new ConflictException("a branch with this code already exists");
+        }
+        throw error;
+      }
+
+      await this.audit.record(client, {
+        tenantId,
+        branchId: branch.id,
+        actorUserId,
+        entityTable: "branches",
+        entityId: branch.id,
+        action: "create",
+        summary: `Created branch '${dto.name}'`,
+      });
+
+      return branch;
+    });
   }
 
   async updateBranch(

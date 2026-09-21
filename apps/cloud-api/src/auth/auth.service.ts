@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 
+import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { DbService } from "../db/db.service.js";
 import { staffAllowsAccess } from "../staff/staff-status.js";
 import type { JwtPayload } from "./jwt.strategy.js";
@@ -58,6 +59,7 @@ export class AuthService {
     private readonly db: DbService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   // `email` is only unique per (tenant_id, email) -- the same email can
@@ -107,6 +109,7 @@ export class AuthService {
       throw new UnauthorizedException("Invalid email or password");
     }
 
+    await this.planLimits.assertTenantActive(found.tenant_id);
     await this.assertLinkedStaffAllowsAccess(found.tenant_id, found.id);
 
     const roles = await this.getRoleNames(found.tenant_id, found.id);
@@ -148,6 +151,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException("User no longer active");
     }
+    await this.planLimits.assertTenantActive(payload.tenant_id);
     await this.assertLinkedStaffAllowsAccess(payload.tenant_id, user.id);
 
     // Re-derive roles AND branch from the database rather than trusting the

@@ -29,6 +29,10 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+function makePlanLimitsMock() {
+  return { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+}
+
 function makeStorageMock() {
   return {
     createUploadUrl: vi.fn(),
@@ -72,7 +76,7 @@ describe("StaffService.setClassTeacher", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("404s when the staff member to assign doesn't exist (or is outside the caller's branch)", async () => {
@@ -154,7 +158,7 @@ describe("StaffService.updateStaff", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
     client.query.mockResolvedValue({ rows: [{ id: "staff-1", tenant_id: "tenant-1" }] });
   });
 
@@ -200,22 +204,25 @@ describe("StaffService.createStaff", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, audit, new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
     client.query.mockResolvedValue({ rows: [{ id: "staff-1", employee_code: "MAIN-0001" }] });
   });
 
   it("uses the supplied employee_code as-is without touching branch/count", async () => {
+    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
+
     await service.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, employee_code: "CUSTOM-1" });
 
     expect(db.queryOne).not.toHaveBeenCalled();
-    expect(db.query).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledTimes(1); // just the headcount check -- branch/count lookup is skipped
     const [, params] = client.query.mock.calls[0];
     expect(params).toContain("CUSTOM-1");
   });
 
   it("auto-generates {branch code}-{count+1} when employee_code is blank", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    db.query.mockResolvedValueOnce([{ count: "7" }]);
+    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
+    db.query.mockResolvedValueOnce([{ count: "7" }]); // branch employee-code sequence
 
     await service.createStaff("tenant-1", "actor-1", baseCreateStaffDto);
 
@@ -225,7 +232,8 @@ describe("StaffService.createStaff", () => {
 
   it("retries with the next sequence number on a unique-constraint clash", async () => {
     db.queryOne.mockResolvedValueOnce({ id: "branch-1", code: "MAIN" });
-    db.query.mockResolvedValueOnce([{ count: "7" }]);
+    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
+    db.query.mockResolvedValueOnce([{ count: "7" }]); // branch employee-code sequence
     client.query
       .mockRejectedValueOnce(uniqueViolationError())
       .mockResolvedValueOnce({ rows: [{ id: "staff-1", employee_code: "MAIN-0009" }] });
@@ -238,6 +246,7 @@ describe("StaffService.createStaff", () => {
   });
 
   it("404s when the target branch doesn't exist in this tenant", async () => {
+    db.query.mockResolvedValueOnce([{ count: "3" }]); // active-staff headcount check
     db.queryOne.mockResolvedValueOnce(null);
 
     await expect(service.createStaff("tenant-1", "actor-1", baseCreateStaffDto)).rejects.toBeInstanceOf(
@@ -245,11 +254,24 @@ describe("StaffService.createStaff", () => {
     );
   });
 
-  it("rejects without consent_given, before touching the database", async () => {
+  it("rejects without consent_given, before ever checking the plan's staff limit", async () => {
     await expect(
       service.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, consent_given: false }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(db.queryOne).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects once the plan's staff limit is reached, before generating an employee code", async () => {
+    const planLimits = makePlanLimitsMock();
+    planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
+    const limitedService = new StaffService(db, audit, new QrTokenService(), makeStorageMock(), planLimits as any);
+    db.query.mockResolvedValueOnce([{ count: "30" }]); // at the plan's limit
+
+    await expect(
+      limitedService.createStaff("tenant-1", "actor-1", { ...baseCreateStaffDto, employee_code: "CUSTOM-1" }),
+    ).rejects.toThrow("plan limit reached");
     expect(client.query).not.toHaveBeenCalled();
   });
 });
@@ -261,7 +283,7 @@ describe("StaffService.issueExperienceLetter", () => {
 
   beforeEach(() => {
     ({ db, client } = makeDbMock());
-    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("404s for a staff member outside the tenant", async () => {
@@ -352,7 +374,7 @@ describe("StaffService.listStaff", () => {
 
   beforeEach(() => {
     ({ db } = makeDbMock());
-    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("scopes to the tenant and branch with no extra filters when none are given", async () => {
@@ -396,7 +418,7 @@ describe("StaffService photo upload", () => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     storage = makeStorageMock();
-    service = new StaffService(db, audit, new QrTokenService(), storage);
+    service = new StaffService(db, audit, new QrTokenService(), storage, makePlanLimitsMock() as any);
   });
 
   it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
@@ -483,7 +505,7 @@ describe("StaffService branch isolation", () => {
 
   beforeEach(() => {
     ({ db, client } = makeDbMock());
-    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock());
+    service = new StaffService(db, makeAuditMock(), new QrTokenService(), makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   describe("getStaff", () => {

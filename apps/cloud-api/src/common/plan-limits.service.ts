@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
 
 import { DbService } from "../db/db.service.js";
 import { PLAN_LIMITS, type PlanLimits, type PlanTier } from "./plan-catalog.js";
@@ -31,6 +31,25 @@ export class PlanLimitsService {
 
   async getPlanLimits(tenantId: string): Promise<PlanLimits> {
     return PLAN_LIMITS[await this.getPlanTier(tenantId)];
+  }
+
+  // Hard-blocks login/refresh for a suspended tenant or one past its
+  // trial/subscription expiry -- called by AuthService alongside the
+  // existing assertLinkedStaffAllowsAccess check. A tenant grandfathered
+  // by the plan-tier migration (trial_ends_at and subscription_expires_at
+  // both NULL) is never blocked here, by design: NULL means open-ended.
+  async assertTenantActive(tenantId: string): Promise<void> {
+    const row = await this.getTenantPlanRow(tenantId);
+    if (row.is_suspended) {
+      throw new UnauthorizedException("Your school's account has been suspended. Contact your administrator.");
+    }
+    const now = new Date();
+    if (row.plan_tier === "trial" && row.trial_ends_at && row.trial_ends_at < now) {
+      throw new UnauthorizedException("Your school's trial period has ended. Contact your administrator to choose a plan.");
+    }
+    if (row.plan_tier !== "trial" && row.subscription_expires_at && row.subscription_expires_at < now) {
+      throw new UnauthorizedException("Your school's subscription has expired. Contact your administrator to renew.");
+    }
   }
 
   async getTenantPlanRow(tenantId: string): Promise<TenantPlanRow> {

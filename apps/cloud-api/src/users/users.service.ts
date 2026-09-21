@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
+import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { DbService } from "../db/db.service.js";
 import { findOneForTenant, insertRow, updateRow } from "../db/tenant-repo.js";
 import type { TenantRow } from "../db/tenant-repo.js";
@@ -40,6 +41,7 @@ export class UsersService {
   constructor(
     private readonly db: DbService,
     private readonly audit: AuditService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   // Reuses the calling transaction's own client rather than
@@ -63,6 +65,49 @@ export class UsersService {
       [tenantId, roleId, permissionKey],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  private async getRoleName(client: PoolClient, tenantId: string, roleId: string): Promise<string | null> {
+    const result = await client.query<{ name: string }>(
+      "SELECT name FROM roles WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL",
+      [tenantId, roleId],
+    );
+    return result.rows[0]?.name ?? null;
+  }
+
+  // super_admin/branch_admin headcount limits (plan-catalog.ts) are
+  // enforceable by counting roles.name directly now that custom role
+  // names are gone (see roles_name_fixed_catalog) -- a tenant can't
+  // spoof the count by renaming or cloning a role. Only active,
+  // non-deleted users count; skipped entirely for a role the user
+  // already holds, so a redundant re-assignment never gets blocked by
+  // a limit that was already satisfied.
+  private async assertUnderRoleHeadcountLimit(client: PoolClient, tenantId: string, userId: string, roleId: string): Promise<void> {
+    const roleName = await this.getRoleName(client, tenantId, roleId);
+    if (roleName !== "super_admin" && roleName !== "branch_admin") return;
+
+    const alreadyAssigned = await client.query(
+      "SELECT 1 FROM user_roles WHERE tenant_id = $1 AND user_id = $2 AND role_id = $3",
+      [tenantId, userId, roleId],
+    );
+    if ((alreadyAssigned.rowCount ?? 0) > 0) return;
+
+    const countResult = await client.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT ur.user_id) AS count
+       FROM user_roles ur
+       JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+       JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
+       WHERE ur.tenant_id = $1 AND r.name = $2 AND u.deleted_at IS NULL AND u.is_active = true`,
+      [tenantId, roleName],
+    );
+    const currentCount = Number(countResult.rows[0]?.count ?? 0);
+    const limitKey = roleName === "super_admin" ? "max_super_admins" : "max_branch_admins";
+    await this.planLimits.assertUnderLimit(
+      tenantId,
+      limitKey,
+      currentCount,
+      `This school's plan allows at most that many users with the ${roleName.replace("_", " ")} role.`,
+    );
   }
 
   // Guards shared by assignUserRole/removeUserRole/setUserActive: a caller
@@ -201,6 +246,8 @@ export class UsersService {
           throw new ForbiddenException("Only a super-admin-tier user can grant this role.");
         }
       }
+
+      await this.assertUnderRoleHeadcountLimit(client, tenantId, userId, roleId);
 
       await client.query(
         `INSERT INTO user_roles (id, tenant_id, user_id, role_id, updated_at)

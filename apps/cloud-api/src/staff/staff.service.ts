@@ -4,6 +4,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 
 import { AuditService } from "../audit/audit.service.js";
 import { CONSENT_VERSION } from "../common/consent.js";
+import { PlanLimitsService } from "../common/plan-limits.service.js";
 import { DbService } from "../db/db.service.js";
 import { isUniqueViolation } from "../db/pg-errors.js";
 import { findOneForTenant, insertRow, softDeleteRow, updateRow } from "../db/tenant-repo.js";
@@ -106,6 +107,7 @@ export class StaffService {
     private readonly audit: AuditService,
     private readonly qrToken: QrTokenService,
     private readonly storage: StorageService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   async listStaff(
@@ -201,6 +203,18 @@ export class StaffService {
     if (!dto.consent_given) {
       throw new BadRequestException("Consent is required to add a staff member");
     }
+
+    const activeStaffCountRows = await this.db.query<{ count: string }>(
+      tenantId,
+      "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
+      [tenantId],
+    );
+    await this.planLimits.assertUnderLimit(
+      tenantId,
+      "max_staff",
+      Number(activeStaffCountRows[0]?.count ?? 0),
+      "This school's plan allows at most that many staff members.",
+    );
 
     const now = new Date();
     const suppliedCode = dto.employee_code?.trim();

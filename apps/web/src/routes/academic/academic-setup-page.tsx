@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { differenceInCalendarMonths, endOfMonth, format, parseISO, startOfMonth } from "date-fns";
-import { PencilIcon, XIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, XIcon } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
 
@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { PRINT_PAPER_COLORS, PRINT_TEMPLATES, PrintFrame, type PrintPaperColor, type PrintTemplate } from "@/components/print-templates";
 import { SignatureBlock } from "@/components/signature-block";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,10 +21,75 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PromotionTab } from "./promotion-tab";
 
+// Self-service branch creation, capped by the tenant's plan (see
+// PlanLimitsService/plan-catalog.ts) -- previously the only way to add a
+// branch was scripts/create-tenant.ts's first-branch provisioning, by hand.
+function AddBranchDialog({ onCreated }: { onCreated: (branchId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", code: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const update = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const branch = await api.createBranch({ name: form.name, code: form.code });
+      setOpen(false);
+      setForm({ name: "", code: "" });
+      onCreated(branch.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <PlusIcon />
+          Add branch
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add branch</DialogTitle>
+        </DialogHeader>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-branch-name">Name</Label>
+            <Input id="new-branch-name" value={form.name} onChange={update("name")} required />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-branch-code">Code</Label>
+            <Input id="new-branch-code" value={form.code} onChange={update("code")} required placeholder="e.g. NORTH" />
+            <p className="text-xs text-muted-foreground">
+              Short, unique identifier used as the prefix for this branch's admission numbers. Can't be changed later.
+            </p>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting || !form.name || !form.code}>
+              {isSubmitting ? "Creating..." : "Create branch"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SchoolDetailsTab() {
   const branches = useAppStore((s) => s.branches);
   const selectedBranchId = useAppStore((s) => s.selectedBranchId);
   const refreshBranches = useAppStore((s) => s.refreshBranches);
+  const selectBranch = useAppStore((s) => s.selectBranch);
   const branch = branches.find((b) => b.id === selectedBranchId);
 
   const [form, setForm] = useState({
@@ -109,8 +174,36 @@ function SchoolDetailsTab() {
     }
   };
 
+  const branchesHeader = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap gap-2">
+        {branches.map((b) => (
+          <Badge
+            key={b.id}
+            variant={b.id === selectedBranchId ? "default" : "outline"}
+            className="cursor-pointer px-3 py-1.5"
+            onClick={() => selectBranch(b.id)}
+          >
+            {b.name}
+          </Badge>
+        ))}
+      </div>
+      <AddBranchDialog
+        onCreated={async (branchId) => {
+          await refreshBranches();
+          selectBranch(branchId);
+        }}
+      />
+    </div>
+  );
+
   if (!branch) {
-    return <p className="text-muted-foreground">Select a branch to edit its details.</p>;
+    return (
+      <div className="flex max-w-2xl flex-col gap-4">
+        {branchesHeader}
+        <p className="text-muted-foreground">Select a branch to edit its details.</p>
+      </div>
+    );
   }
 
   // Reflects the currently selected (possibly unsaved) template/paper color
@@ -132,7 +225,9 @@ function SchoolDetailsTab() {
   };
 
   return (
-    <Card className="max-w-2xl">
+    <div className="flex max-w-2xl flex-col gap-4">
+      {branchesHeader}
+      <Card>
       <CardHeader>
         <CardTitle className="text-base">School details</CardTitle>
         <p className="text-sm text-muted-foreground">
@@ -271,7 +366,8 @@ function SchoolDetailsTab() {
           </div>
         </form>
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   );
 }
 

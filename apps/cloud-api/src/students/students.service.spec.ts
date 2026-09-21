@@ -31,6 +31,10 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+function makePlanLimitsMock() {
+  return { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+}
+
 function makeStorageMock() {
   return {
     createUploadUrl: vi.fn(),
@@ -92,8 +96,7 @@ describe("StudentsService.confirmAdmission", () => {
       audit,
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   function mockAdmissionAndBranch() {
@@ -118,7 +121,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("assigns branch+year-scoped sequential number 0001 when no prior students exist", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "0" }]);
+    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
+    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["ok", "ok"]);
 
@@ -131,7 +135,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("continues the sequence from the existing count", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "41" }]);
+    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
+    db.query.mockResolvedValueOnce([{ count: "41" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["ok", "ok"]);
 
@@ -143,7 +148,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("retries with the next sequence number on a unique-constraint clash (same-request race)", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "0" }]);
+    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
+    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     db.queryOne.mockResolvedValueOnce({ id: "student-1", current_class_id: null });
     scriptClientQueries(client, ["conflict", "conflict", "ok", "ok"]);
 
@@ -155,7 +161,8 @@ describe("StudentsService.confirmAdmission", () => {
 
   it("propagates a non-unique-constraint error immediately without retrying", async () => {
     mockAdmissionAndBranch();
-    db.query.mockResolvedValueOnce([{ count: "0" }]);
+    db.query.mockResolvedValueOnce([{ count: "5" }]); // enrolled-student headcount check
+    db.query.mockResolvedValueOnce([{ count: "0" }]); // admission-number sequence count
     const otherError = new Error("connection lost");
     client.query.mockImplementation(async (text: unknown) => {
       if (typeof text === "string" && /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) {
@@ -165,6 +172,19 @@ describe("StudentsService.confirmAdmission", () => {
     });
 
     await expect(service.confirmAdmission("tenant-a", "actor-1", "admission-1", null)).rejects.toBe(otherError);
+  });
+
+  it("rejects once the plan's student limit is reached, before allocating an admission number", async () => {
+    mockAdmissionAndBranch();
+    const planLimits = makePlanLimitsMock();
+    planLimits.assertUnderLimit.mockRejectedValueOnce(new Error("plan limit reached"));
+    const limitedService = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), makeStorageMock(), planLimits as any);
+    db.query.mockResolvedValueOnce([{ count: "2000" }]); // at the plan's limit
+
+    await expect(limitedService.confirmAdmission("tenant-a", "actor-1", "admission-1", null)).rejects.toThrow(
+      "plan limit reached",
+    );
+    expect(db.query).toHaveBeenCalledTimes(1); // never reaches the admission-number sequence query
   });
 });
 
@@ -182,8 +202,7 @@ describe("StudentsService.electSubject", () => {
       audit,
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   const dto = { elective_group_id: "group-1", subject_id: "subj-art", academic_session_id: "session-1" };
@@ -241,8 +260,7 @@ describe("StudentsService.getGuardian", () => {
       makeAuditMock(),
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("throws when the guardian doesn't exist or is soft-deleted", async () => {
@@ -329,8 +347,7 @@ describe("StudentsService.issueTransferCertificate", () => {
       audit,
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("404s for a student outside the tenant", async () => {
@@ -420,8 +437,7 @@ describe("StudentsService.listStudents", () => {
       makeAuditMock(),
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   it("scopes to tenant/branch with no extra filters when none are given", async () => {
@@ -467,7 +483,7 @@ describe("StudentsService photo upload", () => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
     storage = makeStorageMock();
-    service = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), storage);
+    service = new StudentsService(db, audit, makeFeesMock(), new QrTokenService(), storage, makePlanLimitsMock() as any);
   });
 
   it("requests an upload url with a sanitized extension appended to a fresh key", async () => {
@@ -574,8 +590,7 @@ describe("StudentsService branch isolation", () => {
       makeAuditMock(),
       makeFeesMock(),
       new QrTokenService(),
-      makeStorageMock(),
-    );
+      makeStorageMock(), makePlanLimitsMock() as any);
   });
 
   describe("getStudent", () => {

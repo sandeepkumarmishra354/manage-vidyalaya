@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditService } from "../audit/audit.service.js";
@@ -27,6 +27,10 @@ function makeAuditMock() {
   return { record: vi.fn() } as unknown as AuditService;
 }
 
+function makePlanLimitsMock() {
+  return { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+}
+
 // Phase 2: classes is branch_id-bearing, so a branch-scoped caller touching
 // a class outside their own branch by id must get NotFoundException exactly
 // like a wrong id would (real Postgres excludes the row via the extra
@@ -41,7 +45,7 @@ describe("AcademicService.updateClass branch scoping", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new AcademicService(db, audit);
+    service = new AcademicService(db, audit, makePlanLimitsMock() as any);
   });
 
   it("404s updating a class outside the caller's branch", async () => {
@@ -83,7 +87,7 @@ describe("AcademicService.deleteClass branch scoping", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new AcademicService(db, audit);
+    service = new AcademicService(db, audit, makePlanLimitsMock() as any);
   });
 
   it("404s deleting a class outside the caller's branch", async () => {
@@ -125,7 +129,7 @@ describe("AcademicService.updateBranch branch scoping", () => {
   beforeEach(() => {
     ({ db, client } = makeDbMock());
     audit = makeAuditMock();
-    service = new AcademicService(db, audit);
+    service = new AcademicService(db, audit, makePlanLimitsMock() as any);
   });
 
   it("404s a branch-scoped caller updating a different branch's own record", async () => {
@@ -159,5 +163,53 @@ describe("AcademicService.updateBranch branch scoping", () => {
     await expect(
       service.updateBranch("tenant-1", "actor-1", "branch-any", { name: "Renamed" }, null),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("AcademicService.createBranch", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let client: FakeClient;
+  let audit: ReturnType<typeof makeAuditMock>;
+
+  beforeEach(() => {
+    ({ db, client } = makeDbMock());
+    audit = makeAuditMock();
+  });
+
+  const dto = { name: "North Campus", code: "NORTH" };
+
+  it("creates a branch once the plan's limit allows it", async () => {
+    const planLimits = { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+    const service = new AcademicService(db, audit, planLimits as any);
+    db.query.mockResolvedValueOnce([{ count: "1" }]);
+    client.query.mockResolvedValueOnce({ rows: [{ id: "branch-new", tenant_id: "tenant-1", name: "North Campus" }] });
+
+    const result = await service.createBranch("tenant-1", "actor-1", dto);
+
+    expect(result).toEqual({ id: "branch-new", tenant_id: "tenant-1", name: "North Campus" });
+    expect(planLimits.assertUnderLimit).toHaveBeenCalledWith("tenant-1", "max_branches", 1, expect.any(String));
+    expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects once the plan's branch limit is reached, before ever inserting", async () => {
+    const planLimits = { assertUnderLimit: vi.fn().mockRejectedValueOnce(new Error("plan limit reached")) };
+    const service = new AcademicService(db, audit, planLimits as any);
+    db.query.mockResolvedValueOnce([{ count: "5" }]);
+
+    await expect(service.createBranch("tenant-1", "actor-1", dto)).rejects.toThrow("plan limit reached");
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("turns a duplicate branch code into a ConflictException", async () => {
+    const planLimits = { assertUnderLimit: vi.fn().mockResolvedValue(undefined) };
+    const service = new AcademicService(db, audit, planLimits as any);
+    db.query.mockResolvedValueOnce([{ count: "1" }]);
+    const err = new Error('duplicate key value violates unique constraint "branches_tenant_id_code_key"') as Error & {
+      code: string;
+    };
+    err.code = "23505";
+    client.query.mockRejectedValueOnce(err);
+
+    await expect(service.createBranch("tenant-1", "actor-1", dto)).rejects.toBeInstanceOf(ConflictException);
   });
 });

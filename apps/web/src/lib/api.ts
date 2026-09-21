@@ -33,6 +33,17 @@ export interface UpdateBranchInput {
   print_paper_color?: string;
 }
 
+export interface NewBranchInput {
+  name: string;
+  code: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}
+
 export interface SchoolClass {
   id: string;
   branch_id: string;
@@ -1938,6 +1949,7 @@ export const api = {
   me: () => http.get<MeResponse>("/auth/me"),
 
   listBranches: () => http.get<Branch[]>("/branches"),
+  createBranch: (input: NewBranchInput) => http.post<Branch>("/branches", input),
   updateBranch: (input: UpdateBranchInput) => http.patch<Branch>(`/branches/${input.id}`, input),
   listClasses: (branchId: string) => http.get<SchoolClass[]>("/classes", { branch_id: branchId }),
   createClass: (input: NewClassInput) => http.post<SchoolClass>("/classes", input),

@@ -26,18 +26,24 @@ function makeConfigMock() {
   return { get: vi.fn((_key: string, fallback?: unknown) => fallback) };
 }
 
+function makePlanLimitsMock() {
+  return { assertTenantActive: vi.fn().mockResolvedValue(undefined) };
+}
+
 const PASSWORD = "correct-horse-battery-staple";
 let passwordHash: string;
 
 describe("AuthService.login", () => {
   let db: ReturnType<typeof makeDbMock>;
+  let planLimits: ReturnType<typeof makePlanLimitsMock>;
   let service: AuthService;
 
   beforeEach(async () => {
     passwordHash = await bcrypt.hash(PASSWORD, 4);
     db = makeDbMock();
+    planLimits = makePlanLimitsMock();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    service = new AuthService(db, makeJwtMock() as any, makeConfigMock() as any);
+    service = new AuthService(db, makeJwtMock() as any, makeConfigMock() as any, planLimits as any);
   });
 
   function mockUserFound(overrides: Partial<{ status: string }> = {}) {
@@ -65,7 +71,7 @@ describe("AuthService.login", () => {
     mockUserFound();
     const jwt = makeJwtMock();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any);
+    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any, makePlanLimitsMock() as any);
 
     await scopedService.login("teacher@example.com", PASSWORD);
 
@@ -93,7 +99,7 @@ describe("AuthService.login", () => {
     db.queryOne.mockResolvedValueOnce(null);
     const jwt = makeJwtMock();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any);
+    const scopedService = new AuthService(db, jwt as any, makeConfigMock() as any, makePlanLimitsMock() as any);
 
     await scopedService.login("admin@example.com", PASSWORD);
 
@@ -123,6 +129,21 @@ describe("AuthService.login", () => {
     mockUserFound({ status: "terminated" });
 
     await expect(service.login("teacher@example.com", PASSWORD)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects login for a suspended tenant even with the correct password", async () => {
+    mockUserFound();
+    planLimits.assertTenantActive.mockRejectedValueOnce(new UnauthorizedException("suspended"));
+
+    await expect(service.login("teacher@example.com", PASSWORD)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(db.queryOne).not.toHaveBeenCalled();
+  });
+
+  it("checks tenant plan status before staff status", async () => {
+    mockUserFound({ status: "relieved" });
+    planLimits.assertTenantActive.mockRejectedValueOnce(new UnauthorizedException("expired"));
+
+    await expect(service.login("teacher@example.com", PASSWORD)).rejects.toThrow("expired");
   });
 
   it("still rejects a wrong password before ever checking staff status", async () => {
@@ -206,5 +227,40 @@ describe("AuthService.login", () => {
       // the user lookup went through the normal RLS-scoped queryOne path.
       expect(db.queryUnscoped).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("AuthService.refresh", () => {
+  function makeVerifyingJwtMock() {
+    return {
+      signAsync: vi.fn().mockResolvedValue("signed-token"),
+      verifyAsync: vi.fn().mockResolvedValue({ sub: "user-1", tenant_id: "tenant-1", type: "refresh" }),
+    };
+  }
+
+  it("re-issues an access token when the tenant is active", async () => {
+    const db = makeDbMock();
+    db.queryOne.mockResolvedValueOnce({ id: "user-1", tenant_id: "tenant-1", branch_id: null, full_name: "Admin", email: "a@example.com" });
+    db.queryOne.mockResolvedValueOnce(null); // staff status lookup: no linked staff row
+    db.query.mockResolvedValueOnce([]); // getRoleNames
+    const planLimits = makePlanLimitsMock();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AuthService(db, makeVerifyingJwtMock() as any, makeConfigMock() as any, planLimits as any);
+
+    const result = await service.refresh("some-refresh-token");
+
+    expect(result.access_token).toBe("signed-token");
+    expect(planLimits.assertTenantActive).toHaveBeenCalledWith("tenant-1");
+  });
+
+  it("rejects a refresh for a tenant whose plan is no longer active", async () => {
+    const db = makeDbMock();
+    db.queryOne.mockResolvedValueOnce({ id: "user-1", tenant_id: "tenant-1", branch_id: null, full_name: "Admin", email: "a@example.com" });
+    const planLimits = makePlanLimitsMock();
+    planLimits.assertTenantActive.mockRejectedValueOnce(new UnauthorizedException("expired"));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AuthService(db, makeVerifyingJwtMock() as any, makeConfigMock() as any, planLimits as any);
+
+    await expect(service.refresh("some-refresh-token")).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

@@ -8,6 +8,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
 import { AcademicService } from "./academic.service.js";
 import { CreateAcademicSessionDto } from "./dto/create-academic-session.dto.js";
+import { CreateBranchDto } from "./dto/create-branch.dto.js";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { CreateSectionDto } from "./dto/create-section.dto.js";
 import { UpdateAcademicSessionDto } from "./dto/update-academic-session.dto.js";
@@ -36,6 +37,12 @@ export class BranchesController {
   @Get()
   list(@CurrentUser() user: JwtPayload) {
     return this.academicService.listBranches(user.tenant_id);
+  }
+
+  @Post()
+  @RequirePermission("academic_setup.manage_school_details")
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateBranchDto) {
+    return this.academicService.createBranch(user.tenant_id, user.sub, dto);
   }
 
   @Patch(":id")
