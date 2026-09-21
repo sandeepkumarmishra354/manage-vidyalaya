@@ -189,7 +189,9 @@ describe("UsersService", () => {
 
     describe("setUserActive", () => {
       it("throws NotFoundException deactivating a same-tenant, different-branch user", async () => {
-        client.query.mockResolvedValueOnce({ rows: [] });
+        client.query
+          .mockResolvedValueOnce({ rowCount: 0 }) // target does not hold roles.manage -- not protected
+          .mockResolvedValueOnce({ rows: [] }); // updateRow, branch-filtered -- no match
 
         await expect(
           service.setUserActive("tenant-a", "actor-1", "user-1", false, "branch-other"),
@@ -197,21 +199,25 @@ describe("UsersService", () => {
       });
 
       it("succeeds and threads branchId into the UPDATE for the caller's own-branch user", async () => {
-        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", is_active: false }] });
+        client.query
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", is_active: false }] });
 
         await service.setUserActive("tenant-a", "actor-1", "user-1", false, "branch-a");
 
-        const [sql, params] = client.query.mock.calls[0];
+        const [sql, params] = client.query.mock.calls[1];
         expect(sql).toMatch(/branch_id = \$\d/);
         expect(params).toContain("branch-a");
       });
 
       it("an unscoped caller (branchId: null) is unaffected", async () => {
-        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] });
+        client.query
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] });
 
         await service.setUserActive("tenant-a", "actor-1", "user-1", true, null);
 
-        const [sql] = client.query.mock.calls[0];
+        const [sql] = client.query.mock.calls[1];
         expect(sql).not.toMatch(/branch_id/);
       });
     });
@@ -229,15 +235,21 @@ describe("UsersService", () => {
       it("succeeds for the caller's own-branch user", async () => {
         client.query
           .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
+          .mockResolvedValueOnce({ rowCount: 0 }) // role being granted doesn't carry roles.manage
           .mockResolvedValueOnce({ rows: [] }); // INSERT INTO user_roles
 
         await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-a");
 
-        expect(client.query).toHaveBeenCalledTimes(2);
+        expect(client.query).toHaveBeenCalledTimes(4);
       });
 
       it("an unscoped caller (branchId: null) is unaffected", async () => {
-        client.query.mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }).mockResolvedValueOnce({ rows: [] });
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] })
+          .mockResolvedValueOnce({ rowCount: 0 })
+          .mockResolvedValueOnce({ rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [] });
 
         await service.assignUserRole("tenant-a", "actor-1", "user-1", "role-1", null);
 
@@ -259,11 +271,106 @@ describe("UsersService", () => {
       it("succeeds for the caller's own-branch user", async () => {
         client.query
           .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", branch_id: "branch-a" }] })
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not protected
           .mockResolvedValueOnce({ rows: [] }); // DELETE FROM user_roles
 
         await service.removeUserRole("tenant-a", "actor-1", "user-1", "role-1", "branch-a");
 
-        expect(client.query).toHaveBeenCalledTimes(2);
+        expect(client.query).toHaveBeenCalledTimes(3);
+      });
+    });
+  });
+
+  // A branch_admin holds every permission except roles.manage (the one
+  // permission uniquely granted to super_admin -- see permission-catalog.ts),
+  // so these guards can't be expressed as a flat @RequirePermission check;
+  // they compare the actor's and target's actual role grants at call time.
+  describe("privilege escalation guards", () => {
+    describe("assignUserRole", () => {
+      it("rejects a user assigning a role to themselves", async () => {
+        await expect(
+          service.assignUserRole("tenant-a", "actor-1", "actor-1", "role-1"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        expect(client.query).not.toHaveBeenCalled();
+      });
+
+      it("rejects a non-super-admin actor changing the roles of a super-admin-tier target", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 1 }) // target holds roles.manage
+          .mockResolvedValueOnce({ rowCount: 0 }); // actor does not
+
+        await expect(
+          service.assignUserRole("tenant-a", "branch-admin-1", "user-1", "role-1"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it("rejects a non-super-admin actor granting a role that itself carries roles.manage", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not (yet) protected
+          .mockResolvedValueOnce({ rowCount: 1 }) // the role being granted carries roles.manage
+          .mockResolvedValueOnce({ rowCount: 0 }); // actor doesn't hold roles.manage
+
+        await expect(
+          service.assignUserRole("tenant-a", "branch-admin-1", "user-1", "super-admin-role"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it("allows a super-admin actor to grant a role that carries roles.manage", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 0 }) // target not yet protected
+          .mockResolvedValueOnce({ rowCount: 1 }) // role carries roles.manage
+          .mockResolvedValueOnce({ rowCount: 1 }) // actor holds roles.manage
+          .mockResolvedValueOnce({ rows: [] }); // INSERT
+
+        await service.assignUserRole("tenant-a", "super-admin-1", "user-1", "super-admin-role");
+
+        expect(client.query).toHaveBeenCalledTimes(5);
+      });
+    });
+
+    describe("removeUserRole", () => {
+      it("rejects a user removing their own role", async () => {
+        await expect(
+          service.removeUserRole("tenant-a", "actor-1", "actor-1", "role-1"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        expect(client.query).not.toHaveBeenCalled();
+      });
+
+      it("rejects a non-super-admin actor changing the roles of a super-admin-tier target", async () => {
+        client.query
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a" }] }) // findOneForTenant
+          .mockResolvedValueOnce({ rowCount: 1 }) // target holds roles.manage
+          .mockResolvedValueOnce({ rowCount: 0 }); // actor does not
+
+        await expect(
+          service.removeUserRole("tenant-a", "branch-admin-1", "user-1", "role-1"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
+    describe("setUserActive", () => {
+      it("rejects a non-super-admin actor deactivating a super-admin-tier target", async () => {
+        client.query
+          .mockResolvedValueOnce({ rowCount: 1 }) // target holds roles.manage
+          .mockResolvedValueOnce({ rowCount: 0 }); // actor does not
+
+        await expect(
+          service.setUserActive("tenant-a", "branch-admin-1", "user-1", false),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it("allows a super-admin actor to deactivate another super-admin-tier account", async () => {
+        client.query
+          .mockResolvedValueOnce({ rowCount: 1 }) // target holds roles.manage
+          .mockResolvedValueOnce({ rowCount: 1 }) // actor holds it too
+          .mockResolvedValueOnce({ rows: [{ id: "user-1", tenant_id: "tenant-a", is_active: false }] });
+
+        const result = await service.setUserActive("tenant-a", "super-admin-1", "user-1", false);
+
+        expect(result).toEqual({ id: "user-1", tenant_id: "tenant-a", is_active: false });
       });
     });
   });

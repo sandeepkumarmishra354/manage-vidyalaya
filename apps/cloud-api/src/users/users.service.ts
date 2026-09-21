@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import * as bcrypt from "bcryptjs";
+import type { PoolClient } from "pg";
 
 import { AuditService } from "../audit/audit.service.js";
 import { DbService } from "../db/db.service.js";
@@ -10,6 +11,16 @@ import type { TenantRow } from "../db/tenant-repo.js";
 import { staffAllowsAccess } from "../staff/staff-status.js";
 import type { CreateStaffLoginDto } from "./dto/create-staff-login.dto.js";
 import type { CreateUserDto } from "./dto/create-user.dto.js";
+
+// `roles.manage` is the one permission uniquely granted to the super_admin
+// system role among every seeded role (see permission-catalog.ts -- every
+// other permission, including users.manage, is also granted to
+// branch_admin). BranchScopeGuard already treats holding it as the proxy
+// for "this account is meant to see/act tenant-wide" -- the checks below
+// reuse the same signal to decide whether an actor outranks a target
+// account, rather than name-matching a literal "super_admin" role, so a
+// tenant's own custom-named equivalent role is protected identically.
+const SUPER_ADMIN_PERMISSION = "roles.manage";
 
 export interface UserRow extends TenantRow {
   full_name: string;
@@ -30,6 +41,49 @@ export class UsersService {
     private readonly db: DbService,
     private readonly audit: AuditService,
   ) {}
+
+  // Reuses the calling transaction's own client rather than
+  // ScopedAccessService.hasPermission, which opens its own transaction --
+  // nesting that inside the withTransaction callbacks below would hold two
+  // pool connections per call for no benefit.
+  private async userHasPermission(client: PoolClient, tenantId: string, userId: string, permissionKey: string): Promise<boolean> {
+    const result = await client.query(
+      `SELECT 1 FROM role_permissions rp
+       JOIN user_roles ur ON ur.role_id = rp.role_id AND ur.tenant_id = rp.tenant_id
+       WHERE rp.tenant_id = $1 AND ur.user_id = $2 AND rp.permission_key = $3 AND rp.deleted_at IS NULL
+       LIMIT 1`,
+      [tenantId, userId, permissionKey],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private async roleHasPermission(client: PoolClient, tenantId: string, roleId: string, permissionKey: string): Promise<boolean> {
+    const result = await client.query(
+      "SELECT 1 FROM role_permissions WHERE tenant_id = $1 AND role_id = $2 AND permission_key = $3 AND deleted_at IS NULL",
+      [tenantId, roleId, permissionKey],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Guards shared by assignUserRole/removeUserRole/setUserActive: a caller
+  // who isn't super-admin-tier themselves (doesn't hold roles.manage)
+  // cannot touch a target who already is -- otherwise a branch_admin (who
+  // holds users.manage, same as super_admin, but not roles.manage) could
+  // deactivate or reassign the roles of a super_admin account despite
+  // being outranked by it.
+  private async assertNotActingOnSuperiorAccount(
+    client: PoolClient,
+    tenantId: string,
+    actorUserId: string,
+    targetUserId: string,
+  ): Promise<void> {
+    const targetIsProtected = await this.userHasPermission(client, tenantId, targetUserId, SUPER_ADMIN_PERMISSION);
+    if (!targetIsProtected) return;
+    const actorIsPeer = await this.userHasPermission(client, tenantId, actorUserId, SUPER_ADMIN_PERMISSION);
+    if (!actorIsPeer) {
+      throw new ForbiddenException("Only another super-admin-tier user can change this account's roles or status.");
+    }
+  }
 
   async createUser(callerTenantId: string, dto: CreateUserDto): Promise<{ id: string }> {
     if (callerTenantId !== dto.tenant_id) {
@@ -121,9 +175,31 @@ export class UsersService {
     branchId?: string | null,
   ) {
     await this.db.withTransaction(tenantId, async (client) => {
+      // A user cannot change their own role assignments -- self-service
+      // escalation (granting yourself a broader role) and self-service
+      // demotion (accidentally locking yourself out) both go through
+      // another admin instead.
+      if (userId === actorUserId) {
+        throw new ForbiddenException("You cannot change your own role assignments.");
+      }
+
       const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId, branchId);
       if (!user) {
         throw new NotFoundException("user not found");
+      }
+
+      await this.assertNotActingOnSuperiorAccount(client, tenantId, actorUserId, userId);
+
+      // Also block granting a role that itself carries roles.manage --
+      // otherwise a branch_admin (who holds users.manage but not
+      // roles.manage) could promote some other account to super-admin
+      // tier despite not being allowed to touch one directly above.
+      const roleGrantsSuperAdmin = await this.roleHasPermission(client, tenantId, roleId, SUPER_ADMIN_PERMISSION);
+      if (roleGrantsSuperAdmin) {
+        const actorIsSuperAdmin = await this.userHasPermission(client, tenantId, actorUserId, SUPER_ADMIN_PERMISSION);
+        if (!actorIsSuperAdmin) {
+          throw new ForbiddenException("Only a super-admin-tier user can grant this role.");
+        }
       }
 
       await client.query(
@@ -152,10 +228,17 @@ export class UsersService {
     branchId?: string | null,
   ) {
     await this.db.withTransaction(tenantId, async (client) => {
+      // Same self-service restriction as assignUserRole -- see there.
+      if (userId === actorUserId) {
+        throw new ForbiddenException("You cannot change your own role assignments.");
+      }
+
       const user = await findOneForTenant<UserRow>(client, "users", tenantId, userId, branchId);
       if (!user) {
         throw new NotFoundException("user not found");
       }
+
+      await this.assertNotActingOnSuperiorAccount(client, tenantId, actorUserId, userId);
 
       await client.query("DELETE FROM user_roles WHERE tenant_id = $1 AND user_id = $2 AND role_id = $3", [
         tenantId,
@@ -182,6 +265,8 @@ export class UsersService {
     branchId?: string | null,
   ) {
     return this.db.withTransaction(tenantId, async (client) => {
+      await this.assertNotActingOnSuperiorAccount(client, tenantId, actorUserId, userId);
+
       const now = new Date();
       const updated = await updateRow<UserRow>(
         client,
