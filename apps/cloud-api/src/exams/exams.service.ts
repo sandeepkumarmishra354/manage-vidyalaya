@@ -427,11 +427,18 @@ export class ExamsService {
       examValues.push(branchId);
       examConditions.push(`branch_id = $${examValues.length}`);
     }
+    const studentConditions = ["id = $1", "tenant_id = $2"];
+    const studentValues: unknown[] = [studentId, tenantId];
+    if (branchId) {
+      studentValues.push(branchId);
+      studentConditions.push(`branch_id = $${studentValues.length}`);
+    }
     const [student, exam] = await Promise.all([
-      this.db.queryOne<StudentRow>(tenantId, "SELECT * FROM students WHERE id = $1 AND tenant_id = $2", [
-        studentId,
+      this.db.queryOne<StudentRow>(
         tenantId,
-      ]),
+        `SELECT * FROM students WHERE ${studentConditions.join(" AND ")}`,
+        studentValues,
+      ),
       this.db.queryOne<ExamRow>(tenantId, `SELECT * FROM exams WHERE ${examConditions.join(" AND ")}`, examValues),
     ]);
     if (!student) {

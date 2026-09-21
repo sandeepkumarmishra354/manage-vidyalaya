@@ -183,6 +183,49 @@ describe("ExamsService exam lookup branch scoping", () => {
   });
 });
 
+// getReportCard's exam lookup was branch-conditioned from the start, but
+// the student lookup right next to it (same Promise.all) was missed --
+// leaking another branch's student PII (name, DOB, roll number, guardian)
+// through a report-card request that only needed a valid own-branch exam
+// id. Caught by an adversarial code-review pass, not the original Phase 2
+// work; fixed alongside these tests.
+describe("ExamsService.getReportCard branch scoping", () => {
+  let db: ReturnType<typeof makeDbMock>["db"];
+  let service: ExamsService;
+
+  const UNPLACED_STUDENT = { id: "student-1", tenant_id: "tenant-1", current_class_id: null, current_section_id: null };
+
+  beforeEach(() => {
+    ({ db } = makeDbMock());
+    service = new ExamsService(db, makeAuditMock(), makeScopedAccessMock(), makeClassSubjectsMock());
+  });
+
+  it("404s (student not found) when the student belongs to a different branch than the caller, even with a valid own-branch exam", async () => {
+    db.queryOne.mockResolvedValueOnce(null); // student query excludes it via branch_id = $N
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, branch_id: "branch-a" });
+
+    await expect(service.getReportCard("tenant-1", "student-1", "exam-1", "branch-a")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("returns a report card for a student and exam both in the caller's own branch", async () => {
+    db.queryOne.mockResolvedValueOnce({ ...UNPLACED_STUDENT });
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM, branch_id: "branch-a" });
+    db.queryOne.mockResolvedValueOnce(null); // guardian
+
+    await expect(service.getReportCard("tenant-1", "student-1", "exam-1", "branch-a")).resolves.toBeDefined();
+  });
+
+  it("is unaffected for an unscoped (branchId: null) caller", async () => {
+    db.queryOne.mockResolvedValueOnce({ ...UNPLACED_STUDENT });
+    db.queryOne.mockResolvedValueOnce({ ...BASE_EXAM });
+    db.queryOne.mockResolvedValueOnce(null); // guardian
+
+    await expect(service.getReportCard("tenant-1", "student-1", "exam-1", null)).resolves.toBeDefined();
+  });
+});
+
 describe("ExamsService marks-entry authorization", () => {
   let db: ReturnType<typeof makeDbMock>["db"];
   let audit: ReturnType<typeof makeAuditMock>;
