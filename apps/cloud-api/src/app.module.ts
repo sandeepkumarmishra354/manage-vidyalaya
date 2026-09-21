@@ -34,6 +34,7 @@ import { StaffModule } from "./staff/staff.module.js";
 import { StaffCategoriesModule } from "./staff-categories/staff-categories.module.js";
 import { StorageModule } from "./storage/storage.module.js";
 import { StudentsModule } from "./students/students.module.js";
+import { TenantsModule } from "./tenants/tenants.module.js";
 import { TimetableModule } from "./timetable/timetable.module.js";
 import { TransportModule } from "./transport/transport.module.js";
 import { UsersModule } from "./users/users.module.js";
@@ -86,6 +87,7 @@ import { UsersModule } from "./users/users.module.js";
     ExpensesModule,
     TimetableModule,
     QrModule,
+    TenantsModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

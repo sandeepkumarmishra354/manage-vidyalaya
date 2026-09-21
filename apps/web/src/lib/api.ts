@@ -44,6 +44,24 @@ export interface NewBranchInput {
   email?: string | null;
 }
 
+export interface UsageMetric {
+  count: number;
+  limit: number;
+}
+
+export interface PlanUsage {
+  plan_tier: "trial" | "silver" | "gold";
+  trial_ends_at: string | null;
+  subscription_expires_at: string | null;
+  usage: {
+    branches: UsageMetric;
+    super_admins: UsageMetric;
+    branch_admins: UsageMetric;
+    students: UsageMetric;
+    staff: UsageMetric;
+  };
+}
+
 export interface SchoolClass {
   id: string;
   branch_id: string;
@@ -1951,6 +1969,7 @@ export const api = {
   listBranches: () => http.get<Branch[]>("/branches"),
   createBranch: (input: NewBranchInput) => http.post<Branch>("/branches", input),
   updateBranch: (input: UpdateBranchInput) => http.patch<Branch>(`/branches/${input.id}`, input),
+  getPlanUsage: () => http.get<PlanUsage>("/tenants/me/plan-usage"),
   listClasses: (branchId: string) => http.get<SchoolClass[]>("/classes", { branch_id: branchId }),
   createClass: (input: NewClassInput) => http.post<SchoolClass>("/classes", input),
   listSections: (classId: string) => http.get<Section[]>("/sections", { class_id: classId }),

@@ -5,7 +5,7 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
 
 import { useAppStore } from "@/stores/app-store";
-import { api, type AcademicSession, type Branch, type CalendarHoliday, type DayType, type SchoolCalendarData } from "@/lib/api";
+import { api, type AcademicSession, type Branch, type CalendarHoliday, type DayType, type PlanUsage, type SchoolCalendarData } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,76 @@ function AddBranchDialog({ onCreated }: { onCreated: (branchId: string) => void 
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const PLAN_TIER_LABELS: Record<PlanUsage["plan_tier"], string> = {
+  trial: "Trial",
+  silver: "Silver",
+  gold: "Gold",
+};
+
+const USAGE_METRIC_LABELS: Record<keyof PlanUsage["usage"], string> = {
+  branches: "Branches",
+  super_admins: "Super admins",
+  branch_admins: "Branch admins",
+  students: "Students",
+  staff: "Staff",
+};
+
+// Read-only view of the tenant's plan tier and current usage vs. limit --
+// backed by GET /tenants/me/plan-usage (PlanLimitsService.getPlanUsage).
+// Never the enforcement gate itself; the backend rejects over-limit
+// creation regardless of whether this card is ever viewed.
+function PlanUsageCard() {
+  const [usage, setUsage] = useState<PlanUsage | null>(null);
+
+  useEffect(() => {
+    api.getPlanUsage().then(setUsage).catch(() => setUsage(null));
+  }, []);
+
+  if (!usage) return null;
+
+  const trialDaysRemaining =
+    usage.plan_tier === "trial" && usage.trial_ends_at
+      ? Math.max(0, Math.ceil((new Date(usage.trial_ends_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-base">Plan &amp; usage</CardTitle>
+          <Badge variant="outline">{PLAN_TIER_LABELS[usage.plan_tier]}</Badge>
+        </div>
+        {trialDaysRemaining !== null && (
+          <p className="text-sm text-muted-foreground">
+            {trialDaysRemaining === 0 ? "Trial ends today." : `${trialDaysRemaining} day${trialDaysRemaining === 1 ? "" : "s"} left in trial.`}
+          </p>
+        )}
+        {usage.plan_tier !== "trial" && usage.subscription_expires_at && (
+          <p className="text-sm text-muted-foreground">
+            Renews/expires {new Date(usage.subscription_expires_at).toLocaleDateString()}.
+          </p>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
+          {(Object.keys(usage.usage) as (keyof PlanUsage["usage"])[]).map((key) => {
+            const metric = usage.usage[key];
+            const overLimit = metric.count >= metric.limit;
+            return (
+              <div key={key} className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">{USAGE_METRIC_LABELS[key]}</span>
+                <span className={cn("text-sm font-medium", overLimit && "text-destructive")}>
+                  {metric.count} / {metric.limit}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -201,6 +271,7 @@ function SchoolDetailsTab() {
     return (
       <div className="flex max-w-2xl flex-col gap-4">
         {branchesHeader}
+        <PlanUsageCard />
         <p className="text-muted-foreground">Select a branch to edit its details.</p>
       </div>
     );
@@ -227,6 +298,7 @@ function SchoolDetailsTab() {
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       {branchesHeader}
+      <PlanUsageCard />
       <Card>
       <CardHeader>
         <CardTitle className="text-base">School details</CardTitle>

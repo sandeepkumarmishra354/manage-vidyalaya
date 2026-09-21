@@ -10,6 +10,24 @@ interface TenantPlanRow {
   is_suspended: boolean;
 }
 
+interface UsageMetric {
+  count: number;
+  limit: number;
+}
+
+export interface PlanUsage {
+  plan_tier: PlanTier;
+  trial_ends_at: Date | null;
+  subscription_expires_at: Date | null;
+  usage: {
+    branches: UsageMetric;
+    super_admins: UsageMetric;
+    branch_admins: UsageMetric;
+    students: UsageMetric;
+    staff: UsageMetric;
+  };
+}
+
 // Small, injectable helper (mirrors AuditService's shape -- injected into
 // every service that needs to check a plan-tier limit) wrapping
 // tenants.plan_tier/trial_ends_at/subscription_expires_at/is_suspended,
@@ -50,6 +68,62 @@ export class PlanLimitsService {
     if (row.plan_tier !== "trial" && row.subscription_expires_at && row.subscription_expires_at < now) {
       throw new UnauthorizedException("Your school's subscription has expired. Contact your administrator to renew.");
     }
+  }
+
+  // Read-only self-service view for the "Plan & Usage" panel in School
+  // Details -- same count-query shapes as the enforcement checks above
+  // and as vendor-admin-api's TenantsService.getUsageCounts, just scoped
+  // to the caller's own tenant instead of looped across all tenants.
+  async getPlanUsage(tenantId: string): Promise<PlanUsage> {
+    const row = await this.getTenantPlanRow(tenantId);
+    const limits = PLAN_LIMITS[row.plan_tier];
+
+    const [branches, superAdmins, branchAdmins, students, staff] = await Promise.all([
+      this.db.query<{ count: string }>(
+        tenantId,
+        "SELECT count(*) FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL",
+        [tenantId],
+      ),
+      this.db.query<{ count: string }>(
+        tenantId,
+        `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+         JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
+         WHERE ur.tenant_id = $1 AND r.name = 'super_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
+        [tenantId],
+      ),
+      this.db.query<{ count: string }>(
+        tenantId,
+        `SELECT count(DISTINCT ur.user_id) FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+         JOIN users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
+         WHERE ur.tenant_id = $1 AND r.name = 'branch_admin' AND u.deleted_at IS NULL AND u.is_active = true`,
+        [tenantId],
+      ),
+      this.db.query<{ count: string }>(
+        tenantId,
+        "SELECT count(*) FROM students WHERE tenant_id = $1 AND status = 'enrolled' AND deleted_at IS NULL",
+        [tenantId],
+      ),
+      this.db.query<{ count: string }>(
+        tenantId,
+        "SELECT count(*) FROM staff WHERE tenant_id = $1 AND status != 'relieved' AND deleted_at IS NULL",
+        [tenantId],
+      ),
+    ]);
+
+    return {
+      plan_tier: row.plan_tier,
+      trial_ends_at: row.trial_ends_at,
+      subscription_expires_at: row.subscription_expires_at,
+      usage: {
+        branches: { count: Number(branches[0]?.count ?? 0), limit: limits.max_branches },
+        super_admins: { count: Number(superAdmins[0]?.count ?? 0), limit: limits.max_super_admins },
+        branch_admins: { count: Number(branchAdmins[0]?.count ?? 0), limit: limits.max_branch_admins },
+        students: { count: Number(students[0]?.count ?? 0), limit: limits.max_students },
+        staff: { count: Number(staff[0]?.count ?? 0), limit: limits.max_staff },
+      },
+    };
   }
 
   async getTenantPlanRow(tenantId: string): Promise<TenantPlanRow> {
