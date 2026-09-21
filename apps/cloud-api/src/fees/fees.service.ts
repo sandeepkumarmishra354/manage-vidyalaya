@@ -1242,7 +1242,21 @@ export class FeesService {
           receipt_number: p.receipt_number,
           remarks: p.remarks,
         },
-        invoice: this.toListItem(invoice, guardianByStudent.get(invoice.student_id) ?? null),
+        // The frontend receipt renderer (PaymentReceipt) computes each
+        // row's "Balance" as `amount_due - (invoice.amount_paid +
+        // payment.amount)` -- correct when `invoice` is the PRE-payment
+        // snapshot, which is what the two live record-payment flows pass
+        // it (they hold onto the invoice they already had in hand before
+        // submitting). This reprint path instead fetches the invoice's
+        // CURRENT row, whose amount_paid already includes this payment,
+        // so adding payment.amount again double-counted it -- a fully
+        // paid invoice reprinted showed a negative balance instead of
+        // zero. Subtracting this payment back out here restores the same
+        // pre-payment contract for the reprint path.
+        invoice: this.toListItem(
+          { ...invoice, amount_paid: invoice.amount_paid - p.amount },
+          guardianByStudent.get(invoice.student_id) ?? null,
+        ),
       };
     });
   }
