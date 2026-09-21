@@ -83,8 +83,8 @@ export function DashboardPage() {
   const isModuleEnabled = useAppStore((s) => s.isModuleEnabled);
   const hasPermission = useAppStore((s) => s.hasPermission);
   const housesEnabled = isModuleEnabled("houses");
-  const canViewFees = isModuleEnabled("fees") && hasPermission("fees.view");
-  const canViewExams = isModuleEnabled("exams") && hasPermission("exams.view");
+  const canViewFees = hasPermission("fees.view");
+  const canViewExams = hasPermission("exams.view");
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats", selectedBranchId],
@@ -135,19 +135,17 @@ export function DashboardPage() {
           hint={`${stats.applied_count} pending admission`}
           accent="var(--color-academics)"
         />
-        {isModuleEnabled("attendance") && (
-          <StatCard
-            icon={CalendarCheckIcon}
-            label="Today's Attendance"
-            value={attendancePct !== null ? `${attendancePct}%` : "Not marked"}
-            hint={
-              stats.todays_attendance_total > 0
-                ? `${stats.todays_attendance_present} / ${stats.todays_attendance_total} present`
-                : undefined
-            }
-            accent="var(--color-success)"
-          />
-        )}
+        <StatCard
+          icon={CalendarCheckIcon}
+          label="Today's Attendance"
+          value={attendancePct !== null ? `${attendancePct}%` : "Not marked"}
+          hint={
+            stats.todays_attendance_total > 0
+              ? `${stats.todays_attendance_present} / ${stats.todays_attendance_total} present`
+              : undefined
+          }
+          accent="var(--color-success)"
+        />
         {canViewFees && (
           <StatCard
             icon={ReceiptIndianRupeeIcon}
@@ -249,56 +247,54 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {isModuleEnabled("attendance") && (
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <TrendingUpIcon className="size-4 text-success" />
-                Attendance trend (last 14 days)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="h-56">
-              {trendData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendData}>
-                    <defs>
-                      <linearGradient id="attendanceFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
-                    <YAxis
-                      domain={[0, 100]}
-                      tickFormatter={(v) => `${v}%`}
-                      tick={{ fontSize: 12 }}
-                      stroke="var(--color-muted-foreground)"
-                    />
-                    <Tooltip
-                      formatter={(value) => [`${value}%`, "Present"]}
-                      contentStyle={{
-                        backgroundColor: "var(--color-popover)",
-                        borderColor: "var(--color-border)",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="pct"
-                      stroke="var(--color-success)"
-                      fill="url(#attendanceFill)"
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="No attendance marked yet." />
-              )}
-            </CardContent>
-          </Card>
-        )}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingUpIcon className="size-4 text-success" />
+              Attendance trend (last 14 days)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="h-56">
+            {trendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData}>
+                  <defs>
+                    <linearGradient id="attendanceFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                  <YAxis
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 12 }}
+                    stroke="var(--color-muted-foreground)"
+                  />
+                  <Tooltip
+                    formatter={(value) => [`${value}%`, "Present"]}
+                    contentStyle={{
+                      backgroundColor: "var(--color-popover)",
+                      borderColor: "var(--color-border)",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pct"
+                    stroke="var(--color-success)"
+                    fill="url(#attendanceFill)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart message="No attendance marked yet." />
+            )}
+          </CardContent>
+        </Card>
 
         {isModuleEnabled("houses") && leaderboard.length > 0 && (
           <Card>

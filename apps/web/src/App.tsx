@@ -130,51 +130,41 @@ export default function App() {
         <Route
           path="attendance"
           element={
-            <RequireModule module="attendance">
-              <RequirePermission permission="attendance.view">
-                <AttendancePage />
-              </RequirePermission>
-            </RequireModule>
+            <RequirePermission permission="attendance.view">
+              <AttendancePage />
+            </RequirePermission>
           }
         />
         <Route
           path="attendance/scan"
           element={
-            <RequireModule module="attendance">
-              <RequireAnyPermission permissions={["attendance.mark", "staff_attendance.mark"]}>
-                <ScanAttendancePage />
-              </RequireAnyPermission>
-            </RequireModule>
+            <RequireAnyPermission permissions={["attendance.mark", "staff_attendance.mark"]}>
+              <ScanAttendancePage />
+            </RequireAnyPermission>
           }
         />
         <Route
           path="fees"
           element={
-            <RequireModule module="fees">
-              <RequirePermission permission="fees.view">
-                <FeesPage />
-              </RequirePermission>
-            </RequireModule>
+            <RequirePermission permission="fees.view">
+              <FeesPage />
+            </RequirePermission>
           }
         />
         <Route
           path="exams"
           element={
-            <RequireModule module="exams">
-              <RequirePermission permission="exams.view">
-                <ExamsPage />
-              </RequirePermission>
-            </RequireModule>
+            <RequirePermission permission="exams.view">
+              <ExamsPage />
+            </RequirePermission>
           }
         />
         <Route
           path="timetable"
           element={
-            <RequireModule module="timetable">
-              <RequirePermission permission="timetable.view">
-                <TimetablePage />
-              </RequirePermission>
-            </RequireModule>
+            <RequirePermission permission="timetable.view">
+              <TimetablePage />
+            </RequirePermission>
           }
         />
         <Route
@@ -239,13 +229,22 @@ export default function App() {
             </RequirePermission>
           }
         />
-        <Route path="my-leave" element={<MyLeavePage />} />
+        <Route
+          path="my-leave"
+          element={
+            <RequireModule module="leave">
+              <MyLeavePage />
+            </RequireModule>
+          }
+        />
         <Route
           path="admin/leave-requests"
           element={
-            <RequirePermission permission="staff_leave.manage">
-              <LeaveRequestsPage />
-            </RequirePermission>
+            <RequireModule module="leave">
+              <RequirePermission permission="staff_leave.manage">
+                <LeaveRequestsPage />
+              </RequirePermission>
+            </RequireModule>
           }
         />
         <Route

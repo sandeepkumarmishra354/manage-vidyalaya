@@ -87,7 +87,7 @@ export function StudentDetailPage() {
     queryFn: () => api.getSiblings(id!),
     enabled: !!id,
   });
-  const canViewFees = isModuleEnabled("fees") && hasPermission("fees.view");
+  const canViewFees = hasPermission("fees.view");
   const { data: feeSummary } = useQuery({
     queryKey: ["student-fee-summary", id],
     queryFn: () => api.getStudentFeeSummary(id!),

@@ -410,17 +410,7 @@ export interface MeResponse {
 // Module settings
 // ============================================================================
 
-export type ModuleKey =
-  | "attendance"
-  | "fees"
-  | "exams"
-  | "library"
-  | "transport"
-  | "houses"
-  | "id_cards"
-  | "payroll"
-  | "expenses"
-  | "timetable";
+export type ModuleKey = "library" | "transport" | "houses" | "id_cards" | "payroll" | "expenses" | "leave";
 
 export interface ModuleSetting {
   module_key: ModuleKey;

@@ -147,17 +147,19 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   "timetable.manage": { label: "Manage period slots & timetable" },
 };
 
+// attendance/fees/exams/timetable used to be toggleable but are now
+// permanently core (available on every plan tier, never hidden) --
+// removed here rather than deprecated, since nothing should gate on them
+// any more. `leave` (staff_leave.manage's routes) is newly toggleable --
+// it was a premium feature in spirit but had no module key until now.
 export const TOGGLEABLE_MODULES = [
-  "attendance",
-  "fees",
-  "exams",
   "library",
   "transport",
   "houses",
   "id_cards",
   "payroll",
   "expenses",
-  "timetable",
+  "leave",
 ] as const;
 
 export type ToggleableModule = (typeof TOGGLEABLE_MODULES)[number];
