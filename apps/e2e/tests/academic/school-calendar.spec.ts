@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { apiContextFor, getBranchIdByName, getCurrentAcademicSessionId, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -26,7 +25,6 @@ test("school calendar: a named holiday appears in the list and can be removed", 
   await api.dispose();
 
   await page.goto("/academic-setup");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "School Calendar" }).click();
 
   const holidayRow = page.getByRole("row", { name: new RegExp(holidayName) });

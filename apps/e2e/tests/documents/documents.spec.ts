@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -26,7 +25,6 @@ test("student documents: upload a document, download it, then delete it", async 
   const label = `E2EDoc${suffix}`;
 
   await page.goto(`/students/${studentId}`);
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Documents" }).click();
 
   await page.getByRole("button", { name: "Add document" }).click();

@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 
 import { authFilePath } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 // front_desk holds admissions.create/confirm + students.create/edit --
 // exactly the role that runs this flow in a real school.
@@ -11,7 +10,6 @@ test("create an admission and confirm it", async ({ page }) => {
   const studentName = `E2EAdmission${Date.now()}`;
 
   await page.goto("/students");
-  await switchBranch(page, "North Campus");
 
   await page.getByRole("button", { name: "New Admission" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();

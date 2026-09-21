@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -30,7 +29,6 @@ test("dashboard: an unconfirmed admission surfaces in the Needs Attention widget
   await createTestStudent(api, { branchId: fixture.branchId, academicSessionId: fixture.sessionId, firstName: studentName });
 
   await page.goto("/");
-  await switchBranch(page, "North Campus");
 
   await expect(page.getByText("Needs Attention")).toBeVisible();
   // Two levels up: the label sits in a header row that's a sibling of the

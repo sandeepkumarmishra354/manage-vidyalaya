@@ -9,7 +9,6 @@ import {
   loginViaApi,
 } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("accountant") });
 
@@ -56,7 +55,6 @@ test("invoice lifecycle: generate, partial pay, full pay, reverse, edit, void", 
   expect((await summary()).total_paid).toBe(0);
 
   await page.goto("/fees");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Invoices" }).click();
 
   const invoiceRow = page.getByRole("row", { name: new RegExp(studentName) });

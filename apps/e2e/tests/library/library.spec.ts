@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -26,7 +25,6 @@ test("library: add a book, issue it, then return it and see availability restore
   const bookTitle = `E2EBook${suffix}`;
 
   await page.goto("/library");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Catalog" }).click();
 
   await page.locator("#book-title").fill(bookTitle);

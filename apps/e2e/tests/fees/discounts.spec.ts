@@ -9,7 +9,6 @@ import {
   loginViaApi,
 } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("accountant") });
 
@@ -51,7 +50,6 @@ test("assigning a flat discount to a student reduces their outstanding invoice",
   const discountName = `E2EDiscount${suffix}`;
 
   await page.goto("/fees");
-  await switchBranch(page, "North Campus");
   await page.getByRole("tab", { name: "Discounts" }).click();
 
   const discountForm = page.locator("form").filter({ has: page.getByPlaceholder("e.g. Sibling discount") });

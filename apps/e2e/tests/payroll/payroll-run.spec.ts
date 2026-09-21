@@ -10,7 +10,6 @@ import {
   setTestSalaryStructure,
 } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 test.use({ storageState: authFilePath("branchAdmin") });
 
@@ -70,7 +69,6 @@ test("payroll run: generate with LOP, finalize, reopen, delete, regenerate, mark
   // this test self-isolating.
   try {
     await page.goto("/payroll");
-    await switchBranch(page, "North Campus");
 
     await page.getByRole("button", { name: "Generate payroll run" }).click();
     const generateDialog = page.getByRole("dialog", { name: "Generate a payroll run" });
@@ -129,7 +127,6 @@ test("payroll run: generate with LOP, finalize, reopen, delete, regenerate, mark
 
     // Delete the draft run from the list page.
     await page.goto("/payroll");
-    await switchBranch(page, "North Campus");
     const runRow = page.getByRole("row", { name: new RegExp(`${MONTH_NAMES[month - 1]} ${year}`) }).first();
     await expect(runRow).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());

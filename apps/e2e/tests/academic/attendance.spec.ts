@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { setupAcademicFixture } from "../../fixtures/academic-fixture.js";
 import { apiContextFor, createAndEnrollTestStudent, loginViaApi } from "../../fixtures/api-client.js";
 import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
-import { switchBranch } from "../../fixtures/ui-helpers.js";
 
 // The class teacher persona has no flat attendance.mark permission --
 // this exercises ScopedAccessService's additive path (class-teacher-of-
@@ -29,7 +28,6 @@ test("a class teacher (no flat attendance.mark) can mark attendance for their ow
   await api.dispose();
 
   await page.goto("/attendance");
-  await switchBranch(page, "North Campus");
 
   await page.getByRole("combobox").filter({ hasText: "Select class" }).click();
   await page.getByRole("option", { name: new RegExp(`E2E Class ${suffix}`) }).click();
