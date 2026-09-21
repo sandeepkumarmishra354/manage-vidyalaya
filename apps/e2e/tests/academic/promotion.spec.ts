@@ -95,6 +95,19 @@ test("promoting a student updates their current class and creates a new-session 
     // "E2E Class ..." rows found in this suite's own dev DB) that made the
     // "Suggest class mapping" step above slow enough to need padded
     // timeouts in the first place.
+    //
+    // Must clear fixture.sectionId's class-teacher assignment BEFORE
+    // deleting fixture.classId, not after: setupAcademicFixture's own
+    // stale-assignment cleanup (clearExistingClassTeacherAssignment) finds
+    // sections by listing non-deleted classes, so once the class is
+    // soft-deleted its section becomes invisible to that lookup and the
+    // classTeacher persona (QA-CT-01, shared by every test that calls this
+    // fixture) stays permanently "assigned" to a now-orphaned section --
+    // every later run's own class-teacher assignment then 400s with
+    // "already class teacher of another section". Reproduced and confirmed
+    // this exact failure across ~14 unrelated specs after this cleanup
+    // shipped without the line below.
+    await verifyApi.patch(`sections/${fixture.sectionId}/class-teacher`, { data: { staff_id: null } });
     await verifyApi.delete(`classes/${fixture.classId}`);
     await verifyApi.delete(`classes/${toClassId}`);
     await verifyApi.dispose();
