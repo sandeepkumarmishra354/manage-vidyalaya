@@ -7,6 +7,12 @@ import { authFilePath, PERSONAS } from "../../fixtures/personas.js";
 test.use({ storageState: authFilePath("branchAdmin") });
 
 test("promoting a student updates their current class and creates a new-session enrollment", async ({ page }) => {
+  // Same accumulation problem as the 15s bump below, but the run's overall
+  // default 30s test timeout can be hit before that inner wait even gets
+  // its full budget once enough past classes have piled up. Give the whole
+  // test more headroom rather than keep chasing this per assertion.
+  test.setTimeout(60_000);
+
   const suffix = Date.now();
   const auth = await loginViaApi(PERSONAS.superAdmin.email, PERSONAS.superAdmin.password);
   const api = await apiContextFor(auth.accessToken);
