@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
 
 import { JwtAuthGuard } from "../auth/jwt-auth.guard.js";
 import type { JwtPayload } from "../auth/jwt.strategy.js";
@@ -6,12 +6,15 @@ import { CurrentUser } from "../common/current-user.decorator.js";
 import { PERMISSION_CATALOG, PERMISSION_LABELS } from "../common/permission-catalog.js";
 import { BranchScopeGuard } from "../common/branch-scope.guard.js";
 import { PermissionsGuard } from "../common/permissions.guard.js";
-import { RequirePermission } from "../common/require-permission.decorator.js";
-import { CreateRoleDto } from "./dto/create-role.dto.js";
-import { SetRolePermissionsDto } from "./dto/set-role-permissions.dto.js";
-import { UpdateRoleDto } from "./dto/update-role.dto.js";
 import { RolesService } from "./roles.service.js";
 
+// Roles are read-only: every tenant is limited to the fixed catalog of 5
+// system role names, each with its canonical, server-defined permission set
+// (see permission-catalog.ts's SYSTEM_ROLE_PERMISSIONS, seeded by
+// scripts/create-tenant.ts/seed.ts). Custom role creation/editing has been
+// removed entirely -- both so headcount limits (see plan-catalog.ts) can be
+// enforced by counting roles.name directly, and so the fixed permission
+// sets can't drift from what's documented/supported.
 @Controller("roles")
 @UseGuards(JwtAuthGuard, PermissionsGuard, BranchScopeGuard)
 export class RolesController {
@@ -22,33 +25,9 @@ export class RolesController {
     return this.rolesService.listRoles(user.tenant_id);
   }
 
-  @Post()
-  @RequirePermission("roles.manage")
-  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateRoleDto) {
-    return this.rolesService.createRole(user.tenant_id, user.sub, dto);
-  }
-
-  @Patch(":id")
-  @RequirePermission("roles.manage")
-  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: UpdateRoleDto) {
-    return this.rolesService.updateRole(user.tenant_id, user.sub, id, dto);
-  }
-
-  @Delete(":id")
-  @RequirePermission("roles.manage")
-  remove(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
-    return this.rolesService.deleteRole(user.tenant_id, user.sub, id);
-  }
-
   @Get(":id/permissions")
   listPermissions(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
     return this.rolesService.listRolePermissions(user.tenant_id, id);
-  }
-
-  @Put(":id/permissions")
-  @RequirePermission("roles.manage")
-  setPermissions(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SetRolePermissionsDto) {
-    return this.rolesService.setRolePermissions(user.tenant_id, user.sub, id, dto);
   }
 }
 

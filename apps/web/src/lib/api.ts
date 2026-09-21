@@ -1083,14 +1083,6 @@ export interface PermissionCatalogEntry {
   description?: string;
 }
 
-export interface NewRoleInput {
-  name: string;
-}
-
-export interface SetRolePermissionsInput {
-  role_id: string;
-  permission_keys: string[];
-}
 
 export interface UserSummary {
   id: string;
@@ -2230,12 +2222,7 @@ export const api = {
   // RBAC: permissions, roles, users
   listPermissionCatalog: () => http.get<PermissionCatalogEntry[]>("/permissions/catalog"),
   listRoles: () => http.get<Role[]>("/roles"),
-  createRole: (input: NewRoleInput) => http.post<Role>("/roles", input),
-  updateRole: (id: string, name: string) => http.patch<void>(`/roles/${id}`, { name }),
-  deleteRole: (id: string) => http.delete<void>(`/roles/${id}`),
   listRolePermissions: (roleId: string) => http.get<string[]>(`/roles/${roleId}/permissions`),
-  setRolePermissions: (input: SetRolePermissionsInput) =>
-    http.put<void>(`/roles/${input.role_id}/permissions`, { permission_keys: input.permission_keys }),
   listUsers: (search?: string, roleId?: string) =>
     http.get<UserSummary[]>("/users", { search, role_id: roleId }),
   assignUserRole: (userId: string, roleId: string) =>
