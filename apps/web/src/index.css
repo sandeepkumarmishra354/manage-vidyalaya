@@ -190,11 +190,38 @@
     visibility: visible;
   }
   [data-print-area] {
+    /* top/left/width only, deliberately no `bottom`/`inset: 0`: setting
+       both top and bottom pins the box's height to exactly one page's
+       worth of content (per CSS's over-constrained absolute-positioning
+       height resolution), so anything beyond the first page -- extra
+       attendance rows, a receipt's later lines -- was silently clipped
+       instead of flowing onto a second printed page. Leaving height
+       unconstrained lets it grow with content and paginate normally. */
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
     width: 100%;
   }
   [data-no-print] {
+    display: none !important;
+  }
+
+  /* A print area rendered inside a Dialog (fee-receipt reprint, transfer
+     certificate, experience letter) is portaled straight to <body> by its
+     own component rather than fixed up here -- DialogContent is `display:
+     grid`, and a grid/flex container is *always* the containing block for
+     its own absolutely-positioned children regardless of its `position`
+     value, so no CSS reset on DialogContent reliably frees a
+     [data-print-area] nested inside it (confirmed: even forcing `position:
+     static`, `transform: none`, and `display: block` all together via
+     inline styles left [data-print-area]'s offsetParent pointing at
+     DialogContent). The overlay is still hidden here as a low-cost
+     belt-and-suspenders alongside the portal, since `body *
+     { visibility: hidden }` above already hides it but leaves it painting
+     nothing while still occupying a full-viewport fixed box.
+     data-slot="dialog-overlay" is shadcn's own Radix Dialog wrapper marker
+     (components/ui/dialog.tsx), not app-specific. */
+  [data-slot="dialog-overlay"] {
     display: none !important;
   }
 }

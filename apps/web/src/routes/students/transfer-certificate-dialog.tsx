@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileTextIcon, PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
@@ -94,34 +95,42 @@ function TcPrintView({ tc }: { tc: TransferCertificate }) {
         </Button>
       </div>
 
-      <div data-print-area className="hidden print:block">
-        <PrintFrame template={template} paperColor={paperColor} branch={branch}>
-          <PrintLetterhead
-            branch={branch}
-            documentTitle="Transfer Certificate"
-            template={template}
-            right={
-              <>
-                {tc.tc_number && <p>TC #{tc.tc_number}</p>}
-                {tc.tc_issue_date && <p>Date: {formatDate(tc.tc_issue_date)}</p>}
-              </>
-            }
-          />
-          <div className="mb-4">
-            <TcFieldRow label="Admission number" value={tc.admission_number ?? "—"} />
-            <TcFieldRow label="Student name" value={[tc.first_name, tc.last_name].filter(Boolean).join(" ")} />
-            <TcFieldRow label="Date of birth" value={tc.date_of_birth ? formatDate(tc.date_of_birth) : "—"} />
-            <TcFieldRow label="Class at leaving" value={[tc.class_name, tc.section_name].filter(Boolean).join(" - ") || "—"} />
-            <TcFieldRow label="Date of admission" value={tc.date_of_admission ? formatDate(tc.date_of_admission) : "—"} />
-            <TcFieldRow label="Date of leaving" value={tc.date_of_leaving ? formatDate(tc.date_of_leaving) : "—"} />
-            <TcFieldRow label="Reason for leaving" value={tc.reason_for_leaving ?? "—"} />
-            <TcFieldRow label="Conduct" value={tc.conduct_remark ?? "—"} />
-          </div>
-          <div className="mt-16 flex justify-end">
-            <SignatureBlock branch={branch} signatureUrl={principalSignatureUrl} template={template} />
-          </div>
-        </PrintFrame>
-      </div>
+      {/* Portaled to <body> -- see the matching comment in payment-receipt.tsx
+          for why: DialogContent is a `display: grid` container, which is
+          always the containing block for its own absolutely-positioned
+          children regardless of `position`, so [data-print-area] can't
+          reliably escape it with CSS resets alone. */}
+      {createPortal(
+        <div data-print-area className="hidden print:block">
+          <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+            <PrintLetterhead
+              branch={branch}
+              documentTitle="Transfer Certificate"
+              template={template}
+              right={
+                <>
+                  {tc.tc_number && <p>TC #{tc.tc_number}</p>}
+                  {tc.tc_issue_date && <p>Date: {formatDate(tc.tc_issue_date)}</p>}
+                </>
+              }
+            />
+            <div className="mb-4">
+              <TcFieldRow label="Admission number" value={tc.admission_number ?? "—"} />
+              <TcFieldRow label="Student name" value={[tc.first_name, tc.last_name].filter(Boolean).join(" ")} />
+              <TcFieldRow label="Date of birth" value={tc.date_of_birth ? formatDate(tc.date_of_birth) : "—"} />
+              <TcFieldRow label="Class at leaving" value={[tc.class_name, tc.section_name].filter(Boolean).join(" - ") || "—"} />
+              <TcFieldRow label="Date of admission" value={tc.date_of_admission ? formatDate(tc.date_of_admission) : "—"} />
+              <TcFieldRow label="Date of leaving" value={tc.date_of_leaving ? formatDate(tc.date_of_leaving) : "—"} />
+              <TcFieldRow label="Reason for leaving" value={tc.reason_for_leaving ?? "—"} />
+              <TcFieldRow label="Conduct" value={tc.conduct_remark ?? "—"} />
+            </div>
+            <div className="mt-16 flex justify-end">
+              <SignatureBlock branch={branch} signatureUrl={principalSignatureUrl} template={template} />
+            </div>
+          </PrintFrame>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
