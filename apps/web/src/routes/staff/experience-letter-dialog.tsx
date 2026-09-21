@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileTextIcon, PrinterIcon } from "lucide-react";
 
 import { useAppStore } from "@/stores/app-store";
@@ -94,34 +95,42 @@ function LetterPrintView({ letter }: { letter: ExperienceLetter }) {
         </Button>
       </div>
 
-      <div data-print-area className="hidden print:block">
-        <PrintFrame template={template} paperColor={paperColor} branch={branch}>
-          <PrintLetterhead
-            branch={branch}
-            documentTitle="Experience Letter"
-            template={template}
-            right={
-              <>
-                {letter.experience_letter_number && <p>Letter #{letter.experience_letter_number}</p>}
-                {letter.experience_letter_issue_date && <p>Date: {formatDate(letter.experience_letter_issue_date)}</p>}
-              </>
-            }
-          />
-          <div className="mb-4">
-            <LetterFieldRow label="Employee code" value={letter.employee_code} />
-            <LetterFieldRow label="Name" value={[letter.first_name, letter.last_name].filter(Boolean).join(" ")} />
-            <LetterFieldRow label="Designation" value={letter.designation} />
-            <LetterFieldRow label="Department" value={letter.department ?? "—"} />
-            <LetterFieldRow label="Date of joining" value={formatDate(letter.date_of_joining)} />
-            <LetterFieldRow label="Date of leaving" value={letter.date_of_leaving ? formatDate(letter.date_of_leaving) : "—"} />
-            <LetterFieldRow label="Reason for leaving" value={letter.reason_for_leaving ?? "—"} />
-            <LetterFieldRow label="Conduct" value={letter.conduct_remark ?? "—"} />
-          </div>
-          <div className="mt-16 flex justify-end">
-            <SignatureBlock branch={branch} signatureUrl={principalSignatureUrl} template={template} />
-          </div>
-        </PrintFrame>
-      </div>
+      {/* Portaled to <body> -- see the matching comment in payment-receipt.tsx
+          for why: DialogContent is a `display: grid` container, which is
+          always the containing block for its own absolutely-positioned
+          children regardless of `position`, so [data-print-area] can't
+          reliably escape it with CSS resets alone. */}
+      {createPortal(
+        <div data-print-area className="hidden print:block">
+          <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+            <PrintLetterhead
+              branch={branch}
+              documentTitle="Experience Letter"
+              template={template}
+              right={
+                <>
+                  {letter.experience_letter_number && <p>Letter #{letter.experience_letter_number}</p>}
+                  {letter.experience_letter_issue_date && <p>Date: {formatDate(letter.experience_letter_issue_date)}</p>}
+                </>
+              }
+            />
+            <div className="mb-4">
+              <LetterFieldRow label="Employee code" value={letter.employee_code} />
+              <LetterFieldRow label="Name" value={[letter.first_name, letter.last_name].filter(Boolean).join(" ")} />
+              <LetterFieldRow label="Designation" value={letter.designation} />
+              <LetterFieldRow label="Department" value={letter.department ?? "—"} />
+              <LetterFieldRow label="Date of joining" value={formatDate(letter.date_of_joining)} />
+              <LetterFieldRow label="Date of leaving" value={letter.date_of_leaving ? formatDate(letter.date_of_leaving) : "—"} />
+              <LetterFieldRow label="Reason for leaving" value={letter.reason_for_leaving ?? "—"} />
+              <LetterFieldRow label="Conduct" value={letter.conduct_remark ?? "—"} />
+            </div>
+            <div className="mt-16 flex justify-end">
+              <SignatureBlock branch={branch} signatureUrl={principalSignatureUrl} template={template} />
+            </div>
+          </PrintFrame>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

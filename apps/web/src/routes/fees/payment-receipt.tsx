@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { PrinterIcon } from "lucide-react";
 
 import { api, FEE_TYPE_LABELS, type Branch, type FeeInvoiceListItem, type FeePayment } from "@/lib/api";
@@ -62,97 +63,113 @@ export function PaymentReceipt({ entries, branch }: { entries: PaymentReceiptEnt
         </CardContent>
       </Card>
 
-      <div data-print-area className="hidden print:block">
-        <PrintFrame template={template} paperColor={paperColor} branch={branch}>
-          <PrintLetterhead
-            branch={branch}
-            documentTitle="Payment Receipt"
-            template={template}
-            accent="var(--color-finance)"
-            right={
-              <>
-                {first.payment.receipt_number && <p>Receipt #{first.payment.receipt_number}</p>}
-                <p>Date: {first.payment.payment_date.slice(0, 10)}</p>
-              </>
-            }
-          />
-          <div className="mb-4 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Student</span>
-              <span className="font-medium">{first.invoice.student_name}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Class</span>
-              <span className="font-medium">
-                {[first.invoice.class_name, first.invoice.section_name].filter(Boolean).join(" - ") || "-"}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Roll number</span>
-              <span className="font-medium">{first.invoice.roll_number ?? "-"}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Date of birth</span>
-              <span className="font-medium">{formatDate(first.invoice.date_of_birth) || "-"}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Guardian</span>
-              <span className="font-medium">{first.invoice.guardian_name ?? "-"}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-slate-600">Payment method</span>
-              <span className="font-medium">
-                {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}
-              </span>
-            </div>
-          </div>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b-2">
-                <th className="py-1.5 text-left">Fee</th>
-                <th className="py-1.5 text-right">Amount due</th>
-                <th className="py-1.5 text-right">This payment</th>
-                <th className="py-1.5 text-right">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map(({ payment, invoice }) => {
-                const totalPaid = invoice.amount_paid + payment.amount;
-                const balance = invoice.amount_due - totalPaid;
-                return (
-                  <tr key={payment.id} className="border-b">
-                    <td className="py-1.5">
-                      {invoice.fee_structure_name} ({FEE_TYPE_LABELS[invoice.fee_type] ?? invoice.fee_type})
-                    </td>
-                    <td className="py-1.5 text-right">{formatPaise(invoice.amount_due)}</td>
-                    <td className="py-1.5 text-right">{formatPaise(payment.amount)}</td>
-                    <td className="py-1.5 text-right">{formatPaise(balance)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            {entries.length > 1 && (
-              <tfoot>
-                <tr className="border-t-2 font-semibold">
-                  <td className="py-1.5" colSpan={2}>
-                    Total
-                  </td>
-                  <td className="py-1.5 text-right">{formatPaise(totalThisPayment)}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-          <div className="mt-8 flex justify-end">
-            <SignatureBlock
+      {/* Portaled straight to <body>, bypassing any Dialog this component
+          might be rendered inside (the reprint-receipt flow renders it in
+          one). DialogContent is `display: grid` + `position: fixed` with a
+          centering transform -- a grid/flex container is *always* the
+          containing block for its own absolutely-positioned children
+          regardless of its `position` value, and print-mode CSS resets to
+          the contrary don't reliably escape that once Chrome has already
+          laid the dialog out under screen media. Rendering this print-only
+          subtree as a direct child of <body> instead sidesteps the whole
+          problem: there's no intervening grid/flex/transformed ancestor
+          left for [data-print-area]'s `position: absolute` to latch onto,
+          so it resolves against the page exactly like it does when this
+          component is rendered directly on a route (no dialog involved). */}
+      {createPortal(
+        <div data-print-area className="hidden print:block">
+          <PrintFrame template={template} paperColor={paperColor} branch={branch}>
+            <PrintLetterhead
               branch={branch}
-              signatureUrl={principalSignatureUrl}
+              documentTitle="Payment Receipt"
               template={template}
               accent="var(--color-finance)"
+              right={
+                <>
+                  {first.payment.receipt_number && <p>Receipt #{first.payment.receipt_number}</p>}
+                  <p>Date: {first.payment.payment_date.slice(0, 10)}</p>
+                </>
+              }
             />
-          </div>
-        </PrintFrame>
-      </div>
+            <div className="mb-4 grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Student</span>
+                <span className="font-medium">{first.invoice.student_name}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Class</span>
+                <span className="font-medium">
+                  {[first.invoice.class_name, first.invoice.section_name].filter(Boolean).join(" - ") || "-"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Roll number</span>
+                <span className="font-medium">{first.invoice.roll_number ?? "-"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Date of birth</span>
+                <span className="font-medium">{formatDate(first.invoice.date_of_birth) || "-"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Guardian</span>
+                <span className="font-medium">{first.invoice.guardian_name ?? "-"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-600">Payment method</span>
+                <span className="font-medium">
+                  {PAYMENT_METHOD_LABELS[first.payment.payment_method] ?? first.payment.payment_method}
+                </span>
+              </div>
+            </div>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2">
+                  <th className="py-1.5 text-left">Fee</th>
+                  <th className="py-1.5 text-right">Amount due</th>
+                  <th className="py-1.5 text-right">This payment</th>
+                  <th className="py-1.5 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map(({ payment, invoice }) => {
+                  const totalPaid = invoice.amount_paid + payment.amount;
+                  const balance = invoice.amount_due - totalPaid;
+                  return (
+                    <tr key={payment.id} className="border-b">
+                      <td className="py-1.5">
+                        {invoice.fee_structure_name} ({FEE_TYPE_LABELS[invoice.fee_type] ?? invoice.fee_type})
+                      </td>
+                      <td className="py-1.5 text-right">{formatPaise(invoice.amount_due)}</td>
+                      <td className="py-1.5 text-right">{formatPaise(payment.amount)}</td>
+                      <td className="py-1.5 text-right">{formatPaise(balance)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {entries.length > 1 && (
+                <tfoot>
+                  <tr className="border-t-2 font-semibold">
+                    <td className="py-1.5" colSpan={2}>
+                      Total
+                    </td>
+                    <td className="py-1.5 text-right">{formatPaise(totalThisPayment)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+            <div className="mt-8 flex justify-end">
+              <SignatureBlock
+                branch={branch}
+                signatureUrl={principalSignatureUrl}
+                template={template}
+                accent="var(--color-finance)"
+              />
+            </div>
+          </PrintFrame>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
