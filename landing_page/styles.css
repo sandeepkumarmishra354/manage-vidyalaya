@@ -546,6 +546,116 @@ section {
   margin: 0;
 }
 
+/* ---------------- Pricing ---------------- */
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 36px 28px;
+}
+
+.plan-card.featured {
+  border: 2px solid var(--color-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.plan-badge {
+  position: absolute;
+  top: -14px;
+  left: 28px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--gradient);
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
+.plan-name {
+  font-size: 20px;
+  margin: 0 0 6px;
+  color: var(--color-dark);
+}
+
+.plan-tagline {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 20px;
+  min-height: 40px;
+}
+
+.plan-price {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-dark);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.plan-price-period {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.plan-limits {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.plan-limits li {
+  padding: 4px 0;
+}
+
+.plan-features {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  flex-grow: 1;
+}
+
+.plan-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--color-text);
+  padding: 5px 0;
+}
+
+.plan-features li svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-primary);
+}
+
+.plan-note {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin: 0 0 20px;
+}
+
 /* ---------------- Contact ---------------- */
 
 .contact {
@@ -737,6 +847,12 @@ section {
 
   .benefits-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    margin: 0 auto;
   }
 
   .spotlight,
