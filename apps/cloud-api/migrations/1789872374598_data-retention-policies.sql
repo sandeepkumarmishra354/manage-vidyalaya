@@ -36,6 +36,7 @@ CREATE POLICY tenant_isolation ON public.retention_policies
   WITH CHECK (tenant_id = current_setting('app.tenant_id', true));
 ALTER TABLE public.retention_policies FORCE ROW LEVEL SECURITY;
 
+DROP TRIGGER IF EXISTS set_updated_at ON public.retention_policies;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.retention_policies
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
@@ -52,7 +53,7 @@ ALTER TABLE public.guardians DROP COLUMN anonymized_at;
 ALTER TABLE public.staff DROP COLUMN anonymized_at;
 ALTER TABLE public.students DROP COLUMN anonymized_at;
 
-DROP TRIGGER set_updated_at ON public.retention_policies;
+DROP TRIGGER IF EXISTS set_updated_at ON public.retention_policies;
 DROP POLICY tenant_isolation ON public.retention_policies;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON public.retention_policies FROM vidyalaya_app;
 DROP TABLE public.retention_policies;

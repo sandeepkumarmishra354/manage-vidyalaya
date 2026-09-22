@@ -36,6 +36,7 @@ CREATE POLICY tenant_isolation ON public.leave_types
   WITH CHECK (tenant_id = current_setting('app.tenant_id', true));
 ALTER TABLE public.leave_types FORCE ROW LEVEL SECURITY;
 
+DROP TRIGGER IF EXISTS set_updated_at ON public.leave_types;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.leave_types
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
@@ -68,6 +69,7 @@ CREATE POLICY tenant_isolation ON public.leave_type_quotas
   WITH CHECK (tenant_id = current_setting('app.tenant_id', true));
 ALTER TABLE public.leave_type_quotas FORCE ROW LEVEL SECURITY;
 
+DROP TRIGGER IF EXISTS set_updated_at ON public.leave_type_quotas;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.leave_type_quotas
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
@@ -81,12 +83,12 @@ ALTER TABLE public.staff_leave_requests DROP COLUMN unpaid_days;
 ALTER TABLE public.staff_leave_requests DROP COLUMN paid_days;
 ALTER TABLE public.staff_leave_requests DROP COLUMN leave_type_id;
 
-DROP TRIGGER set_updated_at ON public.leave_type_quotas;
+DROP TRIGGER IF EXISTS set_updated_at ON public.leave_type_quotas;
 DROP POLICY tenant_isolation ON public.leave_type_quotas;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON public.leave_type_quotas FROM vidyalaya_app;
 DROP TABLE public.leave_type_quotas;
 
-DROP TRIGGER set_updated_at ON public.leave_types;
+DROP TRIGGER IF EXISTS set_updated_at ON public.leave_types;
 DROP POLICY tenant_isolation ON public.leave_types;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON public.leave_types FROM vidyalaya_app;
 DROP TABLE public.leave_types;
