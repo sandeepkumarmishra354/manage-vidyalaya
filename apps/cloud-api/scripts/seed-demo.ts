@@ -554,13 +554,10 @@ async function main() {
       );
     }
 
-    const masterDataIds = new Map<string, string>();
     for (const { type, name } of DEFAULT_MASTER_DATA_ITEMS) {
-      const id = randomUUID();
-      masterDataIds.set(`${type}:${name}`, id);
       await client.query(
         `INSERT INTO master_data_items (id, tenant_id, type, name, is_system, updated_at) VALUES ($1, $2, $3, $4, true, $5)`,
-        [id, DEMO_TENANT_ID, type, name, now],
+        [randomUUID(), DEMO_TENANT_ID, type, name, now],
       );
     }
 
@@ -1612,7 +1609,9 @@ async function main() {
       const amount = rupeesToPaise(randInt(band.min, band.max));
       const expenseDate = addDays(now, -randInt(1, 120));
       expenseRows.push([
-        randomUUID(), DEMO_TENANT_ID, branch.id, masterDataIds.get(`expense_category:${band.name}`) ?? null,
+        // category_id is free text, not an FK -- the app stores the
+        // master_data_items *name* here (see MasterDataSelect), not its id.
+        randomUUID(), DEMO_TENANT_ID, branch.id, band.name,
         `${band.name} - ${pickRandom(["monthly", "quarterly", "one-off"])} expense`, amount, expenseDate,
         pickRandom(["cash", "upi", "bank_transfer", "cheque"]), pickRandom(vendorNames),
         Math.random() < 0.5 ? accountantUserId : frontdeskUserId, expenseDate, now,
