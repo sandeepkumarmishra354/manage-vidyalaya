@@ -77,9 +77,9 @@ jobs:
         working-directory: apps/cloud-api
         run: pnpm migrate:up
 
-      - name: Seed demo tenant (incl. E2E personas + North Campus)
+      - name: Seed E2E demo tenant (personas + North Campus)
         working-directory: apps/cloud-api
-        run: pnpm seed
+        run: pnpm seed:e2e
 
       - name: Cloud API typecheck + unit tests
         working-directory: apps/cloud-api

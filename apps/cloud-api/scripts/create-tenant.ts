@@ -1,6 +1,6 @@
 // Provisions a real school tenant: a fresh tenant + main branch + default
 // roles/permissions/categories/master data + a first super_admin login,
-// exactly like seed.ts does for the fixed demo tenant, but parameterized and
+// exactly like seed-e2e.ts does for the fixed demo tenant, but parameterized and
 // with real random UUIDs. Run once per school being onboarded (see
 // docs/production-readiness.md's onboarding runbook for the full DNS/SSL
 // checklist this fits into).
@@ -91,7 +91,7 @@ function parseArgs(): Args {
 }
 
 // Default StaffCategory/FeeCategory/MasterDataItem rows, copied from
-// seed.ts -- kept as its own copy rather than a shared import since both
+// seed-e2e.ts -- kept as its own copy rather than a shared import since both
 // scripts are small, standalone, and already diverge in what tenant they
 // target and how they get their ids.
 const DEFAULT_STAFF_CATEGORIES = [
@@ -124,7 +124,7 @@ const DEFAULT_MASTER_DATA_ITEMS: { type: string; name: string }[] = [
 
 const SYSTEM_ROLE_NAMES = ["super_admin", "branch_admin", "accountant", "teacher", "front_desk"] as const;
 
-// Indian academic year convention: April-to-March, copied from seed.ts (see
+// Indian academic year convention: April-to-March, copied from seed-e2e.ts (see
 // that file's copy for why almost nothing academic works without a current
 // session, and why this needed adding here too).
 function currentAcademicYearBounds(now: Date): { name: string; startDate: Date; endDate: Date } {
@@ -153,7 +153,7 @@ async function main() {
 
   // One client held for the whole script so the transaction-local RLS
   // session variable applies to every statement -- same pattern as
-  // seed.ts's main().
+  // seed-e2e.ts's main().
   const client = await pool.connect();
 
   try {

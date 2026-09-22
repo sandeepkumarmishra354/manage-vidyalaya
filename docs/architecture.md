@@ -78,7 +78,7 @@ Five system roles are seeded (`super_admin`, `branch_admin`, `accountant`,
 create additional custom roles. `PERMISSION_CATALOG` in
 `apps/cloud-api/src/common/permission-catalog.ts` is the single source of
 truth for every permission key and which of them each system role gets by
-default (`SYSTEM_ROLE_PERMISSIONS`) -- both `scripts/seed.ts` and the
+default (`SYSTEM_ROLE_PERMISSIONS`) -- both `scripts/seed-e2e.ts` and the
 `RolesModule` import it directly, so there's nothing to keep in sync by
 hand anymore.
 

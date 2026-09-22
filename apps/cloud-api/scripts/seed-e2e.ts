@@ -1,6 +1,9 @@
-// Dev/demo seed script. Creates a tenant/branch/admin user with fixed,
-// well-known ids for local development. Production tenants come from the
-// (future) school signup/provisioning flow instead, with random UUIDs.
+// E2E/dev-fixture seed script -- NOT part of any production path. Creates a
+// tenant/branch/admin user (plus QA persona logins) with fixed, well-known
+// ids so the Playwright suite (apps/e2e/) and local manual exploration have
+// something to log into. Real schools are onboarded via vendor-admin-web
+// (apps/vendor-admin-api's TenantsService.createTenant, the same shape as
+// scripts/create-tenant.ts) -- never this script, and never with fixed ids.
 //
 // Connects as the schema-owning role (DATABASE_URL, not APP_DATABASE_URL) --
 // RLS never applies to a table's owner, and seeding a brand-new tenant is

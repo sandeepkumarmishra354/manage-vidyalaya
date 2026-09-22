@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate:up": "node-pg-migrate up",
     "migrate:create": "node-pg-migrate create",
-    "seed": "tsx scripts/seed.ts",
+    "seed:e2e": "tsx scripts/seed-e2e.ts",
     "create-tenant": "tsx scripts/create-tenant.ts",
     "backfill:staff-categories": "tsx scripts/backfill-staff-categories.ts",
     "retention:run": "tsx scripts/run-retention.ts",

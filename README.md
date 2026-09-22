@@ -59,11 +59,17 @@ logged in.
 
 ```
 apps/
-  web/          React + TypeScript + Tailwind + shadcn/ui single-page app,
-                talking to cloud-api over plain fetch()
-  cloud-api/    NestJS + PostgreSQL (raw pg + row-level security): the
-                entire system of record -- auth, every domain entity, RBAC,
-                and audit logging
+  web/               React + TypeScript + Tailwind + shadcn/ui single-page
+                      app, talking to cloud-api over plain fetch()
+  cloud-api/         NestJS + PostgreSQL (raw pg + row-level security): the
+                      entire system of record -- auth, every domain entity,
+                      RBAC, and audit logging
+  vendor-admin-api/  Separate NestJS service (own JWT secret) for
+                      cross-tenant plan/tenant management -- school
+                      onboarding, plan tier changes, suspension
+  vendor-admin-web/  Small React app for vendor-admin-api, used to onboard
+                      real schools instead of a demo seed
+  e2e/               Playwright end-to-end suite covering the whole app
 ```
 
 ## Prerequisites
@@ -80,14 +86,31 @@ pnpm install
 cd apps/cloud-api
 cp .env.example .env   # edit DATABASE_URL/APP_DATABASE_URL if needed
 pnpm migrate:up         # creates the schema
-pnpm seed                # creates a demo tenant/branch/admin user
 pnpm dev                # starts on :3001
 ```
 
-Demo login (from the seed script): `admin@demo.vidyalaya.in` /
-`vidyalaya-demo`.
+No demo tenant is seeded by default -- schools are onboarded through
+`apps/vendor-admin-web` (see below), the same path a real deployment uses.
 
-In another terminal:
+In another terminal, bring up the vendor-admin app to onboard your first
+school:
+
+```bash
+cd apps/vendor-admin-api
+cp .env.example .env
+pnpm dev                # starts on :3002
+pnpm create-vendor-admin --email=you@example.com --full-name="Your Name"
+```
+
+```bash
+cd apps/vendor-admin-web
+cp .env.example .env
+pnpm dev                # starts on :5175
+```
+
+Log into vendor-admin-web with the operator credentials just printed,
+create a tenant from the form, and it prints that school's admin
+credentials once. In another terminal, bring up the school's own web app:
 
 ```bash
 cd apps/web
@@ -95,10 +118,18 @@ cp .env.example .env   # edit VITE_API_BASE_URL if cloud-api isn't on :3001
 pnpm dev                # starts on :5173
 ```
 
+Log in with the admin credentials vendor-admin-web printed.
+
 The web app is unusable without a running cloud-api -- there is no local
 data and no offline fallback. Login calls `POST /auth/login`, the app then
 fetches `GET /auth/me` for session/branch/permission data, and every page
 after that reads and writes directly against cloud-api's REST endpoints.
+
+For local exploration without going through onboarding, or to run the E2E
+suite, `pnpm --filter cloud-api seed:e2e` seeds a fixed demo tenant
+(`admin@demo.vidyalaya.in` / `vidyalaya-demo`) plus QA persona logins --
+see `apps/e2e/README.md`. This is dev/test-only and is never run against a
+production database.
 
 ## Common commands
 

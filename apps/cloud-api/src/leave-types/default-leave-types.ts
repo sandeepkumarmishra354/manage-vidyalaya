@@ -2,7 +2,7 @@
 // tracking on (a common baseline; the tenant configures actual quotas per
 // staff category via LeaveTypeQuota) and "Other" is the freeform fallback,
 // matching today's pre-feature behaviour (unlimited, always paid). Shared
-// by scripts/seed.ts and scripts/create-tenant.ts, same pattern as
+// by scripts/seed-e2e.ts and scripts/create-tenant.ts, same pattern as
 // DEFAULT_RETENTION_POLICIES.
 export const DEFAULT_LEAVE_TYPES: { name: string; quotaEnabled: boolean }[] = [
   { name: "Casual Leave", quotaEnabled: true },

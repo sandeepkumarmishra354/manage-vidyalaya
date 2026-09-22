@@ -11,11 +11,11 @@ pnpm --filter e2e test
 pnpm --filter e2e test:ui   # interactive UI mode
 ```
 
-Postgres must already be running locally (`pg_ctlcluster 16 main start`) with the demo tenant seeded (`pnpm --filter cloud-api seed`) before running the suite -- `playwright.config.ts`'s `webServer` config starts the cloud-api and web dev servers itself (and reuses them if you already have `pnpm dev` running), but it does not start Postgres or run migrations/seed.
+Postgres must already be running locally (`pg_ctlcluster 16 main start`) with the demo tenant seeded (`pnpm --filter cloud-api seed:e2e`) before running the suite -- `playwright.config.ts`'s `webServer` config starts the cloud-api and web dev servers itself (and reuses them if you already have `pnpm dev` running), but it does not start Postgres or run migrations/seed.
 
 ## Personas
 
-`apps/cloud-api/scripts/seed.ts` idempotently seeds these logins into the demo tenant (`admin@demo.vidyalaya.in`'s tenant). All share the password `vidyalaya-qa-2026` except the pre-existing super_admin login. See `fixtures/personas.ts` for the canonical list used by tests.
+`apps/cloud-api/scripts/seed-e2e.ts` idempotently seeds these logins into the demo tenant (`admin@demo.vidyalaya.in`'s tenant). All share the password `vidyalaya-qa-2026` except the pre-existing super_admin login. See `fixtures/personas.ts` for the canonical list used by tests.
 
 | Persona | Email | Role | Branch | Notes |
 |---|---|---|---|---|

@@ -1,5 +1,5 @@
 // Shared source for the fixed set of retention categories -- read by
-// RetentionService (lazy-seed + validation), scripts/seed.ts,
+// RetentionService (lazy-seed + validation), scripts/seed-e2e.ts,
 // scripts/create-tenant.ts, and scripts/run-retention.ts, so the category
 // list and its starting defaults live in exactly one place.
 //

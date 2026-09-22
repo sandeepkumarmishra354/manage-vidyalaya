@@ -2,7 +2,7 @@ import path from "node:path";
 
 // One entry per E2E persona login. The `super_admin` demo login and the
 // five `qa.*` logins are seeded (idempotently) by
-// apps/cloud-api/scripts/seed.ts -- see its QA_PERSONAS constant for the
+// apps/cloud-api/scripts/seed-e2e.ts -- see its QA_PERSONAS constant for the
 // authoritative source of these credentials, including which role/staff
 // assignment each one carries (e.g. classTeacher is a real class-teacher-
 // of-a-section, subjectTeacher a real subject-assigned teacher, so

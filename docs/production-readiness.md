@@ -107,15 +107,60 @@ into a much smaller problem: build, upload, done.
   every school is always on the latest version the moment you deploy, with
   no auto-update mechanism to build or maintain.
 
-### 3. Real tenant onboarding (replace the demo seed)
+### 3. Real tenant onboarding (vendor-admin-web, not the demo seed)
 
-`apps/cloud-api/scripts/seed.ts` hardcodes one fixed-UUID demo tenant --
-that stays as-is for local dev, and is never what you run for a real
-school. Each real school gets its own subdomain (e.g.
-`greenwood.yourdomain.tld`) which the backend uses to resolve the correct
-tenant at login (see `AuthService.login` -- this is what makes two
-schools safely sharing the same admin email a non-issue). Onboarding one
-school is a repeatable, five-step runbook:
+`apps/cloud-api/scripts/seed-e2e.ts` hardcodes one fixed-UUID demo tenant
+purely for local dev exploration and the Playwright E2E suite -- it is
+never what you run for a real school, and has no bearing on production.
+Each real school gets its own subdomain (e.g. `greenwood.yourdomain.tld`)
+which the backend uses to resolve the correct tenant at login (see
+`AuthService.login` -- this is what makes two schools safely sharing the
+same admin email a non-issue).
+
+**Primary path: `apps/vendor-admin-web`.** A small separate app
+(`apps/vendor-admin-api` + `apps/vendor-admin-web`, port 3002/5175 in
+dev) purpose-built for this -- log in as a vendor operator, fill in the
+new-tenant form (school name, subdomain, first branch, admin name/email,
+plan tier), and it provisions the tenant the same way `create-tenant.ts`
+does (same transaction shape: branch, current academic session, the 5
+system roles, default staff categories/leave types/fee categories/master
+data, retention policies, and the first super_admin user), then shows you
+the generated admin credentials once. It also lists every tenant with
+live usage counts against its plan limits, and lets you edit a tenant's
+plan tier, trial/subscription expiry, or suspend it.
+
+Deploy it once alongside cloud-api (own `DATABASE_URL` using the
+schema-owning role -- see `apps/vendor-admin-api/.env.example` -- and its
+own `VENDOR_JWT_SECRET`, deliberately separate from cloud-api's
+`JWT_SECRET` so a vendor operator token is never accepted by a tenant-
+scoped cloud-api endpoint or vice versa), then bootstrap your first
+vendor operator login once, from `apps/vendor-admin-api`:
+```
+pnpm create-vendor-admin --email=you@example.com --full-name="Your Name"
+```
+(there's deliberately no self-service signup for this table -- see
+`apps/vendor-admin-api/scripts/create-vendor-admin.ts`). Every school
+after that is onboarded through the vendor-admin-web UI, no shell access
+needed.
+
+**Fallback / scripting path: `apps/cloud-api/scripts/create-tenant.ts`.**
+Same provisioning logic as vendor-admin-web's `POST /tenants`, run
+directly from a shell -- useful for one-off scripting or if
+vendor-admin-web isn't deployed yet:
+```
+cd apps/cloud-api
+pnpm create-tenant \
+  --school-name="Greenwood International School" \
+  --subdomain=greenwood \
+  --branch-name="Main Campus" \
+  --branch-code=MAIN \
+  --admin-name="Jane Doe" \
+  --admin-email=admin@greenwood.example
+```
+(Omit `--admin-password` to have one generated and printed once.) It
+prints the tenant id and admin credentials on success.
+
+Either way, onboarding one school is then:
 
 1. **DNS.** Create one CNAME record per school:
    `<subdomain>.yourdomain.tld` -> the same target every time (wherever
@@ -126,21 +171,8 @@ school is a repeatable, five-step runbook:
    static host auto-provision one per custom domain as it's added
    (Vercel/Netlify/Cloudflare Pages all do this) -- use whichever your
    chosen host makes easiest.
-3. **Provision the tenant.** Run, from `apps/cloud-api`:
-   ```
-   pnpm create-tenant \
-     --school-name="Greenwood International School" \
-     --subdomain=greenwood \
-     --branch-name="Main Campus" \
-     --branch-code=MAIN \
-     --admin-name="Jane Doe" \
-     --admin-email=admin@greenwood.example
-   ```
-   (`apps/cloud-api/scripts/create-tenant.ts` -- mirrors `seed.ts`'s
-   transaction/default-data-seeding pattern, but with real random UUIDs
-   and a subdomain-uniqueness check instead of fixed demo ids. Omit
-   `--admin-password` to have one generated and printed once.) It prints
-   the tenant id and admin credentials on success.
+3. **Provision the tenant** via vendor-admin-web (or `create-tenant.ts`,
+   see above).
 4. **Verify.** Visit `https://<subdomain>.yourdomain.tld`, log in with
    the printed admin credentials, and confirm the dashboard loads with
    the right school name.
@@ -159,9 +191,10 @@ email flow exists) and login rate-limiting.
 - Since there's no local database, data safety is entirely cloud-api's
   Postgres backup story (see above) -- a lost/stolen laptop carries no data
   with it, only a cached JWT. The *seeded demo* tenant/branch/roles
-  (`apps/cloud-api/scripts/seed.ts`) still use fixed ids, by design -- it's
-  local-dev/demo-only. Every real school provisioned via `create-tenant.ts`
-  (see item 3 above) already gets real random UUIDs throughout.
+  (`apps/cloud-api/scripts/seed-e2e.ts`) still use fixed ids, by design --
+  it's local-dev/E2E-only, never run against a production database. Every
+  real school provisioned via vendor-admin-web or `create-tenant.ts` (see
+  item 3 above) already gets real random UUIDs throughout.
 - Run the existing test suites in CI (see below) on every change so a
   regression never reaches a client silently.
 - **A multi-branch, multi-role Playwright E2E suite** (`apps/e2e/`, run via

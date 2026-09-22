@@ -11,7 +11,7 @@ import { RolesService } from "./roles.service.js";
 // Roles are read-only: every tenant is limited to the fixed catalog of 5
 // system role names, each with its canonical, server-defined permission set
 // (see permission-catalog.ts's SYSTEM_ROLE_PERMISSIONS, seeded by
-// scripts/create-tenant.ts/seed.ts). Custom role creation/editing has been
+// scripts/create-tenant.ts/seed-e2e.ts). Custom role creation/editing has been
 // removed entirely -- both so headcount limits (see plan-catalog.ts) can be
 // enforced by counting roles.name directly, and so the fixed permission
 // sets can't drift from what's documented/supported.

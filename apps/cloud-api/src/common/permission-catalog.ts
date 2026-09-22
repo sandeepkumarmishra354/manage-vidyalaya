@@ -165,7 +165,7 @@ export const TOGGLEABLE_MODULES = [
 export type ToggleableModule = (typeof TOGGLEABLE_MODULES)[number];
 
 // System roles seeded for every new tenant, each with a fixed permission
-// set (matches scripts/seed.ts's DEFAULT_ROLES exactly -- this is the shared
+// set (matches scripts/seed-e2e.ts's DEFAULT_ROLES exactly -- this is the shared
 // source both read from). Custom roles an admin creates via RolesModule are
 // unrestricted.
 export const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly PermissionKey[]> = {

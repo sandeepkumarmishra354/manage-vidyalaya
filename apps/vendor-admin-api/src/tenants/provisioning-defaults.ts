@@ -2,7 +2,7 @@
 // PERMISSIONS/PERMISSION_CATALOG), fees/fee-type.ts, leave-types/default-
 // leave-types.ts, and retention/retention-categories.ts -- those copies
 // are the source of truth (used by scripts/create-tenant.ts and
-// scripts/seed.ts); keep this file in sync with them by hand. Needed here
+// scripts/seed-e2e.ts); keep this file in sync with them by hand. Needed here
 // so TenantsService.createTenant can provision a new tenant the exact
 // same way create-tenant.ts does, without a cross-app source import.
 
