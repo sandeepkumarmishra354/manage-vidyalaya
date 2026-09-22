@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 
+import { PlanLimitsService } from "../common/plan-limits.service.js";
+
 export interface JwtPayload {
   sub: string;
   tenant_id: string;
@@ -17,7 +19,10 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly planLimits: PlanLimitsService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -25,13 +30,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload): JwtPayload {
+  async validate(payload: JwtPayload): Promise<JwtPayload> {
     // Reject a refresh token presented as a bearer access token -- refresh
     // tokens are only ever handed to POST /auth/refresh, never accepted by
     // JwtAuthGuard-protected routes.
     if (payload.type !== "access") {
       throw new UnauthorizedException("Invalid token type");
     }
+    // Runs on every authenticated request (not just login/refresh) so a
+    // tenant suspended or expired mid-session is locked out on its very
+    // next API call, instead of only the next time it tries to log in.
+    await this.planLimits.assertTenantActive(payload.tenant_id);
     return payload;
   }
 }

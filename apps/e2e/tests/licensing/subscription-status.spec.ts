@@ -1,7 +1,7 @@
 import { expect, request, test } from "@playwright/test";
 
 import { API_BASE_URL } from "../../fixtures/api-url.js";
-import { loginViaApi } from "../../fixtures/api-client.js";
+import { apiContextFor, loginViaApi } from "../../fixtures/api-client.js";
 import {
   cleanupThrowawayTenant,
   provisionThrowawayTenant,
@@ -9,13 +9,15 @@ import {
   type ThrowawayTenant,
 } from "../../fixtures/throwaway-tenant.js";
 
-// Regression coverage for PlanLimitsService.assertTenantActive, called by
-// AuthService.login/refresh: a suspended tenant or one past its trial/
-// subscription expiry must be blocked at login with a clear message, while
-// a tenant with trial_ends_at/subscription_expires_at both NULL (the
-// "grandfathered" state -- either a pre-plan-tier-migration tenant, or any
-// non-trial tenant today, since create-tenant.ts only ever sets
-// trial_ends_at for the trial tier) is never blocked.
+// Regression coverage for PlanLimitsService.assertTenantActive: a suspended
+// tenant or one past its trial/subscription expiry must be blocked both at
+// login (called by AuthService.login/refresh) and, per JwtStrategy.validate,
+// on every subsequent authenticated request for a session that was already
+// live when the tenant was suspended/expired -- while a tenant with
+// trial_ends_at/subscription_expires_at both NULL (the "grandfathered"
+// state -- either a pre-plan-tier-migration tenant, or any non-trial tenant
+// today, since create-tenant.ts only ever sets trial_ends_at for the trial
+// tier) is never blocked.
 
 async function attemptLogin(email: string, password: string) {
   const context = await request.newContext({ baseURL: API_BASE_URL });
@@ -84,5 +86,47 @@ test.describe("subscription-status login gate", () => {
 
     const login = await loginViaApi(tenant.adminEmail, tenant.adminPassword);
     expect(login.accessToken).toBeTruthy();
+  });
+
+  // Regression coverage for JwtStrategy.validate() re-checking
+  // assertTenantActive on every request (not just login/refresh): a user
+  // who was already logged in before the tenant was suspended/expired must
+  // be locked out on their very next authenticated call, reusing the same
+  // still-unexpired access token -- not just blocked the next time they
+  // try to log in again.
+  test("a still-valid access token stops working the moment its tenant is suspended mid-session", async () => {
+    tenant = await provisionThrowawayTenant("gold");
+    const login = await loginViaApi(tenant.adminEmail, tenant.adminPassword);
+
+    const api = await apiContextFor(login.accessToken);
+    try {
+      const before = await api.get("auth/me");
+      expect(before.ok()).toBe(true);
+
+      await setTenantSubscriptionStatus(tenant.tenantId, { isSuspended: true });
+
+      const after = await api.get("auth/me");
+      expect(after.status()).toBe(401);
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  test("a still-valid access token stops working the moment its trial expires mid-session", async () => {
+    tenant = await provisionThrowawayTenant("trial");
+    const login = await loginViaApi(tenant.adminEmail, tenant.adminPassword);
+
+    const api = await apiContextFor(login.accessToken);
+    try {
+      const before = await api.get("auth/me");
+      expect(before.ok()).toBe(true);
+
+      await setTenantSubscriptionStatus(tenant.tenantId, { trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000) });
+
+      const after = await api.get("auth/me");
+      expect(after.status()).toBe(401);
+    } finally {
+      await api.dispose();
+    }
   });
 });
