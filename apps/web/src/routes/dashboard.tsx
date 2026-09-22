@@ -411,7 +411,7 @@ function NeedsAttentionCard({ data }: { data: NeedsAttentionResponse }) {
         {allEmpty ? (
           <p className="text-sm text-muted-foreground">Nothing needs your attention right now.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {data.pending_leave && (
               <AttentionSection
                 icon={ClockIcon}
@@ -513,28 +513,32 @@ function AttentionSection<T extends { id: string }>({
   if (section.items.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <div className="mb-2 flex items-center gap-2">
         <Icon className="size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">{label}</span>
+        <span className="flex-1 truncate text-sm font-medium">{label}</span>
         <Badge variant="warning">{section.total_count}</Badge>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col divide-y divide-border/60">
         {section.items.map((item) => {
           const { name, meta } = renderRow(item);
           return (
-            <Link key={item.id} to={linkTo} className="flex items-center justify-between gap-2 text-sm hover:underline">
+            <Link
+              key={item.id}
+              to={linkTo}
+              className="flex items-center justify-between gap-3 py-1.5 text-sm transition-colors hover:text-primary"
+            >
               <span className="truncate">{name}</span>
               <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
             </Link>
           );
         })}
-        {section.total_count > section.items.length && (
-          <Link to={linkTo} className="text-xs text-primary hover:underline">
-            +{section.total_count - section.items.length} more
-          </Link>
-        )}
       </div>
+      {section.total_count > section.items.length && (
+        <Link to={linkTo} className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline">
+          +{section.total_count - section.items.length} more
+        </Link>
+      )}
     </div>
   );
 }
