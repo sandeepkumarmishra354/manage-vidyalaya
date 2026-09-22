@@ -656,6 +656,90 @@ section {
   margin: 0 0 20px;
 }
 
+/* ---------------- Try the demo ---------------- */
+
+.demo-card {
+  max-width: 640px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 40px;
+}
+
+.demo-personas {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.demo-persona-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  font-size: 14px;
+}
+
+.demo-persona-row:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.demo-role {
+  font-weight: 600;
+  color: var(--color-dark);
+}
+
+.demo-email {
+  color: var(--color-text-muted);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.demo-password {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--color-bg-alt);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.demo-password code {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+@media (max-width: 640px) {
+  .demo-card {
+    padding: 28px 20px;
+  }
+
+  .demo-persona-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .demo-password {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* ---------------- Contact ---------------- */
 
 .contact {

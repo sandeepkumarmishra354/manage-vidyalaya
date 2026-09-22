@@ -20,6 +20,7 @@
     "migrate:up": "node-pg-migrate up",
     "migrate:create": "node-pg-migrate create",
     "seed:e2e": "tsx scripts/seed-e2e.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
     "create-tenant": "tsx scripts/create-tenant.ts",
     "backfill:staff-categories": "tsx scripts/backfill-staff-categories.ts",
     "retention:run": "tsx scripts/run-retention.ts",
